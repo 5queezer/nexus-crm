@@ -53,6 +53,29 @@ async function deleteDocument(id: number): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete document");
 }
 
+function CopyShareLink({ docId }: { docId: number }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    const res = await fetch("/api/config/public-token");
+    const { token } = await res.json();
+    const url = `${window.location.origin}/api/documents/${docId}/file?token=${token}`;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Share-Link kopieren"
+      className="text-gray-400 hover:text-gray-700 text-sm font-medium transition-colors"
+    >
+      {copied ? "✅" : "🔗"}
+    </button>
+  );
+}
+
 export function DocumentsClient({ user }: DocumentsClientProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -229,6 +252,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                     >
                       Download
                     </a>
+                    <CopyShareLink docId={doc.id} />
                     <button
                       onClick={() => handleDelete(doc.id, doc.originalName)}
                       className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"

@@ -5,6 +5,14 @@ import { format } from "date-fns";
 import type { Locale } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 
+interface Document {
+  id: number;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: Date;
+}
+
 // ── Translations ──────────────────────────────────────────────────────────────
 
 type Lang = "de" | "en";
@@ -44,6 +52,11 @@ const TRANSLATIONS = {
       `${count} Bewerbungen gesamt · Zuletzt aktualisiert: ${date} Uhr`,
     readOnlyNote:
       "Diese Seite ist schreibgeschützt. Nur Christian kann Änderungen vornehmen.",
+    docs: {
+      heading: "Dokumente",
+      empty: "Keine Dokumente vorhanden.",
+      download: "Herunterladen",
+    },
   },
   en: {
     title: "Job Applications of Christian Pojoni",
@@ -79,6 +92,11 @@ const TRANSLATIONS = {
       `${count} applications total · Last updated: ${date}`,
     readOnlyNote:
       "This is a read-only view. Only Christian can make changes.",
+    docs: {
+      heading: "Documents",
+      empty: "No documents available.",
+      download: "Download",
+    },
   },
 } satisfies Record<Lang, unknown>;
 
@@ -86,6 +104,18 @@ const TRANSLATIONS = {
 
 function resolveLang(raw: string | undefined): Lang {
   return raw === "en" ? "en" : "de";
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function fileIcon(mimeType: string): string {
+  if (mimeType === "application/pdf") return "📄";
+  if (mimeType.startsWith("image/")) return "🖼️";
+  return "📎";
 }
 
 function formatDate(dateVal: Date | string | null, locale: Locale): string {
@@ -178,6 +208,11 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   const applications = await prisma.application.findMany({
     orderBy: { createdAt: "desc" },
   });
+
+  const documents = await prisma.document.findMany({
+    orderBy: { uploadedAt: "desc" },
+    select: { id: true, originalName: true, mimeType: true, size: true, uploadedAt: true },
+  }) as Document[];
 
   const stats = {
     total: applications.length,
@@ -304,6 +339,46 @@ export default async function SharePage({ searchParams }: SharePageProps) {
               format(new Date(), "dd.MM.yyyy HH:mm", { locale: dateLocale })
             )}
           </div>
+        </div>
+
+        {/* Documents */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-8">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {t.docs.heading} ({documents.length})
+            </h2>
+          </div>
+          {documents.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <div className="text-3xl mb-2">📭</div>
+              <p>{t.docs.empty}</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {documents.map((doc) => (
+                <li
+                  key={doc.id}
+                  className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 transition-colors"
+                >
+                  <span className="text-2xl flex-shrink-0">{fileIcon(doc.mimeType)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{doc.originalName}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {formatBytes(doc.size)} ·{" "}
+                      {format(new Date(doc.uploadedAt), "dd.MM.yyyy HH:mm", { locale: dateLocale })}
+                    </p>
+                  </div>
+                  <a
+                    href={`/api/documents/${doc.id}/file?token=${token}`}
+                    download={doc.originalName}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
+                  >
+                    ⬇ {t.docs.download}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">

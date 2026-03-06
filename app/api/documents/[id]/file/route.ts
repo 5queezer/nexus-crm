@@ -13,9 +13,16 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Allow access via PUBLIC_READ_TOKEN query param (share page / readonly links)
+  const queryToken = request.nextUrl.searchParams.get("token");
+  const publicToken = process.env.PUBLIC_READ_TOKEN;
+  const isPublicShare = publicToken && queryToken === publicToken;
+
+  if (!isPublicShare) {
+    const session = await requireAuthOrToken(request);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   const { id } = await params;
