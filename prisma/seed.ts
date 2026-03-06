@@ -3,6 +3,13 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Find the first user to assign seeded data to
+  const user = await prisma.user.findFirst();
+  if (!user) {
+    console.error("No users found. Log in first, then re-run the seed.");
+    return;
+  }
+
   // Clear existing data
   await prisma.application.deleteMany();
 
@@ -58,7 +65,7 @@ async function main() {
   ];
 
   for (const app of applications) {
-    await prisma.application.create({ data: app });
+    await prisma.application.create({ data: { ...app, userId: user.id } });
   }
 
   console.log(`Seeded ${applications.length} applications.`);

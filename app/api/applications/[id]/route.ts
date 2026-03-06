@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuthOrToken } from "@/lib/session";
+import { userWhere, requireUserId } from "@/lib/tenant";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -17,8 +18,8 @@ export async function GET(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const application = await prisma.application.findUnique({
-    where: { id: numericId },
+  const application = await prisma.application.findFirst({
+    where: { id: numericId, ...userWhere(auth.userId) },
     include: { contacts: true },
   });
 
@@ -33,9 +34,16 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let userId: string;
+  try {
+    userId = requireUserId(auth.userId);
+  } catch {
+    return NextResponse.json({ error: "Session required" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -48,7 +56,7 @@ export async function PATCH(
   const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription } = body;
 
   const application = await prisma.application.update({
-    where: { id: numericId },
+    where: { id: numericId, userId },
     data: {
       ...(company !== undefined && { company: String(company).slice(0, 255) }),
       ...(role !== undefined && { role: String(role).slice(0, 255) }),
@@ -77,9 +85,16 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let userId: string;
+  try {
+    userId = requireUserId(auth.userId);
+  } catch {
+    return NextResponse.json({ error: "Session required" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -89,7 +104,7 @@ export async function DELETE(
   }
 
   await prisma.application.delete({
-    where: { id: numericId },
+    where: { id: numericId, userId },
   });
 
   return NextResponse.json({ success: true });

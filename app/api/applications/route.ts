@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuthOrToken } from "@/lib/session";
+import { userWhere, requireUserId } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const applications = await prisma.application.findMany({
+    where: { ...userWhere(auth.userId) },
     orderBy: { createdAt: "desc" },
     include: { contacts: true },
   });
@@ -16,9 +18,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let userId: string;
+  try {
+    userId = requireUserId(auth.userId);
+  } catch {
+    return NextResponse.json({ error: "Session required" }, { status: 403 });
   }
 
   const body = await request.json();
@@ -33,6 +42,7 @@ export async function POST(request: NextRequest) {
 
   const application = await prisma.application.create({
     data: {
+      userId,
       company: String(company).slice(0, 255),
       role: String(role).slice(0, 255),
       status: status || "applied",

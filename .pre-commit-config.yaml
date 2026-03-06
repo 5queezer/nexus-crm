@@ -1,0 +1,42 @@
+# Pre-commit hooks for job-tracker (Next.js / TypeScript)
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+default_stages: [pre-commit]
+
+repos:
+  # ── Secrets & security ───────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secrets scan)
+        language: system
+        entry: gitleaks protect --staged --redact
+        pass_filenames: false
+
+  # ── General file hygiene ─────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]   # 1 MB — uploads/ is gitignored, so this catches accidental large files
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        exclude: "^public/"      # Next.js generated files
+      - id: trailing-whitespace
+        exclude: "^public/"
+      - id: check-json
+      - id: check-yaml
+      - id: check-toml
+
+  # ── ESLint (already configured via eslint.config.mjs) ───────────────────
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        language: node
+        entry: npx eslint --max-warnings=-1   # fail on errors only; warnings are informational
+        types_or: [javascript, jsx, ts, tsx]
+        pass_filenames: true
+        additional_dependencies: []

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuthOrToken } from "@/lib/session";
+import { userWhere } from "@/lib/tenant";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
@@ -18,11 +19,14 @@ export async function GET(
   const publicToken = process.env.PUBLIC_READ_TOKEN;
   const isPublicShare = publicToken && queryToken === publicToken;
 
+  let userId: string | null = null;
+
   if (!isPublicShare) {
-    const session = await requireAuthOrToken(request);
-    if (!session) {
+    const auth = await requireAuthOrToken(request);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    userId = auth.userId;
   }
 
   const { id } = await params;
@@ -31,7 +35,10 @@ export async function GET(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const document = await prisma.document.findUnique({ where: { id: docId } });
+  // Public share bypasses userId scoping; authenticated requests are scoped
+  const document = await prisma.document.findFirst({
+    where: { id: docId, ...userWhere(userId) },
+  });
   if (!document) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

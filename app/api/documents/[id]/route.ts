@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuthOrToken } from "@/lib/session";
+import { userWhere, requireUserId } from "@/lib/tenant";
 import { unlink } from "fs/promises";
 import path from "path";
 
@@ -12,9 +13,16 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let userId: string;
+  try {
+    userId = requireUserId(auth.userId);
+  } catch {
+    return NextResponse.json({ error: "Session required" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -23,7 +31,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const document = await prisma.document.findUnique({ where: { id: docId } });
+  const document = await prisma.document.findFirst({
+    where: { id: docId, userId },
+  });
   if (!document) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -35,7 +45,7 @@ export async function DELETE(
     // file might already be gone — that's fine
   }
 
-  await prisma.document.delete({ where: { id: docId } });
+  await prisma.document.delete({ where: { id: docId, userId } });
 
   return new NextResponse(null, { status: 204 });
 }
@@ -44,9 +54,16 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuthOrToken(request);
-  if (!session) {
+  const auth = await requireAuthOrToken(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let userId: string;
+  try {
+    userId = requireUserId(auth.userId);
+  } catch {
+    return NextResponse.json({ error: "Session required" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -62,11 +79,18 @@ export async function PATCH(
     return NextResponse.json({ error: "applicationIds must be an array" }, { status: 400 });
   }
 
+  // Only allow linking applications that belong to this user
+  const ownedApps = await prisma.application.findMany({
+    where: { id: { in: applicationIds }, userId },
+    select: { id: true },
+  });
+  const safeApplicationIds = ownedApps.map((a) => a.id);
+
   const document = await prisma.document.update({
-    where: { id: docId },
+    where: { id: docId, userId },
     data: {
       applications: {
-        set: applicationIds.map((aid) => ({ id: aid })),
+        set: safeApplicationIds.map((aid) => ({ id: aid })),
       },
     },
     include: { applications: { select: { id: true, company: true, role: true } } },

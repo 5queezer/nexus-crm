@@ -9,6 +9,8 @@ datasource db {
 
 model Application {
   id              Int       @id @default(autoincrement())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   company         String
   role            String
   status          String    @default("applied")
@@ -37,6 +39,8 @@ model Contact {
 
 model Document {
   id           Int           @id @default(autoincrement())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   filename     String        // stored filename on disk (uuid-based)
   originalName String        // user-facing name
   size         Int           // bytes
@@ -46,15 +50,17 @@ model Document {
 }
 
 model User {
-  id            String   @id
-  email         String   @unique
+  id            String         @id
+  email         String         @unique
   name          String?
   image         String?
-  emailVerified Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  emailVerified Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   sessions      Session[]
   accounts      Account[]
+  applications  Application[]
+  documents     Document[]
 }
 
 model Session {
