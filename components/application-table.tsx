@@ -145,16 +145,16 @@ export function ApplicationTable({ applications, onEdit, onDelete }: Application
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => onEdit(row.original)}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+            className="flex items-center min-h-[44px] px-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
           >
             {ta("edit")}
           </button>
           <button
             onClick={() => onDelete(row.original.id)}
-            className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
+            className="flex items-center min-h-[44px] px-2 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
           >
             {ta("delete")}
           </button>

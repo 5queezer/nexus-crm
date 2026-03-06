@@ -72,6 +72,7 @@ export function Dashboard({ user }: DashboardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { data: applications = [], isLoading, isError } = useQuery({
     queryKey: ["applications"],
@@ -140,7 +141,9 @@ export function Dashboard({ user }: DashboardProps) {
               <span className="text-2xl">💼</span>
               <h1 className="text-xl font-bold text-gray-900">{tapp("title")}</h1>
             </div>
-            <div className="flex items-center gap-3">
+
+            {/* Desktop nav */}
+            <div className="hidden md:flex items-center gap-3">
               <LanguageSwitcher />
               {user.image && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -150,12 +153,10 @@ export function Dashboard({ user }: DashboardProps) {
                   className="w-8 h-8 rounded-full"
                 />
               )}
-              <span className="text-sm text-gray-600 hidden sm:block">
-                {user.name || user.email}
-              </span>
+              <span className="text-sm text-gray-600">{user.name || user.email}</span>
               <Link
                 href="/documents"
-                className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
                 📁 Dokumente
               </Link>
@@ -163,20 +164,71 @@ export function Dashboard({ user }: DashboardProps) {
                 href="/share"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-blue-500 hover:text-blue-700 transition-colors"
+                className="flex items-center min-h-[44px] px-2 text-sm text-blue-500 hover:text-blue-700 transition-colors"
                 title="Readonly link for family/AMS"
               >
                 🔗 Share
               </a>
               <button
                 onClick={handleLogout}
-                className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
                 {tn("logout")}
               </button>
             </div>
+
+            {/* Mobile nav: language + avatar + hamburger */}
+            <div className="flex md:hidden items-center gap-2">
+              <LanguageSwitcher />
+              {user.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={user.image}
+                  alt={user.name || user.email}
+                  className="w-8 h-8 rounded-full"
+                />
+              )}
+              <button
+                onClick={() => setMobileMenuOpen((v) => !v)}
+                className="flex items-center justify-center w-11 h-11 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="Menu"
+              >
+                {mobileMenuOpen ? "✕" : "☰"}
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Mobile dropdown menu */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-100 px-4 py-2 flex flex-col gap-1 bg-white">
+            <div className="py-2 text-sm text-gray-600 font-medium">
+              {user.name || user.email}
+            </div>
+            <Link
+              href="/documents"
+              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              📁 Dokumente
+            </Link>
+            <a
+              href="/share"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-blue-500 hover:text-blue-700 transition-colors"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              🔗 Share
+            </a>
+            <button
+              onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
+              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-500 hover:text-gray-700 transition-colors w-full text-left"
+            >
+              {tn("logout")}
+            </button>
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

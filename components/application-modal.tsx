@@ -294,7 +294,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {t("company")} <span className="text-red-500">{t("required")}</span>
@@ -349,7 +349,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {t("applied_at")}
@@ -454,7 +454,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 )}
                 {contacts.map((c, idx) => (
                   <div key={c.id ?? `new-${idx}`} className="border border-gray-100 rounded-lg p-3 space-y-2 bg-gray-50">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-0.5">
                           {t("contact_name")} <span className="text-red-400">*</span>

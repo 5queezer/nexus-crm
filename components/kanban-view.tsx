@@ -11,6 +11,7 @@ import {
   DragOverlay,
   DragStartEvent,
   PointerSensor,
+  TouchSensor,
   UniqueIdentifier,
   useSensor,
   useSensors,
@@ -180,6 +181,10 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
     useSensor(PointerSensor, {
       // Require a small movement before activating drag — preserves click-to-edit
       activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      // Short delay + tolerance so taps still open cards, swipes drag
+      activationConstraint: { delay: 250, tolerance: 5 },
     })
   );
 
