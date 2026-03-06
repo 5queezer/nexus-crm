@@ -129,7 +129,10 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({ id: status });
 
   return (
-    <div className="flex flex-col min-w-[200px] w-full">
+    // Column: fixed width so it never gets squeezed.
+    // On mobile the parent snap-scroll makes one column fill ~85vw;
+    // on md+ each column is exactly 260px wide.
+    <div className="flex flex-col w-full">
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}>
@@ -138,11 +141,12 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
         <span className="text-xs text-gray-400 font-medium">{apps.length}</span>
       </div>
 
-      {/* Drop zone */}
+      {/* Drop zone — scrolls independently so long columns don't blow the page height */}
       <div
         ref={setNodeRef}
         className={`
-          flex flex-col gap-2 flex-1 min-h-[80px] rounded-lg p-1 transition-colors
+          flex flex-col gap-2 flex-1 min-h-[80px] max-h-[calc(100vh-220px)]
+          overflow-y-auto rounded-lg p-1 transition-colors
           ${isOver ? "bg-blue-50 ring-2 ring-blue-300 ring-inset" : ""}
         `}
       >
@@ -231,24 +235,36 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className="overflow-x-auto pb-4">
-        <div className="grid grid-cols-7 gap-4 min-w-[1050px]">
+      {/*
+        Outer container scrolls horizontally on both mobile and desktop.
+
+        Mobile  (<md): snap-x + snap-mandatory → swipe one column at a time
+                       Each column: 85vw so the next one peeks from the right
+        Desktop (≥md): plain flex row, each column 260px wide, no snapping needed
+      */}
+      <div className="overflow-x-auto pb-4 -mx-1 px-1">
+        <div className="flex flex-nowrap gap-4 snap-x snap-mandatory md:snap-none">
           {STATUS_ORDER.map((status) => (
-            <KanbanColumn
+            // Snap anchor per column on mobile; fixed 260px on desktop
+            <div
               key={status}
-              status={status}
-              apps={grouped[status]}
-              onEdit={onEdit}
-              isOver={overColumnId === (status as UniqueIdentifier)}
-            />
+              className="snap-center flex-none w-[85vw] md:w-[260px] flex flex-col"
+            >
+              <KanbanColumn
+                status={status}
+                apps={grouped[status]}
+                onEdit={onEdit}
+                isOver={overColumnId === (status as UniqueIdentifier)}
+              />
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Floating drag overlay */}
+      {/* Floating drag overlay — matches column card width */}
       <DragOverlay dropAnimation={null}>
         {activeApp ? (
-          <div className="w-[180px]">
+          <div className="w-[240px]">
             <KanbanCard app={activeApp} onEdit={() => {}} isDragging />
           </div>
         ) : null}
