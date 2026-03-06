@@ -1,12 +1,12 @@
 services:
   app:
-    build: .
+    image: ghcr.io/5queezer/job-tracker:latest
     restart: unless-stopped
     ports:
       - "3001:3001"
     volumes:
-      - ./data:/app/prisma    # SQLite DB persistent
-      - ./uploads:/app/uploads  # uploaded files persistent
+      - ./data:/app/prisma
+      - ./uploads:/app/uploads
     env_file:
       - .env.production
     environment:
