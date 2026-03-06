@@ -20,6 +20,7 @@
     "autoprefixer": "^10.4.27",
     "better-auth": "^1.5.4",
     "date-fns": "^4.1.0",
+    "lru-cache": "^11.2.6",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "next-intl": "^4.8.3",
