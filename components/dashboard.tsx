@@ -160,7 +160,7 @@ export function Dashboard({ user }: DashboardProps) {
                 📁 Dokumente
               </Link>
               <a
-                href={process.env.NEXT_PUBLIC_SHARE_URL || "/share"}
+                href="/share"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-blue-500 hover:text-blue-700 transition-colors"
