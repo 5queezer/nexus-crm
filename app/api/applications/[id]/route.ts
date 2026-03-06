@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/session";
+import { requireAuthOrToken } from "@/lib/session";
 
 export async function GET(
-  _req: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuth();
+  const session = await requireAuthOrToken(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
   const application = await prisma.application.findUnique({
-    where: { id: Number(id) },
+    where: { id: numericId },
   });
 
   if (!application) {
@@ -27,20 +32,25 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuth();
+  const session = await requireAuthOrToken(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
   const body = await request.json();
   const { company, role, status, appliedAt, lastContact, followUpAt, notes } = body;
 
   const application = await prisma.application.update({
-    where: { id: Number(id) },
+    where: { id: numericId },
     data: {
-      ...(company !== undefined && { company }),
-      ...(role !== undefined && { role }),
+      ...(company !== undefined && { company: String(company).slice(0, 255) }),
+      ...(role !== undefined && { role: String(role).slice(0, 255) }),
       ...(status !== undefined && { status }),
       ...(appliedAt !== undefined && {
         appliedAt: appliedAt ? new Date(appliedAt) : null,
@@ -51,7 +61,7 @@ export async function PATCH(
       ...(followUpAt !== undefined && {
         followUpAt: followUpAt ? new Date(followUpAt) : null,
       }),
-      ...(notes !== undefined && { notes }),
+      ...(notes !== undefined && { notes: notes ? String(notes).slice(0, 10000) : null }),
     },
   });
 
@@ -59,17 +69,22 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await requireAuth();
+  const session = await requireAuthOrToken(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
   await prisma.application.delete({
-    where: { id: Number(id) },
+    where: { id: numericId },
   });
 
   return NextResponse.json({ success: true });

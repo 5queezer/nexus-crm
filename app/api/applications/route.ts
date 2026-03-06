@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/session";
+import { requireAuthOrToken } from "@/lib/session";
 
-export async function GET() {
-  const session = await requireAuth();
+export async function GET(request: NextRequest) {
+  const session = await requireAuthOrToken(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -15,7 +15,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireAuth();
+  const session = await requireAuthOrToken(request);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -32,13 +32,13 @@ export async function POST(request: NextRequest) {
 
   const application = await prisma.application.create({
     data: {
-      company,
-      role,
+      company: String(company).slice(0, 255),
+      role: String(role).slice(0, 255),
       status: status || "applied",
       appliedAt: appliedAt ? new Date(appliedAt) : null,
       lastContact: lastContact ? new Date(lastContact) : null,
       followUpAt: followUpAt ? new Date(followUpAt) : null,
-      notes: notes || null,
+      notes: notes ? String(notes).slice(0, 10000) : null,
     },
   });
 
