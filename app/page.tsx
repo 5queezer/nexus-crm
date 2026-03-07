@@ -9,7 +9,7 @@ export default async function Home() {
     redirect("/login");
   }
 
-  const shareToken = process.env.SHARE_TOKEN ?? "";
+  const shareToken = process.env.PUBLIC_READ_TOKEN ?? "";
   const shareUrl = shareToken
     ? `${process.env.BETTER_AUTH_URL ?? ""}/share?token=${shareToken}`
     : "/share";
