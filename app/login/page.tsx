@@ -26,7 +26,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-slate-950 dark:bg-slate-950 overflow-hidden">
+    <div className="relative min-h-screen flex items-center justify-center bg-gray-100 dark:bg-slate-950 overflow-hidden">
       {/* Top controls */}
       <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
         <ThemeSwitcher />
@@ -35,7 +35,7 @@ export default function LoginPage() {
 
       {/* Dot-grid background */}
       <div
-        className="absolute inset-0 opacity-[0.12]"
+        className="absolute inset-0 opacity-[0.08] dark:opacity-[0.12]"
         style={{
           backgroundImage: "radial-gradient(circle, #64748b 1px, transparent 1px)",
           backgroundSize: "28px 28px",
@@ -43,13 +43,13 @@ export default function LoginPage() {
       />
 
       {/* Glow blob — top-left (blue) */}
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-600 rounded-full filter blur-3xl opacity-20 animate-pulse" />
+      <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-400 dark:bg-blue-600 rounded-full filter blur-3xl opacity-15 dark:opacity-20 animate-pulse" />
 
       {/* Glow blob — bottom-right (indigo) */}
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600 rounded-full filter blur-3xl opacity-20 animate-pulse [animation-delay:2000ms]" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-400 dark:bg-indigo-600 rounded-full filter blur-3xl opacity-15 dark:opacity-20 animate-pulse [animation-delay:2000ms]" />
 
       {/* Card */}
-      <div className="relative z-10 bg-slate-900/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl p-10 w-full max-w-md text-center mx-4">
+      <div className="relative z-10 bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl border border-gray-200 dark:border-slate-700/50 rounded-2xl shadow-2xl p-10 w-full max-w-md text-center mx-4">
 
         {/* Icon */}
         <div className="flex justify-center mb-6">
@@ -61,16 +61,16 @@ export default function LoginPage() {
         </div>
 
         {/* Headline + subtitle */}
-        <h1 className="text-3xl font-bold text-white mb-2">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
           {t("login.headline")}
         </h1>
-        <p className="text-slate-400 text-sm mb-8">
+        <p className="text-gray-500 dark:text-slate-400 text-sm mb-8">
           {t("login.subtitle")}
         </p>
 
         {/* Error */}
         {error && (
-          <div className="mb-6 p-3 bg-red-950/50 border border-red-800/50 text-red-400 rounded-lg text-sm">
+          <div className="mb-6 p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-400 rounded-lg text-sm">
             {error}
           </div>
         )}
@@ -79,7 +79,7 @@ export default function LoginPage() {
         <button
           onClick={handleGoogleLogin}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 text-gray-700 font-semibold py-3 px-6 min-h-[48px] rounded-xl hover:bg-gray-50 hover:border-gray-300 hover:shadow-md transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-100 border border-gray-200 text-gray-700 font-semibold py-3 px-6 min-h-[48px] rounded-xl hover:bg-gray-50 dark:hover:bg-white hover:border-gray-300 hover:shadow-md transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
@@ -111,7 +111,7 @@ export default function LoginPage() {
           href="https://github.com/5queezer/job-tracker"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 mt-6 text-slate-500 hover:text-slate-300 text-xs transition-colors"
+          className="inline-flex items-center gap-2 mt-6 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 text-xs transition-colors"
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
