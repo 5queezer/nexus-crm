@@ -29,6 +29,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["@google-cloud/storage", "firebase-admin"],
   turbopack: {
     root: path.resolve(__dirname),
   },

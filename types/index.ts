@@ -8,18 +8,18 @@ export type ApplicationStatus =
   | "draft";
 
 export interface Contact {
-  id: number;
+  id: string;
   name: string;
   email: string | null;
   phone: string | null;
   role: string | null;
   linkedIn: string | null;
-  applicationId: number;
+  applicationId: string;
   createdAt: string;
 }
 
 export interface Application {
-  id: number;
+  id: string;
   company: string;
   role: string;
   status: ApplicationStatus;

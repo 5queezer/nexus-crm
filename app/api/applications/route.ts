@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getDb } from "@/lib/db";
 import { requireAuthOrToken } from "@/lib/session";
-import { userWhere, requireUserId } from "@/lib/tenant";
+import { requireUserId } from "@/lib/tenant";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuthOrToken(request);
@@ -9,11 +9,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const applications = await prisma.application.findMany({
-    where: { ...userWhere(auth.userId) },
-    orderBy: { createdAt: "desc" },
-    include: { contacts: true },
-  });
+  const applications = await getDb().listApplications(auth.userId);
   return NextResponse.json(applications);
 }
 
@@ -40,19 +36,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const application = await prisma.application.create({
-    data: {
-      userId,
-      company: String(company).slice(0, 255),
-      role: String(role).slice(0, 255),
-      status: status || "applied",
-      appliedAt: appliedAt ? new Date(appliedAt) : null,
-      lastContact: lastContact ? new Date(lastContact) : null,
-      followUpAt: followUpAt ? new Date(followUpAt) : null,
-      notes: notes ? String(notes).slice(0, 10000) : null,
-      jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
-    },
-    include: { contacts: true },
+  const application = await getDb().createApplication(userId, {
+    company: String(company).slice(0, 255),
+    role: String(role).slice(0, 255),
+    status: status || "applied",
+    appliedAt: appliedAt ? new Date(appliedAt) : null,
+    lastContact: lastContact ? new Date(lastContact) : null,
+    followUpAt: followUpAt ? new Date(followUpAt) : null,
+    notes: notes ? String(notes).slice(0, 10000) : null,
+    jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
   });
 
   return NextResponse.json(application, { status: 201 });

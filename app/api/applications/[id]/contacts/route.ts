@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getDb } from "@/lib/db";
 import { requireAuthOrToken } from "@/lib/session";
 import { requireUserId } from "@/lib/tenant";
 
@@ -19,17 +19,10 @@ export async function POST(
     return NextResponse.json({ error: "Session required" }, { status: 403 });
   }
 
-  const { id } = await params;
-  const applicationId = Number(id);
-  if (!Number.isInteger(applicationId) || applicationId <= 0) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
+  const { id: applicationId } = await params;
 
   // Verify the application belongs to the requesting user
-  const application = await prisma.application.findFirst({
-    where: { id: applicationId, userId },
-  });
-  if (!application) {
+  if (!(await getDb().verifyApplicationOwner(applicationId, userId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -40,15 +33,12 @@ export async function POST(
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
-  const contact = await prisma.contact.create({
-    data: {
-      applicationId,
-      name: String(name).slice(0, 255),
-      email: email ? String(email).slice(0, 255) : null,
-      phone: phone ? String(phone).slice(0, 50) : null,
-      role: role ? String(role).slice(0, 100) : null,
-      linkedIn: linkedIn ? String(linkedIn).slice(0, 500) : null,
-    },
+  const contact = await getDb().createContact(applicationId, {
+    name: String(name).slice(0, 255),
+    email: email ? String(email).slice(0, 255) : null,
+    phone: phone ? String(phone).slice(0, 50) : null,
+    role: role ? String(role).slice(0, 100) : null,
+    linkedIn: linkedIn ? String(linkedIn).slice(0, 500) : null,
   });
 
   return NextResponse.json(contact, { status: 201 });

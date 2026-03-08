@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getDb } from "@/lib/db";
 import { requireAuthOrToken } from "@/lib/session";
-import { userWhere, requireUserId } from "@/lib/tenant";
+import { requireUserId } from "@/lib/tenant";
 
 export async function GET(
   request: NextRequest,
@@ -13,15 +13,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const numericId = Number(id);
-  if (!Number.isInteger(numericId) || numericId <= 0) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
-
-  const application = await prisma.application.findFirst({
-    where: { id: numericId, ...userWhere(auth.userId) },
-    include: { contacts: true },
-  });
+  const application = await getDb().getApplication(id, auth.userId);
 
   if (!application) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -47,35 +39,26 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const numericId = Number(id);
-  if (!Number.isInteger(numericId) || numericId <= 0) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
-
   const body = await request.json();
   const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription } = body;
 
-  const application = await prisma.application.update({
-    where: { id: numericId, userId },
-    data: {
-      ...(company !== undefined && { company: String(company).slice(0, 255) }),
-      ...(role !== undefined && { role: String(role).slice(0, 255) }),
-      ...(status !== undefined && { status }),
-      ...(appliedAt !== undefined && {
-        appliedAt: appliedAt ? new Date(appliedAt) : null,
-      }),
-      ...(lastContact !== undefined && {
-        lastContact: lastContact ? new Date(lastContact) : null,
-      }),
-      ...(followUpAt !== undefined && {
-        followUpAt: followUpAt ? new Date(followUpAt) : null,
-      }),
-      ...(notes !== undefined && { notes: notes ? String(notes).slice(0, 10000) : null }),
-      ...(jobDescription !== undefined && {
-        jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
-      }),
-    },
-    include: { contacts: true },
+  const application = await getDb().updateApplication(id, userId, {
+    ...(company !== undefined && { company: String(company).slice(0, 255) }),
+    ...(role !== undefined && { role: String(role).slice(0, 255) }),
+    ...(status !== undefined && { status }),
+    ...(appliedAt !== undefined && {
+      appliedAt: appliedAt ? new Date(appliedAt) : null,
+    }),
+    ...(lastContact !== undefined && {
+      lastContact: lastContact ? new Date(lastContact) : null,
+    }),
+    ...(followUpAt !== undefined && {
+      followUpAt: followUpAt ? new Date(followUpAt) : null,
+    }),
+    ...(notes !== undefined && { notes: notes ? String(notes).slice(0, 10000) : null }),
+    ...(jobDescription !== undefined && {
+      jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
+    }),
   });
 
   return NextResponse.json(application);
@@ -98,14 +81,7 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const numericId = Number(id);
-  if (!Number.isInteger(numericId) || numericId <= 0) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
-
-  await prisma.application.delete({
-    where: { id: numericId, userId },
-  });
+  await getDb().deleteApplication(id, userId);
 
   return NextResponse.json({ success: true });
 }

@@ -28,7 +28,7 @@ async function fetchApplications(): Promise<Application[]> {
   return res.json();
 }
 
-async function deleteApplication(id: number): Promise<void> {
+async function deleteApplication(id: string): Promise<void> {
   const res = await fetch(`/api/applications/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete application");
 }
@@ -98,7 +98,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
     setIsModalOpen(true);
   }
 
-  function handleDelete(id: number) {
+  function handleDelete(id: string) {
     if (confirm(tc("delete"))) {
       deleteMutation.mutate(id);
     }

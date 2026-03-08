@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getDb } from "@/lib/db";
 import { requireAuthOrToken } from "@/lib/session";
-import { userWhere } from "@/lib/tenant";
-import { readFile } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
-
-function getUploadDir(): string {
-  return process.env.UPLOAD_DIR ?? path.join(process.cwd(), "uploads");
-}
+import { downloadFile, fileExists } from "@/lib/storage";
 
 export async function GET(
   request: NextRequest,
@@ -30,27 +23,19 @@ export async function GET(
   }
 
   const { id } = await params;
-  const docId = parseInt(id, 10);
-  if (isNaN(docId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
 
-  // Public share bypasses userId scoping; authenticated requests are scoped
-  const document = await prisma.document.findFirst({
-    where: { id: docId, ...userWhere(userId) },
-  });
+  const document = await getDb().getDocument(id, userId);
   if (!document) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const filePath = path.join(getUploadDir(), document.filename);
-  if (!existsSync(filePath)) {
+  if (!(await fileExists(document.filename))) {
     return NextResponse.json({ error: "File not found on disk" }, { status: 404 });
   }
 
-  const buffer = await readFile(filePath);
+  const buffer = await downloadFile(document.filename);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": document.mimeType,
       "Content-Disposition": `attachment; filename="${encodeURIComponent(document.originalName)}"`,

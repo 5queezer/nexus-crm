@@ -22,7 +22,7 @@ interface FormData {
 }
 
 interface ContactFormRow {
-  id?: number;          // set when persisted
+  id?: string;          // set when persisted
   name: string;
   email: string;
   role: string;
@@ -48,7 +48,7 @@ async function createApplication(data: FormData): Promise<Application> {
   return res.json();
 }
 
-async function updateApplication(id: number, data: FormData): Promise<Application> {
+async function updateApplication(id: string, data: FormData): Promise<Application> {
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -65,7 +65,7 @@ async function updateApplication(id: number, data: FormData): Promise<Applicatio
   return res.json();
 }
 
-async function createContact(applicationId: number, contact: Omit<ContactFormRow, "isDirty" | "isNew" | "id">): Promise<Contact> {
+async function createContact(applicationId: string, contact: Omit<ContactFormRow, "isDirty" | "isNew" | "id">): Promise<Contact> {
   const res = await fetch(`/api/applications/${applicationId}/contacts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -75,7 +75,7 @@ async function createContact(applicationId: number, contact: Omit<ContactFormRow
   return res.json();
 }
 
-async function updateContact(applicationId: number, contactId: number, contact: Partial<ContactFormRow>): Promise<Contact> {
+async function updateContact(applicationId: string, contactId: string, contact: Partial<ContactFormRow>): Promise<Contact> {
   const res = await fetch(`/api/applications/${applicationId}/contacts/${contactId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -85,7 +85,7 @@ async function updateContact(applicationId: number, contactId: number, contact: 
   return res.json();
 }
 
-async function deleteContact(applicationId: number, contactId: number): Promise<void> {
+async function deleteContact(applicationId: string, contactId: string): Promise<void> {
   const res = await fetch(`/api/applications/${applicationId}/contacts/${contactId}`, {
     method: "DELETE",
   });
@@ -141,7 +141,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     () => (application?.contacts ?? []).map(contactToRow)
   );
   const [savingContactIdx, setSavingContactIdx] = useState<number | null>(null);
-  const [deletingContactId, setDeletingContactId] = useState<number | null>(null);
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: createApplication,

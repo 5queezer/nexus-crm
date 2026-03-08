@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getDb } from "@/lib/db";
 import { requireAuthOrToken } from "@/lib/session";
-import { userWhere, requireUserId } from "@/lib/tenant";
-import { unlink } from "fs/promises";
-import path from "path";
-
-function getUploadDir(): string {
-  return process.env.UPLOAD_DIR ?? path.join(process.cwd(), "uploads");
-}
+import { requireUserId } from "@/lib/tenant";
+import { deleteFile } from "@/lib/storage";
 
 export async function DELETE(
   request: NextRequest,
@@ -26,26 +21,14 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const docId = parseInt(id, 10);
-  if (isNaN(docId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
 
-  const document = await prisma.document.findFirst({
-    where: { id: docId, userId },
-  });
+  const document = await getDb().deleteDocument(id, userId);
   if (!document) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Remove file from disk (best-effort)
-  try {
-    await unlink(path.join(getUploadDir(), document.filename));
-  } catch {
-    // file might already be gone — that's fine
-  }
-
-  await prisma.document.delete({ where: { id: docId, userId } });
+  // Remove file from storage (best-effort)
+  await deleteFile(document.filename);
 
   return new NextResponse(null, { status: 204 });
 }
@@ -67,34 +50,13 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const docId = parseInt(id, 10);
-  if (isNaN(docId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
-
   const body = await request.json();
-  const { applicationIds } = body as { applicationIds?: number[] };
+  const { applicationIds } = body as { applicationIds?: string[] };
 
   if (!Array.isArray(applicationIds)) {
     return NextResponse.json({ error: "applicationIds must be an array" }, { status: 400 });
   }
 
-  // Only allow linking applications that belong to this user
-  const ownedApps = await prisma.application.findMany({
-    where: { id: { in: applicationIds }, userId },
-    select: { id: true },
-  });
-  const safeApplicationIds = ownedApps.map((a) => a.id);
-
-  const document = await prisma.document.update({
-    where: { id: docId, userId },
-    data: {
-      applications: {
-        set: safeApplicationIds.map((aid) => ({ id: aid })),
-      },
-    },
-    include: { applications: { select: { id: true, company: true, role: true } } },
-  });
-
+  const document = await getDb().updateDocumentLinks(id, userId, applicationIds);
   return NextResponse.json(document);
 }

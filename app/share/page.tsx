@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { getDb } from "@/lib/db";
 import { ApplicationStatus, STATUS_COLORS } from "@/types";
 import { format } from "date-fns";
 import type { Locale } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 
 interface Document {
-  id: number;
+  id: string;
   originalName: string;
   mimeType: string;
   size: number;
@@ -205,20 +205,23 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   const t = TRANSLATIONS[lang];
   const dateLocale = lang === "de" ? de : enUS;
 
-  const applications = await prisma.application.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  const db = getDb();
+  const applications = await db.listApplications(null);
 
   // Get owner name dynamically from first application's user, or fall back to generic
   const ownerUser = applications[0]?.userId
-    ? await prisma.user.findUnique({ where: { id: applications[0].userId }, select: { name: true } })
+    ? await db.getUser(applications[0].userId)
     : null;
   const ownerName = ownerUser?.name ?? null;
 
-  const documents = await prisma.document.findMany({
-    orderBy: { uploadedAt: "desc" },
-    select: { id: true, originalName: true, mimeType: true, size: true, uploadedAt: true },
-  }) as Document[];
+  const allDocuments = await db.listDocuments(null);
+  const documents: Document[] = allDocuments.map((d) => ({
+    id: d.id,
+    originalName: d.originalName,
+    mimeType: d.mimeType,
+    size: d.size,
+    uploadedAt: d.uploadedAt,
+  }));
 
   const stats = {
     total: applications.length,

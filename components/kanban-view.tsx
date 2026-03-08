@@ -23,7 +23,7 @@ import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER } from "@/t
 
 // ── API ──────────────────────────────────────────────────────────────────────
 
-async function patchStatus(id: number, status: ApplicationStatus): Promise<Application> {
+async function patchStatus(id: string, status: ApplicationStatus): Promise<Application> {
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

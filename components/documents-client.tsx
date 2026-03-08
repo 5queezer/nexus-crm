@@ -7,13 +7,13 @@ import { de } from "date-fns/locale";
 import Link from "next/link";
 
 interface ApplicationRef {
-  id: number;
+  id: string;
   company: string;
   role: string;
 }
 
 interface Document {
-  id: number;
+  id: string;
   filename: string;
   originalName: string;
   size: number;
@@ -48,12 +48,12 @@ async function fetchDocuments(): Promise<Document[]> {
   return res.json();
 }
 
-async function deleteDocument(id: number): Promise<void> {
+async function deleteDocument(id: string): Promise<void> {
   const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete document");
 }
 
-function CopyShareLink({ docId }: { docId: number }) {
+function CopyShareLink({ docId }: { docId: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -128,7 +128,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
     handleUpload(e.dataTransfer.files);
   }
 
-  function handleDelete(id: number, name: string) {
+  function handleDelete(id: string, name: string) {
     if (confirm(`Dokument „${name}" wirklich löschen?`)) {
       deleteMutation.mutate(id);
     }

@@ -70,7 +70,7 @@ function FollowUpCell({ date }: { date: string | null }) {
 interface ApplicationTableProps {
   applications: Application[];
   onEdit: (app: Application) => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: string) => void;
 }
 
 export function ApplicationTable({ applications, onEdit, onDelete }: ApplicationTableProps) {
