@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { format, isPast, isToday } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,8 +21,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER } from "@/types";
 
-// ── API ──────────────────────────────────────────────────────────────────────
-
 async function patchStatus(id: string, status: ApplicationStatus): Promise<Application> {
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
@@ -33,8 +31,6 @@ async function patchStatus(id: string, status: ApplicationStatus): Promise<Appli
   return res.json();
 }
 
-// ── Card ─────────────────────────────────────────────────────────────────────
-
 interface CardProps {
   app: Application;
   onEdit: (a: Application) => void;
@@ -42,6 +38,7 @@ interface CardProps {
 }
 
 function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
+  const ts = useTranslations("status");
   const followUpDate = app.followUpAt ? new Date(app.followUpAt) : null;
   const isOverdue = followUpDate && isPast(followUpDate) && !isToday(followUpDate);
   const isDueToday = followUpDate && isToday(followUpDate);
@@ -57,30 +54,34 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
         }
       `}
     >
-      <div className="font-semibold text-gray-900 dark:text-white text-sm group-hover:text-blue-700 dark:group-hover:text-blue-400 truncate">
-        {app.company}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-semibold text-gray-900 dark:text-white text-sm group-hover:text-blue-700 dark:group-hover:text-blue-400 truncate">
+            {app.company}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-300 mt-0.5 truncate">{app.role}</div>
+        </div>
+        <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[app.status]}`}>
+          {ts(app.status)}
+        </span>
       </div>
-      <div className="text-xs text-gray-500 dark:text-gray-300 mt-0.5 truncate">{app.role}</div>
 
-      {app.appliedAt && (
-        <div className="text-xs text-gray-400 dark:text-gray-400 mt-2">
-          {format(new Date(app.appliedAt), "dd.MM.yy")}
-        </div>
-      )}
-
-      {followUpDate && (
-        <div
-          className={`text-xs mt-1 font-medium ${
-            isOverdue ? "text-red-600 dark:text-red-400" : isDueToday ? "text-orange-500 dark:text-orange-400" : "text-blue-600 dark:text-blue-400"
-          }`}
-        >
-          {isOverdue ? "⚠ " : isDueToday ? "🔔 " : "📅 "}
-          {format(followUpDate, "dd.MM.yy")}
-        </div>
-      )}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400 dark:text-gray-400">
+        {app.appliedAt && <span>{format(new Date(app.appliedAt), "dd.MM.yy")}</span>}
+        {followUpDate && (
+          <span
+            className={`font-medium ${
+              isOverdue ? "text-red-600 dark:text-red-400" : isDueToday ? "text-orange-500 dark:text-orange-400" : "text-blue-600 dark:text-blue-400"
+            }`}
+          >
+            {isOverdue ? "⚠ " : isDueToday ? "🔔 " : "📅 "}
+            {format(followUpDate, "dd.MM.yy")}
+          </span>
+        )}
+      </div>
 
       {app.notes && (
-        <div className="text-xs text-gray-400 dark:text-gray-400 mt-1.5 truncate" title={app.notes}>
+        <div className="mt-2 max-h-10 overflow-hidden text-xs text-gray-500 dark:text-gray-400" title={app.notes}>
           {app.notes}
         </div>
       )}
@@ -88,17 +89,13 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
   );
 }
 
-// ── Draggable wrapper ─────────────────────────────────────────────────────────
-
 function DraggableCard({ app, onEdit }: { app: Application; onEdit: (a: Application) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: app.id,
     data: { app },
   });
 
-  const style = transform
-    ? { transform: CSS.Translate.toString(transform) }
-    : undefined;
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   return (
     <div
@@ -112,8 +109,6 @@ function DraggableCard({ app, onEdit }: { app: Application; onEdit: (a: Applicat
     </div>
   );
 }
-
-// ── Droppable Column ──────────────────────────────────────────────────────────
 
 interface KanbanColumnProps {
   status: ApplicationStatus;
@@ -130,11 +125,7 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({ id: status });
 
   return (
-    // Column: fixed width so it never gets squeezed.
-    // On mobile the parent snap-scroll makes one column fill ~85vw;
-    // on md+ each column is exactly 260px wide.
     <div className="flex flex-col w-full">
-      {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}>
           {ts(status)}
@@ -142,7 +133,6 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
         <span className="text-xs text-gray-400 dark:text-gray-400 font-medium">{apps.length}</span>
       </div>
 
-      {/* Drop zone — scrolls independently so long columns don't blow the page height */}
       <div
         ref={setNodeRef}
         className={`
@@ -165,33 +155,45 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
   );
 }
 
-// ── Main View ─────────────────────────────────────────────────────────────────
-
 interface KanbanViewProps {
   applications: Application[];
   onEdit: (app: Application) => void;
 }
 
 export function KanbanView({ applications, onEdit }: KanbanViewProps) {
+  const ts = useTranslations("status");
+  const tk = useTranslations("kanban");
   const queryClient = useQueryClient();
   const [activeApp, setActiveApp] = useState<Application | null>(null);
   const [overColumnId, setOverColumnId] = useState<UniqueIdentifier | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<ApplicationStatus>(() => {
+    const firstWithItems = STATUS_ORDER.find((status) =>
+      applications.some((app) => app.status === status)
+    );
+    return firstWithItems ?? STATUS_ORDER[0];
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      // Require a small movement before activating drag — preserves click-to-edit
       activationConstraint: { distance: 8 },
     }),
     useSensor(TouchSensor, {
-      // Short delay + tolerance so taps still open cards, swipes drag
       activationConstraint: { delay: 250, tolerance: 5 },
     })
   );
 
-  const grouped: Record<ApplicationStatus, Application[]> = {} as Record<ApplicationStatus, Application[]>;
-  for (const status of STATUS_ORDER) {
-    grouped[status] = applications.filter((a) => a.status === status);
-  }
+  const grouped = useMemo(() => {
+    const next = {} as Record<ApplicationStatus, Application[]>;
+    for (const status of STATUS_ORDER) {
+      next[status] = applications.filter((a) => a.status === status);
+    }
+    return next;
+  }, [applications]);
+
+  const mobileStatuses = useMemo(
+    () => STATUS_ORDER.filter((status) => grouped[status].length > 0 || status === selectedStatus),
+    [grouped, selectedStatus]
+  );
 
   function handleDragStart(event: DragStartEvent) {
     const app = (event.active.data.current as { app: Application }).app;
@@ -214,19 +216,16 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
 
     if (app.status === newStatus) return;
 
-    // Optimistic update — swap status in the cache immediately
     queryClient.setQueryData<Application[]>(["applications"], (prev) =>
       prev?.map((a) => (a.id === app.id ? { ...a, status: newStatus } : a)) ?? []
     );
 
     try {
       const updated = await patchStatus(app.id, newStatus);
-      // Sync server response into cache
       queryClient.setQueryData<Application[]>(["applications"], (prev) =>
         prev?.map((a) => (a.id === updated.id ? updated : a)) ?? []
       );
     } catch {
-      // Revert on error
       queryClient.setQueryData<Application[]>(["applications"], (prev) =>
         prev?.map((a) => (a.id === app.id ? { ...a, status: app.status } : a)) ?? []
       );
@@ -234,46 +233,73 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-    >
-      {/*
-        Outer container scrolls horizontally on both mobile and desktop.
+    <>
+      <div className="md:hidden space-y-4">
+        <div className="sticky top-16 z-[5] -mx-1 overflow-x-auto rounded-xl border border-gray-200 bg-white/95 px-1 py-1 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
+          <div className="flex gap-2 px-1">
+            {mobileStatuses.map((status) => (
+              <button
+                key={status}
+                onClick={() => setSelectedStatus(status)}
+                className={`whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                  selectedStatus === status
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                }`}
+              >
+                {ts(status)} · {grouped[status].length}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        Mobile  (<md): snap-x + snap-mandatory → swipe one column at a time
-                       Each column: 85vw so the next one peeks from the right
-        Desktop (≥md): plain flex row, each column 260px wide, no snapping needed
-      */}
-      <div className="overflow-x-auto pb-4 -mx-1 px-1">
-        <div className="flex flex-nowrap gap-4 snap-x snap-mandatory md:snap-none">
-          {STATUS_ORDER.map((status) => (
-            // Snap anchor per column on mobile; fixed 260px on desktop
-            <div
-              key={status}
-              className="snap-center flex-none w-[85vw] md:w-[260px] flex flex-col"
-            >
-              <KanbanColumn
-                status={status}
-                apps={grouped[status]}
-                onEdit={onEdit}
-                isOver={overColumnId === (status as UniqueIdentifier)}
-              />
+        <div className="space-y-2">
+          {grouped[selectedStatus].length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
+              {tk("empty")}
             </div>
-          ))}
+          ) : (
+            grouped[selectedStatus].map((app) => (
+              <KanbanCard key={app.id} app={app} onEdit={onEdit} />
+            ))
+          )}
         </div>
       </div>
 
-      {/* Floating drag overlay — matches column card width */}
-      <DragOverlay dropAnimation={null}>
-        {activeApp ? (
-          <div className="w-[240px]">
-            <KanbanCard app={activeApp} onEdit={() => {}} isDragging />
+      <div className="hidden md:block">
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="overflow-x-auto pb-4 -mx-1 px-1">
+            <div className="flex flex-nowrap gap-4">
+              {STATUS_ORDER.map((status) => (
+                <div
+                  key={status}
+                  className="flex-none w-[260px] flex flex-col"
+                >
+                  <KanbanColumn
+                    status={status}
+                    apps={grouped[status]}
+                    onEdit={onEdit}
+                    isOver={overColumnId === (status as UniqueIdentifier)}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+
+          <DragOverlay dropAnimation={null}>
+            {activeApp ? (
+              <div className="w-[240px]">
+                <KanbanCard app={activeApp} onEdit={() => {}} isDragging />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
+    </>
   );
 }
