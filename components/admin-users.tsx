@@ -24,8 +24,8 @@ async function updateUserAdmin({ id, isAdmin }: { id: string; isAdmin: boolean }
     body: JSON.stringify({ isAdmin }),
   });
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || "Failed to update admin status");
+    const body = await res.json();
+    throw new Error(body.error ?? "unknown");
   }
   return res.json();
 }
@@ -45,7 +45,10 @@ export function AdminUsers() {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (error: Error) => {
-      alert(error.message);
+      const msg = error.message.includes("admin user is required")
+        ? t("last_admin_error")
+        : t("error_update");
+      alert(msg);
     },
   });
 
