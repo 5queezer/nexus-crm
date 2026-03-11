@@ -45,6 +45,7 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     followUpAt: toDate(data.followUpAt),
     notes: data.notes ?? null,
     jobDescription: data.jobDescription ?? null,
+    source: data.source ?? null,
     resumeId: data.resumeId ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
     updatedAt: toDate(data.updatedAt) ?? new Date(),

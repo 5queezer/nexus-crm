@@ -35,11 +35,12 @@ async function deleteApplication(id: string): Promise<void> {
 }
 
 function exportToCsv(applications: Application[], filename = "applications.csv") {
-  const headers = ["Company", "Role", "Status", "Applied", "Last Contact", "Follow-up", "Notes"];
+  const headers = ["Company", "Role", "Status", "Source", "Applied", "Last Contact", "Follow-up", "Notes"];
   const rows = applications.map((a) => [
     a.company,
     a.role,
     a.status,
+    a.source ?? "",
     a.appliedAt ? format(new Date(a.appliedAt), "yyyy-MM-dd") : "",
     a.lastContact ? format(new Date(a.lastContact), "yyyy-MM-dd") : "",
     a.followUpAt ? format(new Date(a.followUpAt), "yyyy-MM-dd") : "",

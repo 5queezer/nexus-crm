@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source } = body;
 
   if (!company || !role) {
     return NextResponse.json(
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     followUpAt: followUpAt ? new Date(followUpAt) : null,
     notes: notes ? String(notes).slice(0, 10000) : null,
     jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
+    source: source ? String(source).slice(0, 100) : null,
   });
 
   return NextResponse.json(application, { status: 201 });

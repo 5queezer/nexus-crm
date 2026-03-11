@@ -40,7 +40,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, resumeId } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, resumeId } = body;
 
   const application = await getDb().updateApplication(id, userId, {
     ...(company !== undefined && { company: String(company).slice(0, 255) }),
@@ -58,6 +58,9 @@ export async function PATCH(
     ...(notes !== undefined && { notes: notes ? String(notes).slice(0, 10000) : null }),
     ...(jobDescription !== undefined && {
       jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
+    }),
+    ...(source !== undefined && {
+      source: source ? String(source).slice(0, 100) : null,
     }),
     ...(resumeId !== undefined && {
       resumeId: resumeId ? String(resumeId).slice(0, 255) : null,

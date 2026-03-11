@@ -11,6 +11,7 @@ export interface ApplicationRecord {
   followUpAt: Date | null;
   notes: string | null;
   jobDescription: string | null;
+  source: string | null;
   resumeId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -62,6 +63,7 @@ export interface CreateApplicationInput {
   followUpAt: Date | null;
   notes: string | null;
   jobDescription: string | null;
+  source: string | null;
 }
 
 export interface UpdateApplicationInput {
@@ -73,6 +75,7 @@ export interface UpdateApplicationInput {
   followUpAt?: Date | null;
   notes?: string | null;
   jobDescription?: string | null;
+  source?: string | null;
   resumeId?: string | null;
 }
 

@@ -36,6 +36,7 @@
     "follow_up": "Follow-up",
     "notes": "Notizen",
     "contacts": "Kontakte",
+    "source": "Quelle",
     "count": "{filtered} von {total} Bewerbungen",
     "empty": "Keine Bewerbungen gefunden."
   },
@@ -78,7 +79,9 @@
     "resume_tailoring": "Erstelle...",
     "resume_open": "In Reactive Resume öffnen",
     "resume_error": "Fehler beim Erstellen des Lebenslaufs.",
-    "resume_not_configured": "Lebenslauf-Integration nicht konfiguriert."
+    "resume_not_configured": "Lebenslauf-Integration nicht konfiguriert.",
+    "source": "Quelle",
+    "source_placeholder": "z.B. LinkedIn, Indeed, Empfehlung"
   },
   "status": {
     "applied": "Beworben",

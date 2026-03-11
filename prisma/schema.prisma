@@ -19,6 +19,7 @@ model Application {
   notes           String?
   followUpAt      DateTime?
   jobDescription  String?
+  source          String?
   resumeId        String?   // Reactive Resume resume ID
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

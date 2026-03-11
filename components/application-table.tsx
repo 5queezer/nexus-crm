@@ -109,6 +109,20 @@ export function ApplicationTable({ applications, onEdit, onDelete }: Application
       cell: (info) => <StatusBadge status={info.getValue() as ApplicationStatus} />,
       filterFn: "equals",
     }),
+    columnHelper.accessor("source", {
+      header: t("source"),
+      cell: (info) => {
+        const val = info.getValue();
+        return val ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300">
+            {val}
+          </span>
+        ) : (
+          <span className="text-gray-400 dark:text-gray-500">—</span>
+        );
+      },
+      filterFn: "equals",
+    }),
     columnHelper.accessor("appliedAt", {
       header: t("applied_at"),
       cell: (info) => (
