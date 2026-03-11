@@ -202,21 +202,21 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">💼</span>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">{t.title(ownerName)}</h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{t.subtitle}</p>
+          <div className="flex items-center justify-between gap-3 h-16">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="shrink-0 text-2xl">💼</span>
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">{t.title(ownerName)}</h1>
+                <p className="truncate text-xs text-gray-500 dark:text-gray-400">{t.subtitle}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               <LangToggle current={lang} token={token} />
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
                 {t.readOnly}
               </span>

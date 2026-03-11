@@ -168,14 +168,14 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">💼</span>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">{tapp("title")}</h1>
+          <div className="flex items-center justify-between h-16 gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="shrink-0 text-2xl">💼</span>
+              <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">{tapp("title")}</h1>
             </div>
 
             {/* Desktop nav */}
@@ -233,7 +233,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
             </div>
 
             {/* Mobile nav: language + avatar + hamburger */}
-            <div className="flex md:hidden items-center gap-2">
+            <div className="flex shrink-0 md:hidden items-center gap-2">
               <LanguageSwitcher />
               {user.image && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -320,18 +320,17 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         )}
 
         {/* Toolbar */}
-        <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
               {showArchived ? ta("archive") : t("applications")} ({visibleApplications.length})
             </h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {/* View toggle — row 1 on mobile */}
-            <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-sm">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="inline-flex w-full items-center overflow-hidden rounded-lg border border-gray-200 text-sm dark:border-gray-600 sm:w-auto">
               <button
                 onClick={() => setViewMode("table")}
-                className={`px-3 py-1.5 font-medium transition-colors whitespace-nowrap ${
+                className={`flex-1 px-3 py-1.5 font-medium transition-colors whitespace-nowrap sm:flex-none ${
                   viewMode === "table"
                     ? "bg-blue-600 text-white"
                     : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -341,7 +340,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               </button>
               <button
                 onClick={() => setViewMode("kanban")}
-                className={`px-3 py-1.5 font-medium transition-colors whitespace-nowrap ${
+                className={`flex-1 px-3 py-1.5 font-medium transition-colors whitespace-nowrap sm:flex-none ${
                   viewMode === "kanban"
                     ? "bg-blue-600 text-white"
                     : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -351,12 +350,10 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               </button>
             </div>
 
-            {/* Actions — row 2 on mobile */}
-            <div className="flex items-center gap-2 ml-auto">
-              {/* Archive toggle */}
+            <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
               <button
                 onClick={() => setShowArchived((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
                   showArchived
                     ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
                     : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -364,26 +361,24 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               >
                 {showArchived ? ta("show_active") : ta("show_archive")}
                 {archivedApplications.length > 0 && !showArchived && (
-                  <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-gray-200 dark:bg-gray-600 text-xs font-bold text-gray-700 dark:text-gray-200">
+                  <span className="ml-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-gray-200 px-1 text-xs font-bold text-gray-700 dark:bg-gray-600 dark:text-gray-200">
                     {archivedApplications.length}
                   </span>
                 )}
               </button>
 
-              {/* CSV Export */}
               <button
                 onClick={() => exportToCsv(visibleApplications)}
                 title={ta("export_csv")}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 sm:w-auto"
               >
                 <span>↓</span>
                 {ta("export_csv")}
               </button>
 
-              {/* New application */}
               <button
                 onClick={handleNewApplication}
-                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm whitespace-nowrap"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 sm:w-auto"
               >
                 <span>+</span>
                 {ta("new_application")}
