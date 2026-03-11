@@ -1,12 +1,9 @@
 export type ApplicationStatus =
+  | "inbound"
   | "applied"
-  | "waiting"
   | "interview"
-  | "rejected"
   | "offer"
-  | "ghost"
-  | "draft"
-  | "inbound";
+  | "rejected";
 
 export interface Contact {
   id: string;
@@ -39,38 +36,29 @@ export interface Application {
 
 // Color mapping per status — labels come from i18n translations
 export const STATUS_COLORS: Record<ApplicationStatus, string> = {
-  applied: "bg-blue-100 text-blue-800 dark:bg-blue-500/25 dark:text-blue-300",
-  waiting: "bg-yellow-100 text-yellow-800 dark:bg-amber-500/25 dark:text-amber-300",
-  interview: "bg-purple-100 text-purple-800 dark:bg-purple-500/25 dark:text-purple-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-500/25 dark:text-red-300",
-  offer: "bg-green-100 text-green-800 dark:bg-emerald-500/25 dark:text-emerald-300",
-  ghost: "bg-gray-100 text-gray-600 dark:bg-gray-500/25 dark:text-gray-300",
-  draft: "bg-slate-100 text-slate-600 dark:bg-slate-500/25 dark:text-slate-300",
   inbound: "bg-teal-100 text-teal-800 dark:bg-teal-500/25 dark:text-teal-300",
+  applied: "bg-blue-100 text-blue-800 dark:bg-blue-500/25 dark:text-blue-300",
+  interview: "bg-purple-100 text-purple-800 dark:bg-purple-500/25 dark:text-purple-300",
+  offer: "bg-green-100 text-green-800 dark:bg-emerald-500/25 dark:text-emerald-300",
+  rejected: "bg-red-100 text-red-800 dark:bg-red-500/25 dark:text-red-300",
 };
 
 // Row highlight colors for table
 export const STATUS_ROW_COLORS: Record<ApplicationStatus, string> = {
-  applied: "",
-  waiting: "",
-  interview: "bg-purple-50/40 dark:bg-purple-950/20",
-  rejected: "bg-red-50/30 dark:bg-red-950/20",
-  offer: "bg-green-50/40 dark:bg-green-950/20",
-  ghost: "bg-gray-50/50 dark:bg-gray-800/30",
-  draft: "",
   inbound: "",
+  applied: "",
+  interview: "bg-purple-50/40 dark:bg-purple-950/20",
+  offer: "bg-green-50/40 dark:bg-green-950/20",
+  rejected: "bg-red-50/30 dark:bg-red-950/20",
 };
 
 // Ordered for Kanban display
 export const STATUS_ORDER: ApplicationStatus[] = [
   "inbound",
-  "draft",
   "applied",
-  "waiting",
   "interview",
   "offer",
   "rejected",
-  "ghost",
 ];
 
 // Preset source values for the source field
@@ -87,12 +75,9 @@ export const SOURCE_PRESETS = [
 
 // Legacy: for any place that still needs a label+color pair
 export const STATUS_OPTIONS: { value: ApplicationStatus; label: string; color: string }[] = [
-  { value: "applied", label: "Beworben", color: STATUS_COLORS.applied },
-  { value: "waiting", label: "Wartend", color: STATUS_COLORS.waiting },
-  { value: "interview", label: "Interview", color: STATUS_COLORS.interview },
-  { value: "rejected", label: "Abgelehnt", color: STATUS_COLORS.rejected },
-  { value: "offer", label: "Angebot", color: STATUS_COLORS.offer },
-  { value: "ghost", label: "Ghosted", color: STATUS_COLORS.ghost },
-  { value: "draft", label: "Entwurf", color: STATUS_COLORS.draft },
   { value: "inbound", label: "Eingehend", color: STATUS_COLORS.inbound },
+  { value: "applied", label: "Beworben", color: STATUS_COLORS.applied },
+  { value: "interview", label: "Interview", color: STATUS_COLORS.interview },
+  { value: "offer", label: "Angebot", color: STATUS_COLORS.offer },
+  { value: "rejected", label: "Abgelehnt", color: STATUS_COLORS.rejected },
 ];

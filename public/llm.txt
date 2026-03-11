@@ -76,7 +76,7 @@ Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) byp
 ---
 
 ## Application status values
-`draft` | `applied` | `waiting` | `interview` | `offer` | `rejected` | `ghost`
+`inbound` | `applied` | `interview` | `offer` | `rejected`
 
 ## Example: create application via API token
 ```

@@ -38,6 +38,15 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
+  async redirects() {
+    return [
+      {
+        source: "/llms.txt",
+        destination: "/llm.txt",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

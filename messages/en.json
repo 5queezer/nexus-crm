@@ -12,7 +12,7 @@
     "total": "Total",
     "active": "Active",
     "offers": "Offers",
-    "ghosted": "Ghosted"
+    "rejected": "Rejected"
   },
   "actions": {
     "new_application": "New Application",
@@ -88,14 +88,11 @@
     "source_placeholder": "e.g. LinkedIn, Indeed, referral"
   },
   "status": {
+    "inbound": "Inbound",
     "applied": "Applied",
-    "waiting": "Waiting",
     "interview": "Interview",
-    "rejected": "Rejected",
     "offer": "Offer",
-    "ghost": "Ghosted",
-    "draft": "Draft",
-    "inbound": "Inbound"
+    "rejected": "Rejected"
   },
   "kanban": {
     "empty": "No entries"
@@ -135,14 +132,11 @@
       "empty": "No applications yet."
     },
     "status": {
+      "inbound": "Inbound",
       "applied": "Applied",
-      "waiting": "Waiting",
       "interview": "Interview",
-      "rejected": "Rejected",
       "offer": "Offer",
-      "ghost": "Ghosted",
-      "draft": "Draft",
-      "inbound": "Inbound"
+      "rejected": "Rejected"
     },
     "footer_note": "This is a read-only view. Only Christian can make changes."
   },

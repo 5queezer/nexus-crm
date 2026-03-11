@@ -28,7 +28,7 @@
     "schemas": {
       "ApplicationStatus": {
         "type": "string",
-        "enum": ["draft", "applied", "waiting", "interview", "offer", "rejected", "ghost"],
+        "enum": ["inbound", "applied", "interview", "offer", "rejected"],
         "description": "Current stage of the job application lifecycle."
       },
       "ContactRef": {

@@ -12,7 +12,7 @@
     "total": "Gesamt",
     "active": "Aktiv",
     "offers": "Angebote",
-    "ghosted": "Ghosted"
+    "rejected": "Abgelehnt"
   },
   "actions": {
     "new_application": "Neue Bewerbung",
@@ -88,14 +88,11 @@
     "source_placeholder": "z.B. LinkedIn, Indeed, Empfehlung"
   },
   "status": {
+    "inbound": "Eingehend",
     "applied": "Beworben",
-    "waiting": "Wartend",
     "interview": "Interview",
-    "rejected": "Abgelehnt",
     "offer": "Angebot",
-    "ghost": "Ghosted",
-    "draft": "Entwurf",
-    "inbound": "Eingehend"
+    "rejected": "Abgelehnt"
   },
   "kanban": {
     "empty": "Keine Einträge"
@@ -135,14 +132,11 @@
       "empty": "Noch keine Bewerbungen eingetragen."
     },
     "status": {
+      "inbound": "Eingehend",
       "applied": "Beworben",
-      "waiting": "Wartend",
       "interview": "Interview",
-      "rejected": "Abgelehnt",
       "offer": "Angebot",
-      "ghost": "Ghosted",
-      "draft": "Entwurf",
-      "inbound": "Eingehend"
+      "rejected": "Abgelehnt"
     },
     "footer_note": "Dies ist eine schreibgeschützte Ansicht. Nur Christian kann Änderungen vornehmen."
   },

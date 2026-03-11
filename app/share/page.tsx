@@ -5,14 +5,6 @@ import { format } from "date-fns";
 import type { Locale } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 
-interface Document {
-  id: string;
-  originalName: string;
-  mimeType: string;
-  size: number;
-  uploadedAt: Date;
-}
-
 // ── Translations ──────────────────────────────────────────────────────────────
 
 type Lang = "de" | "en";
@@ -40,23 +32,16 @@ const TRANSLATIONS = {
       empty: "Noch keine Bewerbungen eingetragen.",
     },
     status: {
+      inbound: "Eingehend",
       applied: "Beworben",
-      waiting: "Wartend",
       interview: "Interview",
-      rejected: "Abgelehnt",
       offer: "Angebot",
-      ghost: "Ghosted",
-      draft: "Entwurf",
+      rejected: "Abgelehnt",
     },
     footer: (count: number, date: string) =>
       `${count} Bewerbungen gesamt · Zuletzt aktualisiert: ${date} Uhr`,
     readOnlyNote:
       "Diese Seite ist schreibgeschützt. Nur der Eigentümer kann Änderungen vornehmen.",
-    docs: {
-      heading: "Dokumente",
-      empty: "Keine Dokumente vorhanden.",
-      download: "Herunterladen",
-    },
   },
   en: {
     title: (name: string | null) => name ? `Job Applications of ${name}` : "Job Applications",
@@ -80,23 +65,16 @@ const TRANSLATIONS = {
       empty: "No applications yet.",
     },
     status: {
+      inbound: "Inbound",
       applied: "Applied",
-      waiting: "Waiting",
       interview: "Interview",
-      rejected: "Rejected",
       offer: "Offer",
-      ghost: "Ghosted",
-      draft: "Draft",
+      rejected: "Rejected",
     },
     footer: (count: number, date: string) =>
       `${count} applications total · Last updated: ${date}`,
     readOnlyNote:
       "This is a read-only view. Only the owner can make changes.",
-    docs: {
-      heading: "Documents",
-      empty: "No documents available.",
-      download: "Download",
-    },
   },
 } satisfies Record<Lang, unknown>;
 
@@ -104,18 +82,6 @@ const TRANSLATIONS = {
 
 function resolveLang(raw: string | undefined): Lang {
   return raw === "en" ? "en" : "de";
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function fileIcon(mimeType: string): string {
-  if (mimeType === "application/pdf") return "📄";
-  if (mimeType.startsWith("image/")) return "🖼️";
-  return "📎";
 }
 
 function formatDate(dateVal: Date | string | null, locale: Locale): string {
@@ -206,7 +172,8 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   const dateLocale = lang === "de" ? de : enUS;
 
   const db = getDb();
-  const applications = await db.listApplications(null);
+  const allApplications = await db.listApplications(null);
+  const applications = allApplications.filter((a) => !a.archivedAt);
 
   // Get owner name dynamically from first application's user, or fall back to generic
   const ownerUser = applications[0]?.userId
@@ -214,19 +181,11 @@ export default async function SharePage({ searchParams }: SharePageProps) {
     : null;
   const ownerName = ownerUser?.name ?? null;
 
-  const allDocuments = await db.listDocuments(null);
-  const documents: Document[] = allDocuments.map((d) => ({
-    id: d.id,
-    originalName: d.originalName,
-    mimeType: d.mimeType,
-    size: d.size,
-    uploadedAt: d.uploadedAt,
-  }));
 
   const stats = {
     total: applications.length,
     active: applications.filter((a) =>
-      ["applied", "waiting", "interview"].includes(a.status)
+      ["applied", "interview"].includes(a.status)
     ).length,
     offers: applications.filter((a) => a.status === "offer").length,
     rejected: applications.filter((a) => a.status === "rejected").length,
@@ -348,46 +307,6 @@ export default async function SharePage({ searchParams }: SharePageProps) {
               format(new Date(), "dd.MM.yyyy HH:mm", { locale: dateLocale })
             )}
           </div>
-        </div>
-
-        {/* Documents */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden mt-8">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {t.docs.heading} ({documents.length})
-            </h2>
-          </div>
-          {documents.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-              <div className="text-3xl mb-2">📭</div>
-              <p>{t.docs.empty}</p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-gray-50 dark:divide-gray-700/50">
-              {documents.map((doc) => (
-                <li
-                  key={doc.id}
-                  className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 dark:hover:bg-gray-700/50 transition-colors"
-                >
-                  <span className="text-2xl flex-shrink-0">{fileIcon(doc.mimeType)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white truncate">{doc.originalName}</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                      {formatBytes(doc.size)} ·{" "}
-                      {format(new Date(doc.uploadedAt), "dd.MM.yyyy HH:mm", { locale: dateLocale })}
-                    </p>
-                  </div>
-                  <a
-                    href={`/api/documents/${doc.id}/file?token=${token}`}
-                    download={doc.originalName}
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-                  >
-                    ⬇ {t.docs.download}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-6">

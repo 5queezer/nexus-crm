@@ -17,7 +17,7 @@ async function main() {
     {
       company: "Amazon Ring",
       role: "SDE",
-      status: "waiting",
+      status: "applied",
       appliedAt: new Date("2026-02-10"),
       lastContact: null,
       notes: "Matt Brown (Recruiter); HackerRank offen",
@@ -25,7 +25,7 @@ async function main() {
     {
       company: "Zurich/NTT",
       role: "Fullstack SE Alpha I",
-      status: "ghost",
+      status: "rejected",
       appliedAt: new Date("2026-02-25"),
       lastContact: null,
       notes: "Franco Mahl; 240€/Tag; kein Feedback",
@@ -33,7 +33,7 @@ async function main() {
     {
       company: "Aircall",
       role: "Senior Engineer",
-      status: "ghost",
+      status: "rejected",
       appliedAt: new Date("2026-02-26"),
       lastContact: null,
       notes: "Guillaume Moulin; kein Feedback",
@@ -41,7 +41,7 @@ async function main() {
     {
       company: "Deloitte",
       role: "Backend Engineer",
-      status: "waiting",
+      status: "applied",
       appliedAt: null,
       lastContact: null,
       notes: "Carolina Rico Quinn; CV vorbereitet",
@@ -49,7 +49,7 @@ async function main() {
     {
       company: "KNAPP AG",
       role: "Java Senior",
-      status: "draft",
+      status: "inbound",
       appliedAt: null,
       lastContact: null,
       notes: "Noch nicht abgeschickt",
@@ -57,7 +57,7 @@ async function main() {
     {
       company: "Ringier AG",
       role: "Platform Engineer",
-      status: "draft",
+      status: "inbound",
       appliedAt: null,
       lastContact: null,
       notes: "Noch nicht abgeschickt",

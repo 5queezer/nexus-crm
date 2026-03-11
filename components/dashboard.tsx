@@ -152,10 +152,10 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const stats = {
     total: activeApplications.length,
     active: activeApplications.filter((a) =>
-      (["applied", "waiting", "interview"] as ApplicationStatus[]).includes(a.status)
+      (["applied", "interview"] as ApplicationStatus[]).includes(a.status)
     ).length,
     offers: activeApplications.filter((a) => a.status === "offer").length,
-    ghosted: activeApplications.filter((a) => a.status === "ghost").length,
+    rejected: activeApplications.filter((a) => a.status === "rejected").length,
   };
 
   // Overdue follow-ups banner (only active, non-archived)
@@ -304,7 +304,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
           <StatCard label={ts("total")} value={stats.total} color="blue" />
           <StatCard label={ts("active")} value={stats.active} color="yellow" />
           <StatCard label={ts("offers")} value={stats.offers} color="green" />
-          <StatCard label={ts("ghosted")} value={stats.ghosted} color="gray" />
+          <StatCard label={ts("rejected")} value={stats.rejected} color="gray" />
         </div>
 
         {isApiTokenPanelOpen && (

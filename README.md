@@ -117,10 +117,8 @@ Uses Workload Identity Federation — no service account keys needed.
 
 | Status | Meaning |
 |--------|---------|
-| `draft` | Not yet sent |
+| `inbound` | Incoming opportunity |
 | `applied` | Submitted |
-| `waiting` | Awaiting response |
 | `interview` | Interview scheduled/done |
 | `offer` | Offer received |
 | `rejected` | Rejected |
-| `ghost` | No response |
