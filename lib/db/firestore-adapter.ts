@@ -49,6 +49,7 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     jobDescription: data.jobDescription ?? null,
     source: data.source ?? null,
     resumeId: data.resumeId ?? null,
+    archivedAt: toDate(data.archivedAt) ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
     updatedAt: toDate(data.updatedAt) ?? new Date(),
     contacts: data._contacts, // populated separately when needed

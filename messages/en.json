@@ -25,7 +25,11 @@
     "cancel": "Cancel",
     "saving": "Saving...",
     "search": "Search...",
-    "all_statuses": "All statuses"
+    "all_statuses": "All statuses",
+    "archive": "Archive",
+    "unarchive": "Unarchive",
+    "show_archive": "Archive",
+    "show_active": "Active"
   },
   "table": {
     "company": "Company",
