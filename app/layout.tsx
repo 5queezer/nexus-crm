@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   description: "Track your job applications",
 };
 
-// Inline script to apply theme before first paint (prevents flash)
-const themeScript = `(function(){try{var t=localStorage.getItem("theme")||"system";if(t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme:dark)").matches))document.documentElement.classList.add("dark")}catch(e){}})()`;
+// Inline script to apply theme and boss mode before first paint (prevents flash)
+const themeScript = `(function(){try{var d=document.documentElement;var t=localStorage.getItem("theme")||"system";if(t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme:dark)").matches))d.classList.add("dark");var b=localStorage.getItem("bossMode")==="true";if(b){d.dataset.bossMode="on";document.title="Workspace"}}catch(e){}})()`;
 
 export default async function RootLayout({
   children,

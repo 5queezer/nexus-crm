@@ -9,6 +9,7 @@ import { ApplicationModal } from "./application-modal";
 import { KanbanView } from "./kanban-view";
 import { LanguageSwitcher } from "./language-switcher";
 import { ThemeSwitcher } from "./theme-switcher";
+import { BossModeToggle, useBossMode } from "./boss-mode";
 import { Application, ApplicationStatus } from "@/types";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -84,6 +85,8 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const ta = useTranslations("actions");
   const tc = useTranslations("confirm");
   const tapp = useTranslations("app");
+  const tBoss = useTranslations("boss");
+  const { enabled: bossEnabled } = useBossMode();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
@@ -174,13 +177,18 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="shrink-0 text-2xl">💼</span>
-              <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">{tapp("title")}</h1>
+              <span className="shrink-0 text-2xl boss-hide">💼</span>
+              <span className="shrink-0 text-2xl boss-show">📊</span>
+              <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">
+                <span className="boss-hide">{tapp("title")}</span>
+                <span className="boss-show">{tBoss("title")}</span>
+              </h1>
             </div>
 
             {/* Desktop nav */}
             <div className="hidden md:flex items-center gap-3">
               <ThemeSwitcher />
+              <BossModeToggle />
               <LanguageSwitcher />
               {user.image && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -257,6 +265,9 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-gray-100 dark:border-gray-700 px-4 py-2 flex flex-col gap-1 bg-white dark:bg-gray-800">
+            <div className="py-2">
+              <BossModeToggle className="w-full" />
+            </div>
             <div className="py-2 text-sm text-gray-600 dark:text-gray-300 font-medium">
               {user.name || user.email}
             </div>
@@ -302,9 +313,9 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           <StatCard label={ts("total")} value={stats.total} color="blue" />
-          <StatCard label={ts("active")} value={stats.active} color="yellow" />
-          <StatCard label={ts("offers")} value={stats.offers} color="green" />
-          <StatCard label={ts("rejected")} value={stats.rejected} color="gray" />
+          <StatCard label={bossEnabled ? tBoss("stats.active") : ts("active")} value={stats.active} color="yellow" />
+          <StatCard label={bossEnabled ? tBoss("stats.offers") : ts("offers")} value={stats.offers} color="green" />
+          <StatCard label={bossEnabled ? tBoss("stats.rejected") : ts("rejected")} value={stats.rejected} color="gray" />
         </div>
 
         {isApiTokenPanelOpen && (
@@ -323,7 +334,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
-              {showArchived ? ta("archive") : t("applications")} ({visibleApplications.length})
+              {showArchived ? ta("archive") : bossEnabled ? tBoss("section") : t("applications")} ({visibleApplications.length})
             </h2>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -381,7 +392,8 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 sm:w-auto"
               >
                 <span>+</span>
-                {ta("new_application")}
+                <span className="boss-hide">{ta("new_application")}</span>
+                <span className="boss-show">{tBoss("new_entry")}</span>
               </button>
             </div>
           </div>

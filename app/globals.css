@@ -1,3 +1,44 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer utilities {
+  .boss-blur {
+    transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  [data-boss-mode="on"] .boss-blur {
+    filter: blur(0.4rem);
+    opacity: 0.95;
+    user-select: none;
+  }
+
+  .boss-show {
+    display: none;
+  }
+
+  [data-boss-mode="on"] .boss-show {
+    display: inline;
+  }
+
+  [data-boss-mode="on"] .boss-hide {
+    display: none;
+  }
+
+  [data-boss-mode="on"] .boss-status-badge,
+  [data-boss-mode="on"] .boss-sensitive-pill {
+    background-color: rgb(226 232 240) !important;
+    color: rgb(71 85 105) !important;
+    border-color: transparent !important;
+  }
+
+  html.dark[data-boss-mode="on"] .boss-status-badge,
+  html.dark[data-boss-mode="on"] .boss-sensitive-pill {
+    background-color: rgb(51 65 85 / 0.8) !important;
+    color: rgb(203 213 225) !important;
+  }
+
+  [data-boss-mode="on"] .boss-row-tone {
+    background-color: transparent !important;
+  }
+}

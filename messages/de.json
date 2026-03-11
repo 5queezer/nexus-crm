@@ -3,6 +3,39 @@
     "title": "Job Tracker",
     "subtitle": "Deine Bewerbungen im Überblick"
   },
+  "boss": {
+    "toggle": "Boss-Modus",
+    "on": "An",
+    "off": "Aus",
+    "title": "Workspace",
+    "section": "Einträge",
+    "new_entry": "Neuer Eintrag",
+    "status": {
+      "inbound": "Queue",
+      "applied": "Aktiv",
+      "interview": "Prüfung",
+      "offer": "Bereit",
+      "rejected": "Geschlossen"
+    },
+    "stats": {
+      "active": "In Arbeit",
+      "offers": "Bereit",
+      "rejected": "Geschlossen"
+    },
+    "table": {
+      "company": "Konto",
+      "role": "Eintrag",
+      "status": "Phase",
+      "source": "Kanal"
+    },
+    "privacy": {
+      "company": "Private Firma",
+      "role": "Private Rolle",
+      "notes": "Versteckte Notizen",
+      "contact": "Privater Kontakt",
+      "source": "Private Quelle"
+    }
+  },
   "nav": {
     "logout": "Abmelden",
     "table_view": "Tabelle",

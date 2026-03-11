@@ -3,6 +3,39 @@
     "title": "Job Tracker",
     "subtitle": "Your applications at a glance"
   },
+  "boss": {
+    "toggle": "Boss mode",
+    "on": "On",
+    "off": "Off",
+    "title": "Workspace",
+    "section": "Entries",
+    "new_entry": "New Entry",
+    "status": {
+      "inbound": "Queue",
+      "applied": "Active",
+      "interview": "Review",
+      "offer": "Ready",
+      "rejected": "Closed"
+    },
+    "stats": {
+      "active": "In progress",
+      "offers": "Ready",
+      "rejected": "Closed"
+    },
+    "table": {
+      "company": "Account",
+      "role": "Item",
+      "status": "Stage",
+      "source": "Channel"
+    },
+    "privacy": {
+      "company": "Private company",
+      "role": "Private role",
+      "notes": "Hidden notes",
+      "contact": "Private contact",
+      "source": "Private source"
+    }
+  },
   "nav": {
     "logout": "Sign out",
     "table_view": "Table",
