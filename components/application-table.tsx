@@ -67,6 +67,99 @@ function FollowUpCell({ date }: { date: string | null }) {
   );
 }
 
+interface MobileApplicationCardProps {
+  app: Application;
+  onEdit: (app: Application) => void;
+  onDelete: (id: string) => void;
+  onArchive?: (id: string, archive: boolean) => void;
+  showArchived?: boolean;
+}
+
+function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived }: MobileApplicationCardProps) {
+  const t = useTranslations("table");
+  const ta = useTranslations("actions");
+  const locale = useLocale();
+  const dateFnsLocale = locale === "de" ? de : enUS;
+
+  function formatDate(dateStr: string | null): string {
+    if (!dateStr) return "—";
+    try {
+      return format(new Date(dateStr), "dd.MM.yyyy", { locale: dateFnsLocale });
+    } catch {
+      return "—";
+    }
+  }
+
+  return (
+    <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">{app.company}</h3>
+          <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-300">{app.role}</p>
+        </div>
+        <div className="shrink-0">
+          <StatusBadge status={app.status} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("applied_at")}</div>
+          <div className="mt-1 text-gray-700 dark:text-gray-300">{formatDate(app.appliedAt)}</div>
+        </div>
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("follow_up")}</div>
+          <div className="mt-1"><FollowUpCell date={app.followUpAt} /></div>
+        </div>
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("last_contact")}</div>
+          <div className="mt-1 text-gray-700 dark:text-gray-300">{formatDate(app.lastContact)}</div>
+        </div>
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("source")}</div>
+          <div className="mt-1 text-gray-700 dark:text-gray-300">{app.source || "—"}</div>
+        </div>
+      </div>
+
+      {app.notes && (
+        <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-gray-900/60 dark:text-gray-300">
+          {app.notes}
+        </div>
+      )}
+
+      {app.contacts && app.contacts.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("contacts")}</div>
+          <ContactPills contacts={app.contacts} />
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={() => onEdit(app)}
+          className="flex min-h-[44px] items-center justify-center rounded-lg bg-blue-50 px-3 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
+        >
+          {ta("edit")}
+        </button>
+        {onArchive && (
+          <button
+            onClick={() => onArchive(app.id, !showArchived)}
+            className="flex min-h-[44px] items-center justify-center rounded-lg bg-amber-50 px-3 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:hover:bg-amber-500/25"
+          >
+            {showArchived ? ta("unarchive") : ta("archive")}
+          </button>
+        )}
+        <button
+          onClick={() => onDelete(app.id)}
+          className="flex min-h-[44px] items-center justify-center rounded-lg bg-red-50 px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:bg-red-500/15 dark:text-red-300 dark:hover:bg-red-500/25"
+        >
+          {ta("delete")}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 interface ApplicationTableProps {
   applications: Application[];
   onEdit: (app: Application) => void;
@@ -203,48 +296,69 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      {/* Filters */}
-      <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex flex-wrap gap-3">
-        <input
-          type="text"
-          value={globalFilter}
-          onChange={(e) => setGlobalFilter(e.target.value)}
-          placeholder={ta("search")}
-          className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 w-52 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-        <select
-          value={statusFilter || ""}
-          onChange={(e) => {
-            if (e.target.value) {
-              setColumnFilters([{ id: "status", value: e.target.value }]);
-            } else {
-              setColumnFilters([]);
-            }
-          }}
-          className="border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
-          <option value="">{ta("all_statuses")}</option>
-          {STATUS_ORDER.map((value) => (
-            <option key={value} value={value}>
-              {ts(value)}
-            </option>
-          ))}
-        </select>
-        {(globalFilter || statusFilter) && (
-          <button
-            onClick={() => {
-              setGlobalFilter("");
-              setColumnFilters([]);
+      <div className="sticky top-16 z-[5] border-b border-gray-100 bg-white/95 p-4 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <input
+            type="text"
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            placeholder={ta("search")}
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-52"
+          />
+          <select
+            value={statusFilter || ""}
+            onChange={(e) => {
+              if (e.target.value) {
+                setColumnFilters([{ id: "status", value: e.target.value }]);
+              } else {
+                setColumnFilters([]);
+              }
             }}
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline"
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-auto"
           >
-            {ta("filter_reset")}
-          </button>
+            <option value="">{ta("all_statuses")}</option>
+            {STATUS_ORDER.map((value) => (
+              <option key={value} value={value}>
+                {ts(value)}
+              </option>
+            ))}
+          </select>
+          {(globalFilter || statusFilter) && (
+            <button
+              onClick={() => {
+                setGlobalFilter("");
+                setColumnFilters([]);
+              }}
+              className="text-left text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 sm:text-center"
+            >
+              {ta("filter_reset")}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="p-3 md:hidden">
+        {table.getRowModel().rows.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
+            {t("empty")}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {table.getRowModel().rows.map((row) => (
+              <MobileApplicationCard
+                key={row.id}
+                app={row.original}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onArchive={onArchive}
+                showArchived={showArchived}
+              />
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -298,7 +412,6 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </table>
       </div>
 
-      {/* Footer */}
       <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
         {t("count", {
           filtered: table.getFilteredRowModel().rows.length,
