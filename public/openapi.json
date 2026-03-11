@@ -3,7 +3,7 @@
   "info": {
     "title": "Job Tracker API",
     "version": "1.0.0",
-    "description": "REST API for the Job Tracker application.\n\n## Authentication\n\nTwo auth methods are supported:\n\n- **BearerAuth** – `Authorization: Bearer $ADMIN_API_TOKEN`. Admin-scoped; bypasses per-user filtering. Read-only (mutations require a session).\n- **CookieAuth** – Session cookie set by the Better Auth `/api/auth` flow. Required for all write operations.\n\nEndpoints that accept either method are marked with both. Endpoints that **require** a session (mutations) are marked with `CookieAuth` only."
+    "description": "REST API for the Job Tracker application.\n\n## Authentication\n\nAll endpoints require a session cookie set by the Better Auth `/api/auth` flow (Google OAuth). Admin privileges are granted per-user via the `isAdmin` flag in the database (managed through the admin UI). Admin users bypass per-user filtering and can see all tenants' data.\n\nThe only exception is the file download endpoint, which also accepts a `PUBLIC_READ_TOKEN` query parameter for share links."
   },
   "servers": [
     {
@@ -13,16 +13,11 @@
   ],
   "components": {
     "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "description": "Admin API token. Set `Authorization: Bearer $ADMIN_API_TOKEN`. Grants read access across all users. Cannot perform mutations (session required for writes)."
-      },
       "CookieAuth": {
         "type": "apiKey",
         "in": "cookie",
         "name": "better-auth.session_token",
-        "description": "Session cookie issued by the Better Auth flow at `/api/auth`. Required for all create/update/delete operations."
+        "description": "Session cookie issued by the Better Auth flow at `/api/auth`. Required for all operations. Admin users (isAdmin=true) bypass per-user filtering."
       }
     },
     "schemas": {
@@ -97,6 +92,17 @@
           }
         }
       },
+      "UserRecord": {
+        "type": "object",
+        "description": "A registered user.",
+        "required": ["id", "name", "email", "isAdmin"],
+        "properties": {
+          "id":      { "type": "string",  "example": "user_abc123" },
+          "name":    { "type": ["string", "null"], "example": "Jane Doe" },
+          "email":   { "type": "string",  "format": "email", "example": "jane@example.com" },
+          "isAdmin": { "type": "boolean", "example": false, "description": "Whether the user has admin privileges (sees all tenants)." }
+        }
+      },
       "ErrorResponse": {
         "type": "object",
         "required": ["error"],
@@ -123,7 +129,7 @@
         }
       },
       "Forbidden": {
-        "description": "Session required — the bearer token cannot perform this mutation.",
+        "description": "Insufficient permissions — admin privileges required or resource does not belong to the authenticated user.",
         "content": {
           "application/json": {
             "schema": { "$ref": "#/components/schemas/ErrorResponse" },
@@ -155,10 +161,9 @@
       "get": {
         "operationId": "listApplications",
         "summary": "List applications",
-        "description": "Returns all applications for the authenticated user, ordered by creation date descending. Admin token returns all applications across users.",
+        "description": "Returns all applications for the authenticated user, ordered by creation date descending. Admin users see all applications across tenants.",
         "tags": ["Applications"],
         "security": [
-          { "BearerAuth": [] },
           { "CookieAuth": [] }
         ],
         "responses": {
@@ -179,7 +184,7 @@
       "post": {
         "operationId": "createApplication",
         "summary": "Create application",
-        "description": "Creates a new application owned by the session user. **Requires a session** — the admin bearer token cannot create applications.",
+        "description": "Creates a new application owned by the session user.",
         "tags": ["Applications"],
         "security": [
           { "CookieAuth": [] }
@@ -233,10 +238,9 @@
       "get": {
         "operationId": "getApplication",
         "summary": "Get application",
-        "description": "Returns a single application by ID. Access is scoped to the authenticated user (admin token sees all).",
+        "description": "Returns a single application by ID. Access is scoped to the authenticated user (admin users see all).",
         "tags": ["Applications"],
         "security": [
-          { "BearerAuth": [] },
           { "CookieAuth": [] }
         ],
         "responses": {
@@ -457,10 +461,9 @@
       "get": {
         "operationId": "listDocuments",
         "summary": "List documents",
-        "description": "Returns all documents for the authenticated user, ordered by upload date descending. Each document includes its linked applications. Admin token returns all documents.",
+        "description": "Returns all documents for the authenticated user, ordered by upload date descending. Each document includes its linked applications. Admin users see all documents.",
         "tags": ["Documents"],
         "security": [
-          { "BearerAuth": [] },
           { "CookieAuth": [] }
         ],
         "responses": {
@@ -626,10 +629,9 @@
       "get": {
         "operationId": "downloadDocumentFile",
         "summary": "Download document file",
-        "description": "Streams the raw file with the original filename as the download name.\n\nAccess is permitted via any of:\n- Session cookie (`CookieAuth`)\n- Admin bearer token (`BearerAuth`)\n- `?token=<PUBLIC_READ_TOKEN>` query parameter (share links / readonly embeds)\n\nThe public token is obtained from `GET /api/config/public-token`.",
+        "description": "Streams the raw file with the original filename as the download name.\n\nAccess is permitted via any of:\n- Session cookie (`CookieAuth`)\n- `?token=<PUBLIC_READ_TOKEN>` query parameter (share links / readonly embeds)\n\nThe public token is obtained from `GET /api/config/public-token`.",
         "tags": ["Documents"],
         "security": [
-          { "BearerAuth": [] },
           { "CookieAuth": [] },
           {}
         ],
@@ -662,6 +664,78 @@
             }
           },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "List all users",
+        "description": "Returns all registered users. **Requires admin privileges.**",
+        "tags": ["Admin"],
+        "security": [
+          { "CookieAuth": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of users.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/UserRecord" }
+                }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "description": "User ID."
+        }
+      ],
+      "patch": {
+        "operationId": "updateUserAdmin",
+        "summary": "Update user admin status",
+        "description": "Sets or revokes admin privileges for a user. Cannot remove the last admin. **Requires admin privileges.**",
+        "tags": ["Admin"],
+        "security": [
+          { "CookieAuth": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["isAdmin"],
+                "properties": {
+                  "isAdmin": { "type": "boolean", "description": "Whether the user should have admin privileges." }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserRecord" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
@@ -703,6 +777,7 @@
     { "name": "Applications", "description": "Job application lifecycle management." },
     { "name": "Contacts",     "description": "Contacts associated with job applications." },
     { "name": "Documents",    "description": "File uploads linked to applications." },
-    { "name": "Config",       "description": "Client-side configuration endpoints." }
+    { "name": "Config",       "description": "Client-side configuration endpoints." },
+    { "name": "Admin",        "description": "User management (requires isAdmin=true)." }
   ]
 }

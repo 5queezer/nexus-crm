@@ -17,7 +17,7 @@ A personal job application tracker built with modern fullstack tooling. Track ap
 - **DE/EN Language Switcher** — full i18n via next-intl
 - **CSV Export** — one-click export, Excel-compatible
 - **Quick Stats** — at-a-glance count by status
-- **Google OAuth** — secure login, single-user access
+- **Google OAuth** — secure login, multi-user with per-user admin roles
 - **API Docs** — OpenAPI 3.1 spec with Swagger UI at `/api-docs`
 
 ## Tech Stack
@@ -91,6 +91,8 @@ ALLOWED_EMAIL="your@email.com"
 # Optional
 GCS_BUCKET="your-bucket"                     # omit for local filesystem storage
 PUBLIC_READ_TOKEN="random-token"             # token for the /share read-only page
+# Note: Admin access is managed per-user in the web UI (no env var needed).
+# The first user matching ALLOWED_EMAIL is auto-promoted to admin on first login.
 ```
 
 ### Docker

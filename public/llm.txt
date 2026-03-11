@@ -2,18 +2,21 @@
 
 ## What this app is
 A personal job application tracker. Supports CRUD for applications, contacts, and documents.
-Multi-tenant: each user only sees their own data. One admin token bypasses tenant scoping.
+Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) bypass tenant scoping.
 
 ## Authentication
 
 ### User session (Google OAuth)
 - Login: GET /login → redirects to Google OAuth
 - Session managed by better-auth (httpOnly cookies)
+- All API operations require a valid session
 
-### Admin API token (Bearer)
-- Header: `Authorization: Bearer $ADMIN_API_TOKEN`
-- **Deprecated:** Admin tokens are no longer used for mutations. Admin access is now configured per-user in the web UI.
-- Admin role bypasses userId filtering (sees all tenants).
+### Admin privileges
+- Admin access is per-user, stored as `isAdmin` boolean in the database
+- The first user matching `ALLOWED_EMAIL` is automatically bootstrapped as admin on first login
+- Admin users can manage other users' admin status via the admin UI
+- Admin users bypass userId filtering (see all tenants' data)
+- At least one admin user must always exist (last-admin protection)
 
 ### Share token (read-only public)
 - Query param: `/share?token=$SHARE_TOKEN`
@@ -27,37 +30,43 @@ Multi-tenant: each user only sees their own data. One admin token bypasses tenan
 ### Applications
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /api/applications | session or admin | List all (filtered by userId unless admin) |
-| POST | /api/applications | session or admin | Create application |
-| GET | /api/applications/:id | session or admin | Get single |
-| PATCH | /api/applications/:id | session or admin | Update |
-| DELETE | /api/applications/:id | session or admin | Delete |
+| GET | /api/applications | session | List all (filtered by userId unless admin) |
+| POST | /api/applications | session | Create application |
+| GET | /api/applications/:id | session | Get single |
+| PATCH | /api/applications/:id | session | Update |
+| DELETE | /api/applications/:id | session | Delete |
 
 ### Contacts (per application)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /api/applications/:id/contacts | session or admin | List contacts |
-| POST | /api/applications/:id/contacts | session or admin | Create contact |
-| PATCH | /api/applications/:id/contacts/:contactId | session or admin | Update contact |
-| DELETE | /api/applications/:id/contacts/:contactId | session or admin | Delete contact |
+| GET | /api/applications/:id/contacts | session | List contacts |
+| POST | /api/applications/:id/contacts | session | Create contact |
+| PATCH | /api/applications/:id/contacts/:contactId | session | Update contact |
+| DELETE | /api/applications/:id/contacts/:contactId | session | Delete contact |
 
 ### Documents
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /api/documents | session or admin | List documents |
-| POST | /api/documents | session or admin | Upload (multipart/form-data, field: file) |
-| DELETE | /api/documents/:id | session or admin | Delete |
-| GET | /api/documents/:id/file | session, admin, or share token | Download file |
+| GET | /api/documents | session | List documents |
+| POST | /api/documents | session | Upload (multipart/form-data, field: file) |
+| DELETE | /api/documents/:id | session | Delete |
+| GET | /api/documents/:id/file | session or share token | Download file |
+
+### Admin (requires isAdmin=true)
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /api/users | admin session | List all users |
+| PATCH | /api/users/:id | admin session | Update user admin status |
 
 ---
 
 ## Application status values
 `draft` | `applied` | `waiting` | `interview` | `offer` | `rejected` | `ghost`
 
-## Example: create application via admin token
+## Example: create application
 ```
 POST /api/applications
-Authorization: Bearer <ADMIN_API_TOKEN from env>
+Cookie: better-auth.session_token=<session>
 Content-Type: application/json
 
 {
@@ -65,14 +74,14 @@ Content-Type: application/json
   "role": "Senior Engineer",
   "status": "applied",
   "appliedAt": "2026-03-06",
-  "url": "https://acme.com/jobs/123",
-  "notes": "Referral from Alice"
+  "notes": "Referral from a contact"
 }
 ```
 
 ## Security notes
-- ADMIN_API_TOKEN and SHARE_TOKEN are server-side env vars only
+- PUBLIC_READ_TOKEN is a server-side env var only
 - NEXT_PUBLIC_* env vars do NOT contain any tokens
 - Rate limiting: 60 req/min per IP on API routes
 - All inputs validated; max upload size 15MB
 - Row Level Security: userId enforced at query level via lib/tenant.ts
+- Admin privileges managed per-user in the database, not via env vars
