@@ -94,7 +94,9 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
     <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">{app.company}</h3>
+          <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">
+            {app.company || <span className="italic font-normal text-gray-400 dark:text-gray-500">—</span>}
+          </h3>
           <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-300">{app.role}</p>
         </div>
         <div className="shrink-0">
