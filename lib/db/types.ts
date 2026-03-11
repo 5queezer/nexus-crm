@@ -13,6 +13,7 @@ export interface ApplicationRecord {
   jobDescription: string | null;
   source: string | null;
   resumeId: string | null;
+  archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   contacts?: ContactRecord[];
@@ -94,6 +95,7 @@ export interface UpdateApplicationInput {
   jobDescription?: string | null;
   source?: string | null;
   resumeId?: string | null;
+  archivedAt?: Date | null;
 }
 
 export interface CreateContactInput {

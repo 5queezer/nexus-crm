@@ -38,6 +38,15 @@ async function deleteApplication(id: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete application");
 }
 
+async function archiveApplication(id: string, archive: boolean): Promise<void> {
+  const res = await fetch(`/api/applications/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ archivedAt: archive ? new Date().toISOString() : null }),
+  });
+  if (!res.ok) throw new Error("Failed to archive application");
+}
+
 function exportToCsv(applications: Application[], filename = "applications.csv") {
   const headers = ["Company", "Role", "Status", "Source", "Applied", "Last Contact", "Follow-up", "Notes"];
   const rows = applications.map((a) => [
@@ -79,6 +88,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [showArchived, setShowArchived] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isApiTokenPanelOpen, setIsApiTokenPanelOpen] = useState(false);
@@ -90,6 +100,14 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
 
   const deleteMutation = useMutation({
     mutationFn: deleteApplication,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: ({ id, archive }: { id: string; archive: boolean }) =>
+      archiveApplication(id, archive),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
@@ -122,17 +140,26 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
     setEditingApp(null);
   }
 
+  function handleArchive(id: string, archive: boolean) {
+    archiveMutation.mutate({ id, archive });
+  }
+
+  // Filter by archive status
+  const activeApplications = applications.filter((a) => !a.archivedAt);
+  const archivedApplications = applications.filter((a) => !!a.archivedAt);
+  const visibleApplications = showArchived ? archivedApplications : activeApplications;
+
   const stats = {
-    total: applications.length,
-    active: applications.filter((a) =>
+    total: activeApplications.length,
+    active: activeApplications.filter((a) =>
       (["applied", "waiting", "interview"] as ApplicationStatus[]).includes(a.status)
     ).length,
-    offers: applications.filter((a) => a.status === "offer").length,
-    ghosted: applications.filter((a) => a.status === "ghost").length,
+    offers: activeApplications.filter((a) => a.status === "offer").length,
+    ghosted: activeApplications.filter((a) => a.status === "ghost").length,
   };
 
-  // Overdue follow-ups banner
-  const overdueFollowUps = applications.filter((a) => {
+  // Overdue follow-ups banner (only active, non-archived)
+  const overdueFollowUps = activeApplications.filter((a) => {
     if (!a.followUpAt) return false;
     const d = new Date(a.followUpAt);
     const today = new Date();
@@ -296,7 +323,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {t("applications")} ({applications.length})
+              {showArchived ? ta("archive") : t("applications")} ({visibleApplications.length})
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -326,9 +353,26 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
 
             {/* Actions — row 2 on mobile */}
             <div className="flex items-center gap-2 ml-auto">
+              {/* Archive toggle */}
+              <button
+                onClick={() => setShowArchived((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                  showArchived
+                    ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
+                    : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                }`}
+              >
+                {showArchived ? ta("show_active") : ta("show_archive")}
+                {archivedApplications.length > 0 && !showArchived && (
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-gray-200 dark:bg-gray-600 text-xs font-bold text-gray-700 dark:text-gray-200">
+                    {archivedApplications.length}
+                  </span>
+                )}
+              </button>
+
               {/* CSV Export */}
               <button
-                onClick={() => exportToCsv(applications)}
+                onClick={() => exportToCsv(visibleApplications)}
                 title={ta("export_csv")}
                 className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
               >
@@ -357,12 +401,14 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
           <div className="text-center py-20 text-red-500">{t("loading_error")}</div>
         ) : viewMode === "table" ? (
           <ApplicationTable
-            applications={applications}
+            applications={visibleApplications}
             onEdit={handleEdit}
             onDelete={handleDelete}
+            onArchive={handleArchive}
+            showArchived={showArchived}
           />
         ) : (
-          <KanbanView applications={applications} onEdit={handleEdit} />
+          <KanbanView applications={visibleApplications} onEdit={handleEdit} />
         )}
       </main>
 

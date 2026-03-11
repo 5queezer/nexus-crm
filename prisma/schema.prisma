@@ -21,6 +21,7 @@ model Application {
   jobDescription  String?
   source          String?
   resumeId        String?   // Reactive Resume resume ID
+  archivedAt      DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   documents       Document[]

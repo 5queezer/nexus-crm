@@ -31,6 +31,7 @@ export interface Application {
   jobDescription: string | null;
   source: string | null;
   resumeId: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
   contacts?: Contact[];

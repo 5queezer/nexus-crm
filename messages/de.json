@@ -25,7 +25,11 @@
     "cancel": "Abbrechen",
     "saving": "Speichern...",
     "search": "Suchen...",
-    "all_statuses": "Alle Status"
+    "all_statuses": "Alle Status",
+    "archive": "Archiv",
+    "unarchive": "Wiederherstellen",
+    "show_archive": "Archiv",
+    "show_active": "Aktiv"
   },
   "table": {
     "company": "Firma",

@@ -71,9 +71,11 @@ interface ApplicationTableProps {
   applications: Application[];
   onEdit: (app: Application) => void;
   onDelete: (id: string) => void;
+  onArchive?: (id: string, archive: boolean) => void;
+  showArchived?: boolean;
 }
 
-export function ApplicationTable({ applications, onEdit, onDelete }: ApplicationTableProps) {
+export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived }: ApplicationTableProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
   const ts = useTranslations("status");
@@ -166,6 +168,14 @@ export function ApplicationTable({ applications, onEdit, onDelete }: Application
           >
             {ta("edit")}
           </button>
+          {onArchive && (
+            <button
+              onClick={() => onArchive(row.original.id, !showArchived)}
+              className="flex items-center min-h-[44px] px-2 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 text-sm font-medium transition-colors"
+            >
+              {showArchived ? ta("unarchive") : ta("archive")}
+            </button>
+          )}
           <button
             onClick={() => onDelete(row.original.id)}
             className="flex items-center min-h-[44px] px-2 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
