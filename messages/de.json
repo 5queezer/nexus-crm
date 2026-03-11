@@ -87,7 +87,8 @@
     "rejected": "Abgelehnt",
     "offer": "Angebot",
     "ghost": "Ghosted",
-    "draft": "Entwurf"
+    "draft": "Entwurf",
+    "inbound": "Eingehend"
   },
   "kanban": {
     "empty": "Keine Einträge"
@@ -133,7 +134,8 @@
       "rejected": "Abgelehnt",
       "offer": "Angebot",
       "ghost": "Ghosted",
-      "draft": "Entwurf"
+      "draft": "Entwurf",
+      "inbound": "Eingehend"
     },
     "footer_note": "Dies ist eine schreibgeschützte Ansicht. Nur Christian kann Änderungen vornehmen."
   },

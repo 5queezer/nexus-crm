@@ -87,7 +87,8 @@
     "rejected": "Rejected",
     "offer": "Offer",
     "ghost": "Ghosted",
-    "draft": "Draft"
+    "draft": "Draft",
+    "inbound": "Inbound"
   },
   "kanban": {
     "empty": "No entries"
@@ -133,7 +134,8 @@
       "rejected": "Rejected",
       "offer": "Offer",
       "ghost": "Ghosted",
-      "draft": "Draft"
+      "draft": "Draft",
+      "inbound": "Inbound"
     },
     "footer_note": "This is a read-only view. Only Christian can make changes."
   },

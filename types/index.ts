@@ -5,7 +5,8 @@ export type ApplicationStatus =
   | "rejected"
   | "offer"
   | "ghost"
-  | "draft";
+  | "draft"
+  | "inbound";
 
 export interface Contact {
   id: string;
@@ -43,6 +44,7 @@ export const STATUS_COLORS: Record<ApplicationStatus, string> = {
   offer: "bg-green-100 text-green-800 dark:bg-emerald-500/25 dark:text-emerald-300",
   ghost: "bg-gray-100 text-gray-600 dark:bg-gray-500/25 dark:text-gray-300",
   draft: "bg-slate-100 text-slate-600 dark:bg-slate-500/25 dark:text-slate-300",
+  inbound: "bg-teal-100 text-teal-800 dark:bg-teal-500/25 dark:text-teal-300",
 };
 
 // Row highlight colors for table
@@ -54,10 +56,12 @@ export const STATUS_ROW_COLORS: Record<ApplicationStatus, string> = {
   offer: "bg-green-50/40 dark:bg-green-950/20",
   ghost: "bg-gray-50/50 dark:bg-gray-800/30",
   draft: "",
+  inbound: "",
 };
 
 // Ordered for Kanban display
 export const STATUS_ORDER: ApplicationStatus[] = [
+  "inbound",
   "draft",
   "applied",
   "waiting",
@@ -76,4 +80,5 @@ export const STATUS_OPTIONS: { value: ApplicationStatus; label: string; color: s
   { value: "offer", label: "Angebot", color: STATUS_COLORS.offer },
   { value: "ghost", label: "Ghosted", color: STATUS_COLORS.ghost },
   { value: "draft", label: "Entwurf", color: STATUS_COLORS.draft },
+  { value: "inbound", label: "Eingehend", color: STATUS_COLORS.inbound },
 ];
