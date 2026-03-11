@@ -166,12 +166,6 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
   const queryClient = useQueryClient();
   const [activeApp, setActiveApp] = useState<Application | null>(null);
   const [overColumnId, setOverColumnId] = useState<UniqueIdentifier | null>(null);
-  const [selectedStatus, setSelectedStatus] = useState<ApplicationStatus>(() => {
-    const firstWithItems = STATUS_ORDER.find((status) =>
-      applications.some((app) => app.status === status)
-    );
-    return firstWithItems ?? STATUS_ORDER[0];
-  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -191,8 +185,8 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
   }, [applications]);
 
   const mobileStatuses = useMemo(
-    () => STATUS_ORDER.filter((status) => grouped[status].length > 0 || status === selectedStatus),
-    [grouped, selectedStatus]
+    () => STATUS_ORDER.filter((status) => grouped[status].length > 0),
+    [grouped]
   );
 
   function handleDragStart(event: DragStartEvent) {
@@ -235,35 +229,29 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
   return (
     <>
       <div className="md:hidden space-y-4">
-        <div className="sticky top-16 z-[5] -mx-1 overflow-x-auto rounded-xl border border-gray-200 bg-white/95 px-1 py-1 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
-          <div className="flex gap-2 px-1">
-            {mobileStatuses.map((status) => (
-              <button
-                key={status}
-                onClick={() => setSelectedStatus(status)}
-                className={`whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                  selectedStatus === status
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-                }`}
-              >
-                {ts(status)} · {grouped[status].length}
-              </button>
-            ))}
+        {mobileStatuses.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
+            {tk("empty")}
           </div>
-        </div>
+        ) : (
+          mobileStatuses.map((status) => (
+            <section key={status} className="space-y-2">
+              <div className="sticky top-16 z-[5] -mx-1 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_COLORS[status]}`}>
+                    {ts(status)} · {grouped[status].length}
+                  </span>
+                </div>
+              </div>
 
-        <div className="space-y-2">
-          {grouped[selectedStatus].length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
-              {tk("empty")}
-            </div>
-          ) : (
-            grouped[selectedStatus].map((app) => (
-              <KanbanCard key={app.id} app={app} onEdit={onEdit} />
-            ))
-          )}
-        </div>
+              <div className="space-y-2">
+                {grouped[status].map((app) => (
+                  <KanbanCard key={app.id} app={app} onEdit={onEdit} />
+                ))}
+              </div>
+            </section>
+          ))
+        )}
       </div>
 
       <div className="hidden md:block">
