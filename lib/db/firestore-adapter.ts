@@ -8,6 +8,7 @@ import type {
   ContactRecord,
   DocumentRecord,
   UserRecord,
+  AuditLogRecord,
   ApiTokenRecord,
   ApiTokenInfo,
   ShareLinkRecord,
@@ -386,6 +387,34 @@ export class FirestoreAdapter implements DatabaseAdapter {
       data: { isAdmin },
       select: { id: true, name: true, email: true, isAdmin: true },
     });
+  }
+
+  // ── Audit Logs (stored in Prisma like users) ──────────────────────────
+
+  async createAuditLog(actorId: string, action: string, targetId: string): Promise<void> {
+    await prisma.adminAuditLog.create({
+      data: { actorId, action, targetId },
+    });
+  }
+
+  async listAuditLogs(limit = 50): Promise<AuditLogRecord[]> {
+    const rows = await prisma.adminAuditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: {
+        actor: { select: { email: true } },
+        target: { select: { email: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: String(r.id),
+      actorId: r.actorId,
+      actorEmail: r.actor.email,
+      action: r.action,
+      targetId: r.targetId,
+      targetEmail: r.target.email,
+      createdAt: r.createdAt,
+    }));
   }
 
   // ── API Tokens (stored in Prisma like users) ──────────────────────────

@@ -14,7 +14,6 @@ import { Application, ApplicationStatus } from "@/types";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
-import { AdminUsers } from "./admin-users";
 import { ApiToken } from "./api-token";
 
 interface DashboardProps {
@@ -93,7 +92,6 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showArchived, setShowArchived] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isApiTokenPanelOpen, setIsApiTokenPanelOpen] = useState(false);
 
   const { data: applications = [], isLoading, isError } = useQuery({
@@ -200,14 +198,12 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               )}
               <span className="text-sm text-gray-600 dark:text-gray-300">{user.name || user.email}</span>
               {user.isAdmin && (
-                <button
-                  onClick={() => setIsAdminPanelOpen((v) => !v)}
-                  className={`flex items-center min-h-[44px] px-2 text-sm font-medium transition-colors ${
-                    isAdminPanelOpen ? "text-blue-600" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
-                  }`}
+                <Link
+                  href="/settings"
+                  className="flex items-center min-h-[44px] px-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
                 >
-                  🛡️ Admin
-                </button>
+                  🛡️ {tn("settings")}
+                </Link>
               )}
               <button
                 onClick={() => setIsApiTokenPanelOpen((v) => !v)}
@@ -321,12 +317,6 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         {isApiTokenPanelOpen && (
           <div className="mb-8">
             <ApiToken />
-          </div>
-        )}
-
-        {isAdminPanelOpen && (
-          <div className="mb-8">
-            <AdminUsers />
           </div>
         )}
 

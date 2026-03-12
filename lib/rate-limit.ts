@@ -8,6 +8,7 @@ interface RateLimitEntry {
 // One cache per route group, keyed by IP
 const caches = {
   auth: new LRUCache<string, RateLimitEntry>({ max: 500 }),
+  admin: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   applications: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   documents: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   general: new LRUCache<string, RateLimitEntry>({ max: 500 }),
@@ -17,6 +18,7 @@ type RouteGroup = keyof typeof caches;
 
 const LIMITS: Record<RouteGroup, { max: number; windowMs: number }> = {
   auth: { max: 10, windowMs: 60_000 },
+  admin: { max: 20, windowMs: 60_000 },
   applications: { max: 60, windowMs: 60_000 },
   documents: { max: 30, windowMs: 60_000 },
   general: { max: 30, windowMs: 60_000 },

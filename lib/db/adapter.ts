@@ -3,6 +3,7 @@ import type {
   ContactRecord,
   DocumentRecord,
   UserRecord,
+  AuditLogRecord,
   ApiTokenRecord,
   ApiTokenInfo,
   ShareLinkRecord,
@@ -45,6 +46,10 @@ export interface DatabaseAdapter {
   getUser(id: string): Promise<UserRecord | null>;
   listUsers(): Promise<UserRecord[]>;
   updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord>;
+
+  // ── Audit Logs ──────────────────────────────────────────────────────────
+  createAuditLog(actorId: string, action: string, targetId: string): Promise<void>;
+  listAuditLogs(limit?: number): Promise<AuditLogRecord[]>;
 
   // ── API Tokens ─────────────────────────────────────────────────────────
   getApiTokenByHash(tokenHash: string): Promise<ApiTokenRecord | null>;

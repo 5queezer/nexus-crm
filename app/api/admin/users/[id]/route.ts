@@ -17,6 +17,15 @@ export async function PATCH(
   }
 
   const { id } = await params;
+
+  // Prevent self-demotion
+  if (id === auth.userId && !body.isAdmin) {
+    return NextResponse.json(
+      { error: "Cannot remove your own admin status. Ask another admin." },
+      { status: 400 }
+    );
+  }
+
   const users = await getDb().listUsers();
   const target = users.find((user) => user.id === id);
 
@@ -32,6 +41,12 @@ export async function PATCH(
     );
   }
 
-  const updated = await getDb().updateUserAdmin(id, body.isAdmin);
+  const db = getDb();
+  const updated = await db.updateUserAdmin(id, body.isAdmin);
+
+  // Write audit log
+  const action = body.isAdmin ? "grant_admin" : "revoke_admin";
+  await db.createAuditLog(auth.userId, action, id);
+
   return NextResponse.json(updated);
 }

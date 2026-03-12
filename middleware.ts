@@ -15,6 +15,7 @@ export function middleware(req: NextRequest): NextResponse {
 
   const group =
     pathname.startsWith("/api/auth") ? "auth"
+    : pathname.startsWith("/api/admin") ? "admin"
     : pathname.startsWith("/api/applications") ? "applications"
     : pathname.startsWith("/api/documents") ? "documents"
     : pathname.startsWith("/s/") ? "general"
@@ -23,7 +24,7 @@ export function middleware(req: NextRequest): NextResponse {
 
   if (group) {
     const result = checkRateLimit(ip, group);
-    const limit = group === "auth" ? "10" : group === "applications" ? "60" : "30";
+    const limit = group === "auth" ? "10" : group === "admin" ? "20" : group === "applications" ? "60" : "30";
 
     if (!result.allowed) {
       return new NextResponse(

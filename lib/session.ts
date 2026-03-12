@@ -32,17 +32,21 @@ async function maybeBootstrapFirstAdmin(userId: string, email: string): Promise<
     return false;
   }
 
-  const adminCount = await prisma.user.count({ where: { isAdmin: true } });
-  if (adminCount > 0) {
-    return false;
-  }
+  // Use a serializable transaction to prevent race condition where two
+  // concurrent first-login requests both see zero admins and both get promoted.
+  return prisma.$transaction(async (tx) => {
+    const adminCount = await tx.user.count({ where: { isAdmin: true } });
+    if (adminCount > 0) {
+      return false;
+    }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { isAdmin: true },
+    await tx.user.update({
+      where: { id: userId },
+      data: { isAdmin: true },
+    });
+
+    return true;
   });
-
-  return true;
 }
 
 export async function getSession() {
