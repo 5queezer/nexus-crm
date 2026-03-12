@@ -68,8 +68,10 @@ model User {
   documents     Document[]
   apiTokens     UserApiToken[]
   shareLinks    ShareLink[]
-  auditLogsAsActor  AdminAuditLog[] @relation("auditActor")
-  auditLogsAsTarget AdminAuditLog[] @relation("auditTarget")
+  auditLogsAsActor    AdminAuditLog[]    @relation("auditActor")
+  auditLogsAsTarget   AdminAuditLog[]    @relation("auditTarget")
+  emailIntegration    EmailIntegration?
+  scannedEmails       ScannedEmail[]
 }
 
 model UserApiToken {
@@ -135,6 +137,41 @@ model Account {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmailIntegration {
+  id              Int      @id @default(autoincrement())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        String   // "gmail" | "outlook"
+  encryptedToken  String   // AES-256-GCM encrypted refresh token
+  lastHistoryId   String?  // Gmail history cursor for incremental sync
+  scanFrequency   Int      @default(15) // minutes between scans
+  autoImport      String   @default("review") // "off" | "review" | "auto"
+  scanDaysBack    Int      @default(7) // how many days back to scan on first run
+  enabled         Boolean  @default(true)
+  lastScanAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ScannedEmail {
+  id              Int      @id @default(autoincrement())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId       String   // provider's unique message ID
+  subject         String
+  sender          String
+  receivedAt      DateTime
+  classification  String?  // "applied" | "interview" | "rejection" | "offer" | null
+  confidence      String   @default("low") // "high" | "medium" | "low"
+  extractedData   String?  // JSON: { company, role, date }
+  status          String   @default("pending") // "pending" | "imported" | "dismissed"
+  applicationId   Int?     // linked Application after import
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([userId, status])
 }
 
 model Verification {

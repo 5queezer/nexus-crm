@@ -177,6 +177,48 @@
       "action_revoke": "revoked admin from"
     }
   },
+  "email": {
+    "title": "Email Integration",
+    "description": "Connect your Gmail account to automatically detect job application emails and import them.",
+    "loading": "Loading...",
+    "connect_gmail": "Connect Gmail",
+    "connect_hint": "Grants read-only access to scan for job-related emails. You can disconnect at any time.",
+    "connected": "Connected via {provider}",
+    "disconnect": "Disconnect",
+    "confirm_disconnect": "Disconnect email integration? All scanned emails will be deleted.",
+    "scan_now": "Scan now",
+    "enabled": "Email scanning enabled",
+    "scan_frequency": "Scan frequency",
+    "every_15min": "Every 15 minutes",
+    "every_30min": "Every 30 minutes",
+    "every_60min": "Every hour",
+    "auto_import": "Import mode",
+    "import_off": "Off — don't import",
+    "import_review": "Review first",
+    "import_auto": "Auto-import",
+    "scan_days_back": "Scan window",
+    "days": "days",
+    "last_scan": "Last scan: {time}",
+    "scanned_title": "Scanned Emails",
+    "no_emails": "No emails found.",
+    "select_all": "Select all",
+    "import": "Import",
+    "dismiss": "Dismiss",
+    "import_selected": "Import ({count})",
+    "dismiss_selected": "Dismiss",
+    "filter": {
+      "pending": "Pending",
+      "imported": "Imported",
+      "dismissed": "Dismissed"
+    },
+    "classification": {
+      "applied": "Applied",
+      "interview": "Interview",
+      "rejection": "Rejected",
+      "offer": "Offer",
+      "unknown": "Unknown"
+    }
+  },
   "token": {
     "title": "API Token",
     "description": "Generate a personal API token for LLM integrations.",

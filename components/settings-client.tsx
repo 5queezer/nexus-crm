@@ -8,6 +8,8 @@ import { ThemeSwitcher } from "./theme-switcher";
 import { AdminUsers } from "./admin-users";
 import { AuditLog } from "./audit-log";
 import { AppSettingsPanel } from "./app-settings";
+import { EmailIntegration } from "./email-integration";
+import { ScannedEmails } from "./scanned-emails";
 
 interface SettingsClientProps {
   user: {
@@ -56,9 +58,15 @@ export function SettingsClient({ user }: SettingsClientProps) {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <EmailIntegration />
+        <ScannedEmails />
         <AppSettingsPanel />
-        <AdminUsers currentUserId={user.id} />
-        <AuditLog />
+        {user.isAdmin && (
+          <>
+            <AdminUsers currentUserId={user.id} />
+            <AuditLog />
+          </>
+        )}
       </main>
     </div>
   );

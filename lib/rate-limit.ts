@@ -11,6 +11,7 @@ const caches = {
   admin: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   applications: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   documents: new LRUCache<string, RateLimitEntry>({ max: 500 }),
+  email: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   general: new LRUCache<string, RateLimitEntry>({ max: 500 }),
 } as const;
 
@@ -21,6 +22,7 @@ const LIMITS: Record<RouteGroup, { max: number; windowMs: number }> = {
   admin: { max: 20, windowMs: 60_000 },
   applications: { max: 60, windowMs: 60_000 },
   documents: { max: 30, windowMs: 60_000 },
+  email: { max: 20, windowMs: 60_000 },
   general: { max: 30, windowMs: 60_000 },
 };
 
