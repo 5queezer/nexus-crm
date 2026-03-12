@@ -177,6 +177,48 @@
       "action_revoke": "hat Admin-Rechte entzogen von"
     }
   },
+  "email": {
+    "title": "E-Mail-Integration",
+    "description": "Verbinde dein Gmail-Konto, um Bewerbungs-E-Mails automatisch zu erkennen und zu importieren.",
+    "loading": "Lädt...",
+    "connect_gmail": "Gmail verbinden",
+    "connect_hint": "Gewährt Lesezugriff zum Scannen von bewerbungsrelevanten E-Mails. Du kannst die Verbindung jederzeit trennen.",
+    "connected": "Verbunden über {provider}",
+    "disconnect": "Trennen",
+    "confirm_disconnect": "E-Mail-Integration trennen? Alle gescannten E-Mails werden gelöscht.",
+    "scan_now": "Jetzt scannen",
+    "enabled": "E-Mail-Scanning aktiviert",
+    "scan_frequency": "Scan-Häufigkeit",
+    "every_15min": "Alle 15 Minuten",
+    "every_30min": "Alle 30 Minuten",
+    "every_60min": "Jede Stunde",
+    "auto_import": "Import-Modus",
+    "import_off": "Aus — nicht importieren",
+    "import_review": "Erst prüfen",
+    "import_auto": "Automatisch importieren",
+    "scan_days_back": "Scan-Zeitraum",
+    "days": "Tage",
+    "last_scan": "Letzter Scan: {time}",
+    "scanned_title": "Gescannte E-Mails",
+    "no_emails": "Keine E-Mails gefunden.",
+    "select_all": "Alle auswählen",
+    "import": "Importieren",
+    "dismiss": "Verwerfen",
+    "import_selected": "Importieren ({count})",
+    "dismiss_selected": "Verwerfen",
+    "filter": {
+      "pending": "Ausstehend",
+      "imported": "Importiert",
+      "dismissed": "Verworfen"
+    },
+    "classification": {
+      "applied": "Beworben",
+      "interview": "Interview",
+      "rejection": "Abgelehnt",
+      "offer": "Angebot",
+      "unknown": "Unbekannt"
+    }
+  },
   "token": {
     "title": "API-Token",
     "description": "Persönlichen API-Token für LLM-Integrationen generieren.",

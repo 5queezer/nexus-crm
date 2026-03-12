@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/session";
+import { requireAuth } from "@/lib/session";
 import { SettingsClient } from "@/components/settings-client";
 
 export default async function SettingsPage() {
-  const session = await requireAdmin();
+  const session = await requireAuth();
 
   if (!session) {
     redirect("/");
