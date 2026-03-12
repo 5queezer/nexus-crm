@@ -90,7 +90,7 @@ model ShareLink {
   targetId   String?                   // e.g. document ID; null for share_page
   createdAt  DateTime  @default(now())
 
-  @@index([userId])
+  @@unique([userId, targetType, targetId])
 }
 
 model Session {

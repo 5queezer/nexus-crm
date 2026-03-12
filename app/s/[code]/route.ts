@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { downloadFile, fileExists } from "@/lib/storage";
 
+const NOT_FOUND = NextResponse.json({ error: "Not found" }, { status: 404 });
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ code: string }> }
@@ -11,28 +13,24 @@ export async function GET(
   const link = await db.getShareLinkByCode(code);
 
   if (!link) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NOT_FOUND;
   }
 
   if (link.targetType === "share_page") {
-    const lang = request.nextUrl.searchParams.get("lang");
-    const langParam = lang === "en" ? "&lang=en" : "";
     const token = process.env.PUBLIC_READ_TOKEN;
     if (!token) {
-      return NextResponse.json({ error: "Share not configured" }, { status: 500 });
+      return NOT_FOUND;
     }
+    const lang = request.nextUrl.searchParams.get("lang");
+    const langParam = lang === "en" ? "&lang=en" : "";
     const url = new URL(`/share?token=${token}${langParam}`, request.url);
     return NextResponse.redirect(url);
   }
 
   if (link.targetType === "document" && link.targetId) {
     const doc = await db.getDocument(link.targetId, null);
-    if (!doc) {
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
-    }
-
-    if (!(await fileExists(doc.filename))) {
-      return NextResponse.json({ error: "File not found on disk" }, { status: 404 });
+    if (!doc || !(await fileExists(doc.filename))) {
+      return NOT_FOUND;
     }
 
     const buffer = await downloadFile(doc.filename);
@@ -46,5 +44,5 @@ export async function GET(
     });
   }
 
-  return NextResponse.json({ error: "Invalid link" }, { status: 400 });
+  return NOT_FOUND;
 }

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   if (targetType === "document") {
     const doc = await db.getDocument(targetId, session.user.id);
     if (!doc) {
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
   }
 
@@ -38,11 +38,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(existing);
   }
 
-  const link = await db.createShareLink(session.user.id, {
-    code: generateShortCode(),
-    targetType,
-    targetId: resolvedTargetId,
-  });
+  // Retry with new code on collision (unique constraint violation)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const link = await db.createShareLink(session.user.id, {
+        code: generateShortCode(),
+        targetType,
+        targetId: resolvedTargetId,
+      });
+      return NextResponse.json(link, { status: 201 });
+    } catch (err) {
+      const isCollision =
+        err instanceof Error && "code" in err && (err as { code: string }).code === "P2002";
+      if (!isCollision || attempt === 2) throw err;
+    }
+  }
 
-  return NextResponse.json(link, { status: 201 });
+  return NextResponse.json({ error: "Failed to create share link" }, { status: 500 });
 }

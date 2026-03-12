@@ -207,6 +207,7 @@ export class PrismaAdapter implements DatabaseAdapter {
   async deleteDocument(id: string, userId: string): Promise<DocumentRecord | null> {
     const doc = await prisma.document.findFirst({ where: { id: nid(id), userId } });
     if (!doc) return null;
+    await prisma.shareLink.deleteMany({ where: { userId, targetType: "document", targetId: id } });
     await prisma.document.delete({ where: { id: nid(id), userId } });
     return mapDoc(doc);
   }

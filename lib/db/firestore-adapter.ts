@@ -358,6 +358,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const existing = await ref.get();
     if (!existing.exists || existing.data()!.userId !== userId) return null;
     const rec = mapDoc(id, existing.data()!);
+    await prisma.shareLink.deleteMany({ where: { userId, targetType: "document", targetId: id } });
     await ref.delete();
     return rec;
   }
