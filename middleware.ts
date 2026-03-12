@@ -17,6 +17,7 @@ export function middleware(req: NextRequest): NextResponse {
     pathname.startsWith("/api/auth") ? "auth"
     : pathname.startsWith("/api/applications") ? "applications"
     : pathname.startsWith("/api/documents") ? "documents"
+    : pathname.startsWith("/s/") ? "general"
     : pathname.startsWith("/api/") ? "general"
     : null;
 
@@ -51,5 +52,5 @@ export function middleware(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: ["/api/:path*", "/s/:path*"],
 };

@@ -5,11 +5,13 @@ import type {
   UserRecord,
   ApiTokenRecord,
   ApiTokenInfo,
+  ShareLinkRecord,
   CreateApplicationInput,
   UpdateApplicationInput,
   CreateContactInput,
   UpdateContactInput,
   CreateDocumentInput,
+  CreateShareLinkInput,
 } from "./types";
 
 export interface DatabaseAdapter {
@@ -50,4 +52,10 @@ export interface DatabaseAdapter {
   createApiToken(userId: string, tokenHash: string, name?: string): Promise<ApiTokenInfo>;
   deleteApiToken(userId: string): Promise<void>;
   touchApiTokenLastUsed(id: string): Promise<void>;
+
+  // ── Share Links ──────────────────────────────────────────────────────────
+  getShareLinkByCode(code: string): Promise<ShareLinkRecord | null>;
+  findShareLink(userId: string, targetType: string, targetId: string | null): Promise<ShareLinkRecord | null>;
+  createShareLink(userId: string, data: CreateShareLinkInput): Promise<ShareLinkRecord>;
+  deleteShareLink(id: string, userId: string): Promise<void>;
 }

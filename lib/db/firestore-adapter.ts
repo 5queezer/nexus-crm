@@ -10,11 +10,13 @@ import type {
   UserRecord,
   ApiTokenRecord,
   ApiTokenInfo,
+  ShareLinkRecord,
   CreateApplicationInput,
   UpdateApplicationInput,
   CreateContactInput,
   UpdateContactInput,
   CreateDocumentInput,
+  CreateShareLinkInput,
 } from "./types";
 
 // ── Firestore init ──────────────────────────────────────────────────────────
@@ -418,6 +420,31 @@ export class FirestoreAdapter implements DatabaseAdapter {
       where: { id: parseInt(id, 10) },
       data: { lastUsedAt: new Date() },
     });
+  }
+
+  // ── Share Links (stored in Prisma like users) ─────────────────────────
+
+  async getShareLinkByCode(code: string): Promise<ShareLinkRecord | null> {
+    const row = await prisma.shareLink.findUnique({ where: { code } });
+    return row ? { ...row, id: String(row.id) } : null;
+  }
+
+  async findShareLink(userId: string, targetType: string, targetId: string | null): Promise<ShareLinkRecord | null> {
+    const row = await prisma.shareLink.findFirst({
+      where: { userId, targetType, targetId },
+    });
+    return row ? { ...row, id: String(row.id) } : null;
+  }
+
+  async createShareLink(userId: string, data: CreateShareLinkInput): Promise<ShareLinkRecord> {
+    const row = await prisma.shareLink.create({
+      data: { userId, ...data },
+    });
+    return { ...row, id: String(row.id) };
+  }
+
+  async deleteShareLink(id: string, userId: string): Promise<void> {
+    await prisma.shareLink.delete({ where: { id: parseInt(id, 10), userId } });
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────

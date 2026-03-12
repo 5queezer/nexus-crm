@@ -114,6 +114,21 @@ export interface UpdateContactInput {
   linkedIn?: string | null;
 }
 
+export interface ShareLinkRecord {
+  id: string;
+  code: string;
+  userId: string;
+  targetType: string;
+  targetId: string | null;
+  createdAt: Date;
+}
+
+export interface CreateShareLinkInput {
+  code: string;
+  targetType: string;
+  targetId: string | null;
+}
+
 export interface CreateDocumentInput {
   filename: string;
   originalName: string;

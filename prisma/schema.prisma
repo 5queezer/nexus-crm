@@ -66,6 +66,7 @@ model User {
   applications  Application[]
   documents     Document[]
   apiTokens     UserApiToken[]
+  shareLinks    ShareLink[]
 }
 
 model UserApiToken {
@@ -76,6 +77,18 @@ model UserApiToken {
   name       String    @default("default")
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
+
+  @@index([userId])
+}
+
+model ShareLink {
+  id         Int       @id @default(autoincrement())
+  code       String    @unique         // short URL-safe code (8 chars)
+  userId     String                    // creator
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetType String                    // "share_page" | "document"
+  targetId   String?                   // e.g. document ID; null for share_page
+  createdAt  DateTime  @default(now())
 
   @@index([userId])
 }
