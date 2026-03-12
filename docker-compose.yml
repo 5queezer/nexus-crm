@@ -3,7 +3,7 @@ services:
     image: ghcr.io/5queezer/job-tracker:latest
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     volumes:
       - ./data:/app/prisma
       - ./uploads:/app/uploads

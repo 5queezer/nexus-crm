@@ -4,25 +4,19 @@ import { requireAuth } from "@/lib/session";
 import { downloadFile, fileExists } from "@/lib/storage";
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const queryToken = request.nextUrl.searchParams.get("token");
-  const publicToken = process.env.PUBLIC_READ_TOKEN;
-  const isPublicShare = publicToken && queryToken === publicToken;
-
-  let readScopeUserId: string | null = null;
-
-  if (!isPublicShare) {
-    const auth = await requireAuth();
-    if (!auth) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    readScopeUserId = auth.readScopeUserId;
+  // Document file downloads always require proper authentication.
+  // The PUBLIC_READ_TOKEN is intentionally NOT accepted here — it is
+  // only meant for the read-only share page, not for downloading files.
+  const auth = await requireAuth();
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
-  const document = await getDb().getDocument(id, readScopeUserId);
+  const document = await getDb().getDocument(id, auth.readScopeUserId);
   if (!document) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

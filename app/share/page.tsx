@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
+import { safeCompare } from "@/lib/token";
 import { ApplicationStatus, STATUS_COLORS } from "@/types";
 import type { ApplicationRecord } from "@/lib/db/types";
 import { format, isPast, isToday } from "date-fns";
@@ -221,7 +222,7 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   const { token, lang: langParam } = await searchParams;
   const expectedToken = process.env.PUBLIC_READ_TOKEN;
 
-  if (!expectedToken || !token || token !== expectedToken) {
+  if (!expectedToken || !token || !safeCompare(token, expectedToken)) {
     notFound();
   }
 

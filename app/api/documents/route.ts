@@ -3,10 +3,15 @@ import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { uploadFile } from "@/lib/storage";
 import crypto from "crypto";
-import path from "path";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const MIME_TO_EXT: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+};
 
 export async function GET(_request: NextRequest) {
   const auth = await requireAuth();
@@ -43,7 +48,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ext = path.extname(file.name) || ".pdf";
+  // Derive extension from validated MIME type, not user-supplied filename
+  const ext = MIME_TO_EXT[file.type] || ".pdf";
   const storedFilename = `${crypto.randomUUID()}${ext}`;
 
   const buffer = Buffer.from(await file.arrayBuffer());

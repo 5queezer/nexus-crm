@@ -16,10 +16,13 @@ export function middleware(req: NextRequest): NextResponse {
   const group =
     pathname.startsWith("/api/auth") ? "auth"
     : pathname.startsWith("/api/applications") ? "applications"
+    : pathname.startsWith("/api/documents") ? "documents"
+    : pathname.startsWith("/api/") ? "general"
     : null;
 
   if (group) {
     const result = checkRateLimit(ip, group);
+    const limit = group === "auth" ? "10" : group === "applications" ? "60" : "30";
 
     if (!result.allowed) {
       return new NextResponse(
@@ -29,7 +32,7 @@ export function middleware(req: NextRequest): NextResponse {
           headers: {
             "Content-Type": "application/json",
             "Retry-After": String(Math.ceil((result.resetAt - Date.now()) / 1000)),
-            "X-RateLimit-Limit": group === "auth" ? "10" : "60",
+            "X-RateLimit-Limit": limit,
             "X-RateLimit-Remaining": "0",
             "X-RateLimit-Reset": String(Math.ceil(result.resetAt / 1000)),
           },
@@ -38,7 +41,7 @@ export function middleware(req: NextRequest): NextResponse {
     }
 
     const response = NextResponse.next();
-    response.headers.set("X-RateLimit-Limit", group === "auth" ? "10" : "60");
+    response.headers.set("X-RateLimit-Limit", limit);
     response.headers.set("X-RateLimit-Remaining", String(result.remaining));
     response.headers.set("X-RateLimit-Reset", String(Math.ceil(result.resetAt / 1000)));
     return response;
@@ -48,5 +51,5 @@ export function middleware(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/api/auth/:path*", "/api/applications/:path*"],
+  matcher: ["/api/:path*"],
 };
