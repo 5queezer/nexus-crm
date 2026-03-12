@@ -67,6 +67,8 @@ model User {
   documents     Document[]
   apiTokens     UserApiToken[]
   shareLinks    ShareLink[]
+  auditLogsAsActor  AdminAuditLog[] @relation("auditActor")
+  auditLogsAsTarget AdminAuditLog[] @relation("auditTarget")
 }
 
 model UserApiToken {
@@ -91,6 +93,18 @@ model ShareLink {
   createdAt  DateTime  @default(now())
 
   @@unique([userId, targetType, targetId])
+}
+
+model AdminAuditLog {
+  id         Int      @id @default(autoincrement())
+  actorId    String
+  actor      User     @relation("auditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action     String   // "grant_admin" | "revoke_admin"
+  targetId   String
+  target     User     @relation("auditTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Session {

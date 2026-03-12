@@ -39,7 +39,8 @@
   "nav": {
     "logout": "Sign out",
     "table_view": "Table",
-    "kanban_view": "Kanban"
+    "kanban_view": "Kanban",
+    "settings": "Settings"
   },
   "stats": {
     "total": "Total",
@@ -177,10 +178,24 @@
     "title": "User Management",
     "users": "Users",
     "is_admin": "Admin",
+    "you": "you",
     "loading": "Loading users...",
     "error_load": "Failed to load users.",
     "error_update": "Failed to update admin status.",
-    "last_admin_error": "At least one administrator is required."
+    "last_admin_error": "At least one administrator is required.",
+    "self_demote_error": "You cannot remove your own admin status."
+  },
+  "settings": {
+    "title": "Admin Settings",
+    "back": "Back to dashboard",
+    "audit": {
+      "title": "Audit Log",
+      "loading": "Loading audit log...",
+      "error_load": "Failed to load audit log.",
+      "empty": "No admin actions recorded yet.",
+      "action_grant": "granted admin to",
+      "action_revoke": "revoked admin from"
+    }
   },
   "token": {
     "title": "API Token",

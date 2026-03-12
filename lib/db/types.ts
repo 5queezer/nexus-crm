@@ -70,6 +70,16 @@ export interface ApiTokenInfo {
   lastUsedAt: Date | null;
 }
 
+export interface AuditLogRecord {
+  id: string;
+  actorId: string;
+  actorEmail: string;
+  action: string;
+  targetId: string;
+  targetEmail: string;
+  createdAt: Date;
+}
+
 // ── Input types (passed into adapter) ────────────────────────────────────────
 
 export interface CreateApplicationInput {

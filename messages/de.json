@@ -39,7 +39,8 @@
   "nav": {
     "logout": "Abmelden",
     "table_view": "Tabelle",
-    "kanban_view": "Kanban"
+    "kanban_view": "Kanban",
+    "settings": "Einstellungen"
   },
   "stats": {
     "total": "Gesamt",
@@ -177,10 +178,24 @@
     "title": "Benutzerverwaltung",
     "users": "Benutzer",
     "is_admin": "Admin",
+    "you": "du",
     "loading": "Lade Benutzer...",
     "error_load": "Fehler beim Laden der Benutzer.",
     "error_update": "Fehler beim Aktualisieren des Admin-Status.",
-    "last_admin_error": "Mindestens ein Administrator ist erforderlich."
+    "last_admin_error": "Mindestens ein Administrator ist erforderlich.",
+    "self_demote_error": "Du kannst deinen eigenen Admin-Status nicht entfernen."
+  },
+  "settings": {
+    "title": "Admin-Einstellungen",
+    "back": "Zurück zum Dashboard",
+    "audit": {
+      "title": "Aktivitätsprotokoll",
+      "loading": "Lade Protokoll...",
+      "error_load": "Fehler beim Laden des Protokolls.",
+      "empty": "Noch keine Admin-Aktionen aufgezeichnet.",
+      "action_grant": "hat Admin-Rechte gewährt an",
+      "action_revoke": "hat Admin-Rechte entzogen von"
+    }
   },
   "token": {
     "title": "API-Token",
