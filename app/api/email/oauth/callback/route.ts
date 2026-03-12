@@ -26,9 +26,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // CSRF check
+  // CSRF check: verify state matches and is bound to the current user
   const storedState = req.cookies.get("email_oauth_state")?.value;
   if (!state || !storedState || state !== storedState) {
+    return NextResponse.redirect(
+      new URL("/settings?error=invalid_state", req.url)
+    );
+  }
+
+  // Verify the state was issued for this user (prevents CSRF login attacks)
+  if (!state.startsWith(`${auth.userId}:`)) {
     return NextResponse.redirect(
       new URL("/settings?error=invalid_state", req.url)
     );

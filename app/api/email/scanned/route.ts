@@ -65,6 +65,13 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
+  if (ids.length > 100) {
+    return NextResponse.json(
+      { error: "Maximum 100 IDs per request" },
+      { status: 400 }
+    );
+  }
+
   const numericIds = ids.map((id) => parseInt(id, 10));
 
   if (action === "dismiss") {
@@ -107,9 +114,12 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     let appId: number;
     if (existing) {
       appId = existing.id;
-      // Update status if it's a progression
-      const statusOrder = ["applied", "interview", "offer", "rejected"];
-      if (statusOrder.indexOf(status) > statusOrder.indexOf(existing.status)) {
+      // Update status if it's a progression (rejected is terminal, not a promotion)
+      const statusOrder: Record<string, number> = { applied: 0, interview: 1, offer: 2 };
+      const newRank = statusOrder[status] ?? -1;
+      const currentRank = statusOrder[existing.status] ?? -1;
+      const isProgression = status === "rejected" || (newRank > currentRank && currentRank >= 0);
+      if (isProgression && existing.status !== "rejected") {
         await prisma.application.update({
           where: { id: existing.id },
           data: { status },

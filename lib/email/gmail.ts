@@ -37,10 +37,20 @@ export interface ParsedEmail {
   bodySnippet: string;
 }
 
+// Cache access tokens to avoid redundant token refresh calls.
+// Key: encrypted refresh token, Value: { token, expiresAt }
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
 /**
- * Exchange a refresh token for a fresh access token.
+ * Exchange a refresh token for a fresh access token (cached).
+ * Tokens are cached with a 5-minute safety margin before expiry.
  */
 async function getAccessToken(encryptedRefreshToken: string): Promise<string> {
+  const cached = tokenCache.get(encryptedRefreshToken);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.token;
+  }
+
   const refreshToken = decryptToken(encryptedRefreshToken);
   const resp = await fetch(TOKEN_URL, {
     method: "POST",
@@ -58,7 +68,14 @@ async function getAccessToken(encryptedRefreshToken: string): Promise<string> {
     throw new Error(`Failed to refresh access token: ${resp.status} ${text}`);
   }
 
-  const data = (await resp.json()) as { access_token: string };
+  const data = (await resp.json()) as { access_token: string; expires_in?: number };
+  const expiresIn = data.expires_in ?? 3600; // Default 1 hour
+  // Cache with 5-minute safety margin
+  tokenCache.set(encryptedRefreshToken, {
+    token: data.access_token,
+    expiresAt: Date.now() + (expiresIn - 300) * 1000,
+  });
+
   return data.access_token;
 }
 

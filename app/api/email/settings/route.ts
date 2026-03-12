@@ -72,9 +72,9 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
   if ("scanDaysBack" in update) {
     const days = update.scanDaysBack as number;
-    if (days < 1 || days > 30) {
+    if (!Number.isInteger(days) || days < 1 || days > 30) {
       return NextResponse.json(
-        { error: "scanDaysBack must be between 1 and 30" },
+        { error: "scanDaysBack must be an integer between 1 and 30" },
         { status: 400 }
       );
     }

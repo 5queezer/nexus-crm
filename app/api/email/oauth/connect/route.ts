@@ -12,7 +12,8 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const state = randomBytes(16).toString("hex");
+  // Bind state to userId to prevent CSRF login attacks
+  const state = `${auth.userId}:${randomBytes(16).toString("hex")}`;
 
   // Store state in a short-lived cookie for CSRF protection
   const baseUrl = process.env.BETTER_AUTH_URL || "http://localhost:3001";

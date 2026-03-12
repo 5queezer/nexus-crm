@@ -39,6 +39,8 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
   );
 
   for (const msg of messages) {
+    result.processed++;
+
     // Check if already scanned (dedup by messageId)
     const existing = await prisma.scannedEmail.findUnique({
       where: { userId_messageId: { userId, messageId: msg.id } },
@@ -99,8 +101,6 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
       // Log but continue processing other messages
       console.error(`Failed to process message ${msg.id}:`, err);
     }
-
-    result.processed++;
   }
 
   // Update historyId cursor and last scan time
@@ -135,15 +135,19 @@ async function autoImportAsApplication(
   });
 
   if (existing) {
-    // Update status if the new classification is a progression
-    const statusOrder = ["applied", "interview", "offer", "rejection"];
-    const currentIdx = statusOrder.indexOf(existing.status);
-    const newIdx = statusOrder.indexOf(data.classification ?? "applied");
+    // Map classifier value to application status
+    const appStatus = data.classification === "rejection" ? "rejected" : (data.classification ?? "applied");
 
-    if (newIdx > currentIdx) {
+    // Update status if it's a progression (rejected is terminal, not a promotion)
+    const statusOrder: Record<string, number> = { applied: 0, interview: 1, offer: 2 };
+    const newRank = statusOrder[appStatus] ?? -1;
+    const currentRank = statusOrder[existing.status] ?? -1;
+    const isProgression = appStatus === "rejected" || (newRank > currentRank && currentRank >= 0);
+
+    if (isProgression && existing.status !== "rejected") {
       await prisma.application.update({
         where: { id: existing.id },
-        data: { status: data.classification ?? existing.status },
+        data: { status: appStatus },
       });
     }
 
