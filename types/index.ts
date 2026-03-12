@@ -27,6 +27,7 @@ export interface Application {
   notes: string | null;
   jobDescription: string | null;
   source: string | null;
+  remote: boolean;
   resumeId: string | null;
   archivedAt: string | null;
   createdAt: string;

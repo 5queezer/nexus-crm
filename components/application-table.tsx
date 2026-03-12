@@ -10,7 +10,7 @@ import {
   SortingState,
   ColumnFiltersState,
 } from "@tanstack/react-table";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLORS, STATUS_ORDER } from "@/types";
 import { format, isPast, isToday } from "date-fns";
@@ -99,8 +99,9 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
           </h3>
           <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-300">{app.role}</p>
         </div>
-        <div className="shrink-0">
+        <div className="shrink-0 flex flex-wrap gap-1">
           <StatusBadge status={app.status} />
+          {app.remote && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">Remote</span>}
         </div>
       </div>
 
@@ -180,6 +181,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
+  const [remoteOnly, setRemoteOnly] = useState(false);
 
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return "—";
@@ -194,7 +196,14 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     columnHelper.accessor("company", {
       header: t("company"),
       cell: (info) => (
-        <span className="font-medium text-gray-900 dark:text-white">{info.getValue()}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-gray-900 dark:text-white">{info.getValue()}</span>
+          {info.row.original.remote && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+              Remote
+            </span>
+          )}
+        </div>
       ),
     }),
     columnHelper.accessor("role", {
@@ -282,8 +291,13 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     }),
   ];
 
+  const filteredApplications = useMemo(
+    () => remoteOnly ? applications.filter((a) => a.remote) : applications,
+    [applications, remoteOnly]
+  );
+
   const table = useReactTable({
-    data: applications,
+    data: filteredApplications,
     columns,
     state: { sorting, columnFilters, globalFilter },
     onSortingChange: setSorting,
@@ -325,11 +339,22 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
               </option>
             ))}
           </select>
-          {(globalFilter || statusFilter) && (
+          <button
+            onClick={() => setRemoteOnly((v) => !v)}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+              remoteOnly
+                ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            }`}
+          >
+            {ta("remote_only")}
+          </button>
+          {(globalFilter || statusFilter || remoteOnly) && (
             <button
               onClick={() => {
                 setGlobalFilter("");
                 setColumnFilters([]);
+                setRemoteOnly(false);
               }}
               className="text-left text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 sm:text-center"
             >

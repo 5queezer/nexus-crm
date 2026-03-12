@@ -32,7 +32,7 @@ function mapContact(c: { id: number; name: string; email: string | null; phone: 
   return { ...c, id: sid(c.id), applicationId: sid(c.applicationId) };
 }
 
-function mapApp(a: { id: number; userId: string; company: string; role: string; status: string; appliedAt: Date | null; lastContact: Date | null; followUpAt: Date | null; notes: string | null; jobDescription: string | null; source: string | null; resumeId: string | null; archivedAt: Date | null; createdAt: Date; updatedAt: Date; contacts?: { id: number; name: string; email: string | null; phone: string | null; role: string | null; linkedIn: string | null; applicationId: number; createdAt: Date }[] }): ApplicationRecord {
+function mapApp(a: { id: number; userId: string; company: string; role: string; status: string; appliedAt: Date | null; lastContact: Date | null; followUpAt: Date | null; notes: string | null; jobDescription: string | null; source: string | null; remote: boolean; resumeId: string | null; archivedAt: Date | null; createdAt: Date; updatedAt: Date; contacts?: { id: number; name: string; email: string | null; phone: string | null; role: string | null; linkedIn: string | null; applicationId: number; createdAt: Date }[] }): ApplicationRecord {
   return {
     ...a,
     id: sid(a.id),

@@ -30,7 +30,8 @@
     "archive": "Archive",
     "unarchive": "Unarchive",
     "show_archive": "Archive",
-    "show_active": "Active"
+    "show_active": "Active",
+    "remote_only": "Remote only"
   },
   "table": {
     "company": "Company",
@@ -86,7 +87,8 @@
     "resume_error": "Failed to create resume.",
     "resume_not_configured": "Resume integration not configured.",
     "source": "Source",
-    "source_placeholder": "e.g. LinkedIn, Indeed, referral"
+    "source_placeholder": "e.g. LinkedIn, Indeed, referral",
+    "remote": "100% Remote"
   },
   "status": {
     "inbound": "Inbound",

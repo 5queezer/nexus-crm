@@ -20,6 +20,7 @@ model Application {
   followUpAt      DateTime?
   jobDescription  String?
   source          String?
+  remote          Boolean   @default(false)
   resumeId        String?   // Reactive Resume resume ID
   archivedAt      DateTime?
   createdAt       DateTime  @default(now())

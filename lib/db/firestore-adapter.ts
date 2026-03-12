@@ -52,6 +52,7 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     notes: data.notes ?? null,
     jobDescription: data.jobDescription ?? null,
     source: data.source ?? null,
+    remote: data.remote ?? false,
     resumeId: data.resumeId ?? null,
     archivedAt: toDate(data.archivedAt) ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
@@ -138,6 +139,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       followUpAt: toTimestamp(data.followUpAt),
       notes: data.notes,
       jobDescription: data.jobDescription,
+      remote: data.remote ?? false,
       createdAt: now,
       updatedAt: now,
     });
@@ -163,6 +165,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.followUpAt !== undefined) update.followUpAt = toTimestamp(data.followUpAt);
     if (data.notes !== undefined) update.notes = data.notes;
     if (data.jobDescription !== undefined) update.jobDescription = data.jobDescription;
+    if (data.remote !== undefined) update.remote = data.remote;
 
     await ref.update(update);
     return (await this.getApplication(id, userId))!;

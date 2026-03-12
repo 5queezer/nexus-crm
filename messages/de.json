@@ -30,7 +30,8 @@
     "archive": "Archiv",
     "unarchive": "Wiederherstellen",
     "show_archive": "Archiv",
-    "show_active": "Aktiv"
+    "show_active": "Aktiv",
+    "remote_only": "Nur Remote"
   },
   "table": {
     "company": "Firma",
@@ -86,7 +87,8 @@
     "resume_error": "Fehler beim Erstellen des Lebenslaufs.",
     "resume_not_configured": "Lebenslauf-Integration nicht konfiguriert.",
     "source": "Quelle",
-    "source_placeholder": "z.B. LinkedIn, Indeed, Empfehlung"
+    "source_placeholder": "z.B. LinkedIn, Indeed, Empfehlung",
+    "remote": "100% Remote"
   },
   "status": {
     "inbound": "Eingehend",

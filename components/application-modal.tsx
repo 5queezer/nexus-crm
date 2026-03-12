@@ -20,6 +20,7 @@ interface FormData {
   notes: string;
   jobDescription: string;
   source: string;
+  remote: boolean;
 }
 
 interface ContactFormRow {
@@ -133,6 +134,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     notes: application?.notes || "",
     jobDescription: application?.jobDescription || "",
     source: application?.source || "",
+    remote: application?.remote ?? false,
   });
 
   const [jdOpen, setJdOpen] = useState(false);
@@ -373,6 +375,18 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 ))}
               </datalist>
             </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.remote}
+                onChange={(e) => setForm((prev) => ({ ...prev, remote: e.target.checked }))}
+                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("remote")}</span>
+            </label>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

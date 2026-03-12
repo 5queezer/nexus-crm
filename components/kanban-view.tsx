@@ -67,6 +67,9 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
       </div>
 
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400 dark:text-gray-400">
+        {app.remote && (
+          <span className="font-semibold text-emerald-700 dark:text-emerald-400">Remote</span>
+        )}
         {app.appliedAt && <span>{format(new Date(app.appliedAt), "dd.MM.yy")}</span>}
         {followUpDate && (
           <span
