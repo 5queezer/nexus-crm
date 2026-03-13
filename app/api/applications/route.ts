@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating } = body;
 
   if (!company || !role) {
     return NextResponse.json(
@@ -40,6 +40,9 @@ export async function POST(request: NextRequest) {
     jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
     source: source ? String(source).slice(0, 100) : null,
     remote: !!remote,
+    salaryMin: salaryMin != null ? Math.round(Number(salaryMin)) : null,
+    salaryMax: salaryMax != null ? Math.round(Number(salaryMax)) : null,
+    rating: rating != null ? Math.min(5, Math.max(1, Math.round(Number(rating)))) : null,
   });
 
   return NextResponse.json(application, { status: 201 });

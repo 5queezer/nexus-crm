@@ -21,6 +21,9 @@ model Application {
   jobDescription  String?
   source          String?
   remote          Boolean   @default(false)
+  salaryMin       Int?      // minimum salary in EUR/year
+  salaryMax       Int?      // maximum salary in EUR/year
+  rating          Int?      // suitability rating 1–5
   resumeId        String?   // Reactive Resume resume ID
   archivedAt      DateTime?
   createdAt       DateTime  @default(now())

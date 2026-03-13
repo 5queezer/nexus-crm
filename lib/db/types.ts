@@ -13,6 +13,9 @@ export interface ApplicationRecord {
   jobDescription: string | null;
   source: string | null;
   remote: boolean;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  rating: number | null;
   resumeId: string | null;
   archivedAt: Date | null;
   createdAt: Date;
@@ -94,6 +97,9 @@ export interface CreateApplicationInput {
   jobDescription: string | null;
   source: string | null;
   remote: boolean;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  rating: number | null;
 }
 
 export interface UpdateApplicationInput {
@@ -107,6 +113,9 @@ export interface UpdateApplicationInput {
   jobDescription?: string | null;
   source?: string | null;
   remote?: boolean;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  rating?: number | null;
   resumeId?: string | null;
   archivedAt?: Date | null;
 }
