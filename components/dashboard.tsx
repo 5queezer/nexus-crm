@@ -222,13 +222,13 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
                 href="/documents"
                 className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
               >
-                📁 Dokumente
+                📁 {tn("documents")}
               </Link>
               <Link
                 href="/analytics"
                 className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
               >
-                📊 Analytics
+                📊 {tn("analytics")}
               </Link>
               <a
                 href={shareUrl}
@@ -280,14 +280,14 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              📁 Dokumente
+              📁 {tn("documents")}
             </Link>
             <Link
               href="/analytics"
               className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              📊 Analytics
+              📊 {tn("analytics")}
             </Link>
             <a
               href={shareUrl}

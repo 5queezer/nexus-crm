@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER } from "@/types";
@@ -32,7 +33,7 @@ function getWeekKey(date: Date): string {
 }
 
 function formatWeekLabel(weekKey: string): string {
-  const [y, m, d] = weekKey.split("-");
+  const [, m, d] = weekKey.split("-");
   return `${d}.${m}`;
 }
 
@@ -67,93 +68,107 @@ export function AnalyticsDashboard() {
     );
   }
 
-  const activeApps = applications.filter((a) => !a.archivedAt);
+  const activeApps = useMemo(() => applications.filter((a) => !a.archivedAt), [applications]);
 
   // === Status Breakdown ===
-  const statusCounts: Record<ApplicationStatus, number> = {
-    inbound: 0,
-    applied: 0,
-    interview: 0,
-    offer: 0,
-    rejected: 0,
-  };
-  for (const app of activeApps) {
-    statusCounts[app.status] = (statusCounts[app.status] || 0) + 1;
-  }
-  const maxStatusCount = Math.max(...Object.values(statusCounts), 1);
+  const { statusCounts, maxStatusCount } = useMemo(() => {
+    const counts: Record<ApplicationStatus, number> = {
+      inbound: 0, applied: 0, interview: 0, offer: 0, rejected: 0,
+    };
+    for (const app of activeApps) {
+      counts[app.status] = (counts[app.status] || 0) + 1;
+    }
+    return { statusCounts: counts, maxStatusCount: Math.max(...Object.values(counts), 1) };
+  }, [activeApps]);
 
   // === Applications Over Time (weekly buckets) ===
-  const weeklyBuckets: Record<string, number> = {};
-  for (const app of activeApps) {
-    const date = app.appliedAt ? new Date(app.appliedAt) : new Date(app.createdAt);
-    const week = getWeekKey(date);
-    weeklyBuckets[week] = (weeklyBuckets[week] || 0) + 1;
-  }
-  const sortedWeeks = Object.keys(weeklyBuckets).sort();
-  // Fill in gaps
-  if (sortedWeeks.length > 1) {
-    const start = new Date(sortedWeeks[0]);
-    const end = new Date(sortedWeeks[sortedWeeks.length - 1]);
-    const current = new Date(start);
-    while (current <= end) {
-      const key = getWeekKey(current);
-      if (!weeklyBuckets[key]) weeklyBuckets[key] = 0;
-      current.setDate(current.getDate() + 7);
+  const { finalWeeks, weeklyBuckets, maxWeeklyCount } = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    for (const app of activeApps) {
+      const date = app.appliedAt ? new Date(app.appliedAt) : new Date(app.createdAt);
+      const week = getWeekKey(date);
+      buckets[week] = (buckets[week] || 0) + 1;
     }
-  }
-  const finalWeeks = Object.keys(weeklyBuckets).sort();
-  const maxWeeklyCount = Math.max(...Object.values(weeklyBuckets), 1);
+    const sorted = Object.keys(buckets).sort();
+    // Fill in gaps between first and last week
+    if (sorted.length > 1) {
+      const current = new Date(sorted[0]);
+      const end = new Date(sorted[sorted.length - 1]);
+      while (current <= end) {
+        const key = getWeekKey(current);
+        if (!buckets[key]) buckets[key] = 0;
+        current.setDate(current.getDate() + 7);
+      }
+    }
+    const weeks = Object.keys(buckets).sort();
+    return { finalWeeks: weeks, weeklyBuckets: buckets, maxWeeklyCount: Math.max(...Object.values(buckets), 1) };
+  }, [activeApps]);
 
   // === Response Rate ===
-  // Applications that got a response = status is interview, offer, or rejected (not still in applied/inbound)
-  const totalApplied = activeApps.filter((a) =>
-    (["applied", "interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
-  ).length;
-  const responded = activeApps.filter((a) =>
-    (["interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
-  ).length;
-  const responseRate = totalApplied > 0 ? Math.round((responded / totalApplied) * 100) : 0;
+  // Denominator: apps that moved past applied/inbound (interview, offer, or rejected).
+  // Note: rejections count as responses, so 100% is possible even with all rejections.
+  // We surface interview + offer sub-counts separately so the number tells a richer story.
+  const { totalApplied, responded, interviewCount, offerCount, responseRate } = useMemo(() => {
+    const total = activeApps.filter((a) =>
+      (["applied", "interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
+    ).length;
+    const interviews = activeApps.filter((a) => a.status === "interview").length;
+    const offers = activeApps.filter((a) => a.status === "offer").length;
+    const resp = activeApps.filter((a) =>
+      (["interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
+    ).length;
+    return {
+      totalApplied: total,
+      responded: resp,
+      interviewCount: interviews,
+      offerCount: offers,
+      responseRate: total > 0 ? Math.round((resp / total) * 100) : 0,
+    };
+  }, [activeApps]);
 
   // === Average Response Time ===
-  const responseTimes: number[] = [];
-  for (const app of activeApps) {
-    if (
-      app.appliedAt &&
-      app.lastContact &&
-      (["interview", "offer", "rejected"] as ApplicationStatus[]).includes(app.status)
-    ) {
-      const applied = new Date(app.appliedAt).getTime();
-      const contact = new Date(app.lastContact).getTime();
-      const diffDays = Math.round((contact - applied) / (1000 * 60 * 60 * 24));
-      if (diffDays >= 0) responseTimes.push(diffDays);
+  // Uses lastContact as a proxy for the first response date.
+  // Caveat: if lastContact is updated after a follow-up, this number will inflate.
+  const avgResponseTime = useMemo(() => {
+    const times: number[] = [];
+    for (const app of activeApps) {
+      if (
+        app.appliedAt &&
+        app.lastContact &&
+        (["interview", "offer", "rejected"] as ApplicationStatus[]).includes(app.status)
+      ) {
+        const applied = new Date(app.appliedAt).getTime();
+        const contact = new Date(app.lastContact).getTime();
+        const diffDays = Math.round((contact - applied) / (1000 * 60 * 60 * 24));
+        if (diffDays >= 0) times.push(diffDays);
+      }
     }
-  }
-  const avgResponseTime =
-    responseTimes.length > 0
-      ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+    return times.length > 0
+      ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
       : null;
+  }, [activeApps]);
 
   // === Top Companies ===
-  const companyCounts: Record<string, number> = {};
-  for (const app of activeApps) {
-    const name = app.company.trim();
-    if (name) companyCounts[name] = (companyCounts[name] || 0) + 1;
-  }
-  const topCompanies = Object.entries(companyCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-  const maxCompanyCount = topCompanies.length > 0 ? topCompanies[0][1] : 1;
+  const { topCompanies, maxCompanyCount } = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const app of activeApps) {
+      const name = app.company.trim();
+      if (name) counts[name] = (counts[name] || 0) + 1;
+    }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    return { topCompanies: top, maxCompanyCount: top.length > 0 ? top[0][1] : 1 };
+  }, [activeApps]);
 
   // === Source Breakdown ===
-  const sourceCounts: Record<string, number> = {};
-  for (const app of activeApps) {
-    const source = app.source?.trim() || "Unknown";
-    sourceCounts[source] = (sourceCounts[source] || 0) + 1;
-  }
-  const topSources = Object.entries(sourceCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-  const maxSourceCount = topSources.length > 0 ? topSources[0][1] : 1;
+  const { topSources, maxSourceCount } = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const app of activeApps) {
+      const source = app.source?.trim() || "Unknown";
+      counts[source] = (counts[source] || 0) + 1;
+    }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    return { topSources: top, maxSourceCount: top.length > 0 ? top[0][1] : 1 };
+  }, [activeApps]);
 
   const hasData = activeApps.length > 0;
 
@@ -273,9 +288,13 @@ export function AnalyticsDashboard() {
                     />
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {responded} / {totalApplied}
+                    {responded} / {totalApplied} {t("responded")}
                   </div>
                 </div>
+              </div>
+              <div className="mt-3 flex gap-4 text-xs text-gray-500 dark:text-gray-400">
+                <span>🟣 {interviewCount} {ts("interview")}</span>
+                <span>🟢 {offerCount} {ts("offer")}</span>
               </div>
             </div>
 

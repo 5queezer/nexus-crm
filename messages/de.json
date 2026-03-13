@@ -7,7 +7,9 @@
     "logout": "Abmelden",
     "table_view": "Tabelle",
     "kanban_view": "Kanban",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "documents": "Dokumente",
+    "analytics": "Auswertungen"
   },
   "stats": {
     "total": "Gesamt",
@@ -232,8 +234,9 @@
     "week": "Woche",
     "applications": "Bewerbungen",
     "response_rate_desc": "Anteil der Bewerbungen, die eine Antwort erhalten haben (Interview, Angebot oder Absage).",
-    "avg_response_desc": "Durchschnittliche Tage zwischen Bewerbungsdatum und erster Antwort.",
-    "days": "Tage"
+    "avg_response_desc": "Durchschnittliche Tage zwischen Bewerbungsdatum und letztem Kontakt (als Näherung für die erste Antwort).",
+    "days": "Tage",
+    "responded": "beantwortet"
   },
   "token": {
     "title": "API-Token",
