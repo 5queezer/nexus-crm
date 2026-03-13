@@ -256,6 +256,32 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </span>
       ),
     }),
+    columnHelper.accessor("salaryMin", {
+      header: t("salary"),
+      cell: (info) => {
+        const min = info.row.original.salaryMin;
+        const max = info.row.original.salaryMax;
+        if (!min && !max) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+        const fmt = (n: number) => n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+        if (min && max) return <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">€{fmt(min)}–{fmt(max)}</span>;
+        if (min) return <span className="text-sm text-gray-700 dark:text-gray-300">€{fmt(min)}+</span>;
+        return <span className="text-sm text-gray-700 dark:text-gray-300">≤€{fmt(max!)}</span>;
+      },
+      sortingFn: (a, b) => (a.original.salaryMin ?? 0) - (b.original.salaryMin ?? 0),
+    }),
+    columnHelper.accessor("rating", {
+      header: t("rating"),
+      cell: (info) => {
+        const r = info.getValue();
+        if (!r) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+        return (
+          <span className="text-yellow-400 text-sm tracking-tight" title={`${r}/5`}>
+            {"★".repeat(r)}{"☆".repeat(5 - r)}
+          </span>
+        );
+      },
+      sortingFn: (a, b) => (a.original.rating ?? 0) - (b.original.rating ?? 0),
+    }),
     columnHelper.display({
       id: "contacts",
       header: t("contacts"),

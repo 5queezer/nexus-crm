@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { normalizeStatus } from "@/types";
 import type { DatabaseAdapter } from "./adapter";
 import type {
@@ -28,11 +29,14 @@ function nid(s: string): number {
   return parseInt(s, 10);
 }
 
-function mapContact(c: { id: number; name: string; email: string | null; phone: string | null; role: string | null; linkedIn: string | null; applicationId: number; createdAt: Date }): ContactRecord {
+// Use Prisma's generated payload type instead of a long inline type
+type AppRow = Prisma.ApplicationGetPayload<{ include: { contacts: true } }>;
+
+function mapContact(c: AppRow["contacts"][number]): ContactRecord {
   return { ...c, id: sid(c.id), applicationId: sid(c.applicationId) };
 }
 
-function mapApp(a: { id: number; userId: string; company: string; role: string; status: string; appliedAt: Date | null; lastContact: Date | null; followUpAt: Date | null; notes: string | null; jobDescription: string | null; source: string | null; remote: boolean; resumeId: string | null; archivedAt: Date | null; createdAt: Date; updatedAt: Date; contacts?: { id: number; name: string; email: string | null; phone: string | null; role: string | null; linkedIn: string | null; applicationId: number; createdAt: Date }[] }): ApplicationRecord {
+function mapApp(a: AppRow): ApplicationRecord {
   return {
     ...a,
     id: sid(a.id),

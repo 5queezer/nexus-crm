@@ -21,6 +21,9 @@ interface FormData {
   jobDescription: string;
   source: string;
   remote: boolean;
+  salaryMin: string;
+  salaryMax: string;
+  rating: number | null;
 }
 
 interface ContactFormRow {
@@ -33,19 +36,26 @@ interface ContactFormRow {
   isNew: boolean;
 }
 
+function serializeForm(data: FormData) {
+  return {
+    ...data,
+    appliedAt: data.appliedAt || null,
+    lastContact: data.lastContact || null,
+    followUpAt: data.followUpAt || null,
+    notes: data.notes || null,
+    jobDescription: data.jobDescription || null,
+    source: data.source || null,
+    salaryMin: data.salaryMin ? parseInt(data.salaryMin, 10) : null,
+    salaryMax: data.salaryMax ? parseInt(data.salaryMax, 10) : null,
+    rating: data.rating,
+  };
+}
+
 async function createApplication(data: FormData): Promise<Application> {
   const res = await fetch("/api/applications", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...data,
-      appliedAt: data.appliedAt || null,
-      lastContact: data.lastContact || null,
-      followUpAt: data.followUpAt || null,
-      notes: data.notes || null,
-      jobDescription: data.jobDescription || null,
-      source: data.source || null,
-    }),
+    body: JSON.stringify(serializeForm(data)),
   });
   if (!res.ok) throw new Error("Failed to create application");
   return res.json();
@@ -55,15 +65,7 @@ async function updateApplication(id: string, data: FormData): Promise<Applicatio
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...data,
-      appliedAt: data.appliedAt || null,
-      lastContact: data.lastContact || null,
-      followUpAt: data.followUpAt || null,
-      notes: data.notes || null,
-      jobDescription: data.jobDescription || null,
-      source: data.source || null,
-    }),
+    body: JSON.stringify(serializeForm(data)),
   });
   if (!res.ok) throw new Error("Failed to update application");
   return res.json();
@@ -135,6 +137,9 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     jobDescription: application?.jobDescription || "",
     source: application?.source || "",
     remote: application?.remote ?? false,
+    salaryMin: application?.salaryMin != null ? String(application.salaryMin) : "",
+    salaryMax: application?.salaryMax != null ? String(application.salaryMax) : "",
+    rating: application?.rating ?? null,
   });
 
   const [jdOpen, setJdOpen] = useState(false);
@@ -387,6 +392,67 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
               />
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("remote")}</span>
             </label>
+          </div>
+
+          {/* Salary range */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              {t("salary_range")}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                name="salaryMin"
+                value={form.salaryMin}
+                onChange={handleChange}
+                min={0}
+                step={1000}
+                placeholder={t("salary_min_placeholder")}
+                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <span className="text-gray-400 text-sm shrink-0">–</span>
+              <input
+                type="number"
+                name="salaryMax"
+                value={form.salaryMax}
+                onChange={handleChange}
+                min={0}
+                step={1000}
+                placeholder={t("salary_max_placeholder")}
+                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Suitability rating */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              {t("rating")}
+            </label>
+            <div className="flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() =>
+                    setForm((prev) => ({ ...prev, rating: prev.rating === star ? null : star }))
+                  }
+                  className={`text-2xl leading-none transition-colors ${
+                    (form.rating ?? 0) >= star
+                      ? "text-yellow-400 hover:text-yellow-500"
+                      : "text-gray-300 dark:text-gray-600 hover:text-yellow-300"
+                  }`}
+                  title={`${star} / 5`}
+                >
+                  ★
+                </button>
+              ))}
+              {form.rating && (
+                <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                  {form.rating}/5
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -28,6 +28,9 @@ export interface Application {
   jobDescription: string | null;
   source: string | null;
   remote: boolean;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  rating: number | null;
   resumeId: string | null;
   archivedAt: string | null;
   createdAt: string;

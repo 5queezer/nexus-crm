@@ -43,6 +43,8 @@
     "notes": "Notes",
     "contacts": "Contacts",
     "source": "Source",
+    "salary": "Salary",
+    "rating": "Fit",
     "count": "{filtered} of {total} applications",
     "empty": "No applications found."
   },
@@ -88,7 +90,11 @@
     "resume_not_configured": "Resume integration not configured.",
     "source": "Source",
     "source_placeholder": "e.g. LinkedIn, Indeed, referral",
-    "remote": "100% Remote"
+    "remote": "100% Remote",
+    "salary_range": "Salary Range (€/year)",
+    "salary_min_placeholder": "Min e.g. 80000",
+    "salary_max_placeholder": "Max e.g. 120000",
+    "rating": "Suitability Rating"
   },
   "status": {
     "inbound": "Inbound",

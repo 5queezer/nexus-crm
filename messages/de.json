@@ -43,6 +43,8 @@
     "notes": "Notizen",
     "contacts": "Kontakte",
     "source": "Quelle",
+    "salary": "Gehalt",
+    "rating": "Eignung",
     "count": "{filtered} von {total} Bewerbungen",
     "empty": "Keine Bewerbungen gefunden."
   },
@@ -88,7 +90,11 @@
     "resume_not_configured": "Lebenslauf-Integration nicht konfiguriert.",
     "source": "Quelle",
     "source_placeholder": "z.B. LinkedIn, Indeed, Empfehlung",
-    "remote": "100% Remote"
+    "remote": "100% Remote",
+    "salary_range": "Gehaltsrahmen (€/Jahr)",
+    "salary_min_placeholder": "Min z.B. 80000",
+    "salary_max_placeholder": "Max z.B. 120000",
+    "rating": "Eignungsbewertung"
   },
   "status": {
     "inbound": "Eingehend",
