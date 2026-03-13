@@ -245,6 +245,12 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               >
                 {tn("analytics")}
               </Link>
+              <Link
+                href="/resume-review"
+                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
+              >
+                Resume AI
+              </Link>
               <a
                 href={shareUrl}
                 target="_blank"
@@ -303,6 +309,13 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               onClick={() => setMobileMenuOpen(false)}
             >
               {tn("analytics")}
+            </Link>
+            <Link
+              href="/resume-review"
+              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              🤖 Resume AI
             </Link>
             <a
               href={shareUrl}
