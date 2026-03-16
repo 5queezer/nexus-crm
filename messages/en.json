@@ -7,7 +7,9 @@
     "logout": "Sign out",
     "table_view": "Table",
     "kanban_view": "Kanban",
-    "settings": "Settings"
+    "settings": "Settings",
+    "documents": "Documents",
+    "analytics": "Analytics"
   },
   "stats": {
     "total": "Total",
@@ -224,6 +226,23 @@
       "offer": "Closing",
       "unknown": "Unknown"
     }
+  },
+  "analytics": {
+    "title": "Analytics",
+    "status_breakdown": "Status Breakdown",
+    "over_time": "Applications Over Time",
+    "response_rate": "Response Rate",
+    "avg_response_time": "Average Response Time",
+    "top_companies": "Top Companies",
+    "source_breakdown": "Source Breakdown",
+    "back_to_dashboard": "Back to Dashboard",
+    "no_data": "No data available yet.",
+    "week": "Week",
+    "applications": "applications",
+    "response_rate_desc": "Percentage of applications that received a response (interview, offer, or rejection).",
+    "avg_response_desc": "Average days between application date and last contact (used as proxy for first response).",
+    "days": "days",
+    "responded": "responded"
   },
   "token": {
     "title": "API Token",
