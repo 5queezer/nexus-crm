@@ -11,70 +11,70 @@ type Lang = "de" | "en";
 
 const TRANSLATIONS = {
   de: {
-    title: (name: string | null) => name ? `Bewerbungen von ${name}` : "Bewerbungsübersicht",
-    subtitle: "Read-only Ansicht",
+    title: (name: string | null) => name ? `Kundenportfolio von ${name}` : "Kundenübersicht",
+    subtitle: "Kundenansicht",
     readOnly: "Lesezugriff",
     stats: {
       total: "Gesamt",
       active: "Aktiv",
-      offers: "Angebote",
-      rejected: "Abgelehnt",
+      offers: "Abschluss",
+      rejected: "Verloren",
     },
     table: {
-      heading: "Bewerbungen",
-      company: "Firma",
-      role: "Stelle",
+      heading: "Opportunities",
+      company: "Kunde",
+      role: "Projekt",
       status: "Status",
-      applied: "Beworben",
+      applied: "Erstellt",
       lastContact: "Letzter Kontakt",
       followUp: "Follow-up",
       notes: "Notizen",
-      empty: "Noch keine Bewerbungen eingetragen.",
+      empty: "Noch keine Opportunities eingetragen.",
     },
     status: {
-      inbound: "Eingehend",
-      applied: "Beworben",
-      interview: "Interview",
-      offer: "Angebot",
-      rejected: "Abgelehnt",
+      inbound: "Neuer Lead",
+      applied: "Kontaktiert",
+      interview: "Verhandlung",
+      offer: "Abschluss",
+      rejected: "Verloren",
     },
     footer: (count: number, date: string) =>
-      `${count} Bewerbungen gesamt · Zuletzt aktualisiert: ${date} Uhr`,
+      `${count} Opportunities gesamt · Zuletzt aktualisiert: ${date} Uhr`,
     readOnlyNote:
-      "Diese Seite ist schreibgeschützt. Nur der Eigentümer kann Änderungen vornehmen.",
+      "Diese Seite ist schreibgeschützt. Nur autorisierte Benutzer können Änderungen vornehmen.",
   },
   en: {
-    title: (name: string | null) => name ? `Job Applications of ${name}` : "Job Applications",
-    subtitle: "Read-only view",
+    title: (name: string | null) => name ? `Client Portfolio of ${name}` : "Client Portfolio",
+    subtitle: "Client view",
     readOnly: "Read access",
     stats: {
       total: "Total",
       active: "Active",
-      offers: "Offers",
-      rejected: "Rejected",
+      offers: "Closing",
+      rejected: "Lost",
     },
     table: {
-      heading: "Applications",
-      company: "Company",
-      role: "Role",
+      heading: "Opportunities",
+      company: "Account",
+      role: "Opportunity",
       status: "Status",
-      applied: "Applied",
+      applied: "Created",
       lastContact: "Last Contact",
       followUp: "Follow-up",
       notes: "Notes",
-      empty: "No applications yet.",
+      empty: "No opportunities yet.",
     },
     status: {
-      inbound: "Inbound",
-      applied: "Applied",
-      interview: "Interview",
-      offer: "Offer",
-      rejected: "Rejected",
+      inbound: "New Lead",
+      applied: "Contacted",
+      interview: "Negotiation",
+      offer: "Closing",
+      rejected: "Lost",
     },
     footer: (count: number, date: string) =>
-      `${count} applications total · Last updated: ${date}`,
+      `${count} opportunities total · Last updated: ${date}`,
     readOnlyNote:
-      "This is a read-only view. Only the owner can make changes.",
+      "This is a read-only view. Only authorized users can make changes.",
   },
 } as const;
 
@@ -264,7 +264,7 @@ export default async function SharePage({ searchParams }: SharePageProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-3 h-16">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="shrink-0 text-2xl">💼</span>
+              <span className="shrink-0 text-2xl">📊</span>
               <div className="min-w-0">
                 <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">{t.title(ownerName)}</h1>
                 <p className="truncate text-xs text-gray-500 dark:text-gray-400">{t.subtitle}</p>

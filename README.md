@@ -1,6 +1,6 @@
-# Job Tracker
+# Nexus CRM
 
-A personal job application tracker built with modern fullstack tooling. Track applications, manage contacts and documents, visualize progress in Kanban view, and never miss a follow-up.
+A lead and opportunity management suite built with modern fullstack tooling. Manage your sales pipeline, track client relationships, visualize deal progress in Kanban view, and never miss a follow-up.
 
 **Live:** [jobs.vasudev.xyz](https://jobs.vasudev.xyz)
 
@@ -9,15 +9,16 @@ A personal job application tracker built with modern fullstack tooling. Track ap
 ## Features
 
 - **Table & Kanban Views** — sortable, filterable table or drag & drop Kanban board with optimistic updates
-- **Follow-up Reminders** — set dates per application, get overdue alerts
-- **Contact Management** — track contacts per application (name, role, email, LinkedIn)
-- **Document Storage** — upload PDFs and images, link to applications, shareable download links
-- **Share Page** — read-only public view for family/AMS with token-based access
+- **Follow-up Reminders** — set dates per opportunity, get overdue alerts
+- **Contact Management** — track contacts per opportunity (name, role, email, LinkedIn)
+- **Document Storage** — upload PDFs and images, link to opportunities, shareable download links
+- **Client Portal** — read-only public view with token-based access
 - **Dark / Light / System Theme** — three-way toggle, persisted in localStorage, no flash on load
 - **DE/EN Language Switcher** — full i18n via next-intl
 - **CSV Export** — one-click export, Excel-compatible
-- **Quick Stats** — at-a-glance count by status
+- **Pipeline Stats** — at-a-glance count by stage
 - **Google OAuth** — secure login, multi-user with per-user admin roles
+- **Email Intelligence** — Gmail integration to auto-detect and import client communications
 - **API Docs** — OpenAPI 3.1 spec with Swagger UI at `/api-docs`
 
 ## Tech Stack
@@ -26,7 +27,7 @@ A personal job application tracker built with modern fullstack tooling. Track ap
 - **[Prisma 6](https://prisma.io)** + PostgreSQL — database (with swappable adapter layer for Firestore)
 - **[better-auth](https://better-auth.com)** — Google OAuth
 - **[TanStack Table v8](https://tanstack.com/table)** — headless table with sort & filter
-- **[TanStack Query v5](https://tanstack.com/query)** — data fetching & cache
+- **[TanStack Query v5](https://tanstack.com/query)** — data fetching, cache & optimistic UI
 - **[@dnd-kit](https://dndkit.com)** — drag & drop for Kanban
 - **[next-intl](https://next-intl-docs.vercel.app)** — i18n (DE/EN)
 - **[Tailwind CSS v3](https://tailwindcss.com)** — styling with class-based dark mode
@@ -36,14 +37,14 @@ A personal job application tracker built with modern fullstack tooling. Track ap
 
 ## Architecture
 
-### Database Adapter Layer
+### Database Adapter Layer (Factory Pattern)
 
 The data layer uses a factory pattern (`lib/db/index.ts`) that switches between backends at runtime via the `DB_PROVIDER` env var:
 
 - **`prisma`** (default) — Prisma ORM with PostgreSQL
 - **`firestore`** — Firebase Admin SDK with Firestore collections
 
-All API routes call `getDb()` which returns a `DatabaseAdapter` interface, making the backend transparent to application code.
+All API routes call `getDb()` which returns a `DatabaseAdapter` interface, making the backend transparent to application code. Swapping databases requires zero code changes — just update the environment variable.
 
 ### Storage Abstraction
 
@@ -51,6 +52,10 @@ File storage (`lib/storage.ts`) switches between:
 
 - **Google Cloud Storage** — when `GCS_BUCKET` is set
 - **Local filesystem** — default fallback, stores in `uploads/`
+
+### Optimistic UI
+
+TanStack Query powers all data mutations with optimistic updates — the UI reflects changes immediately while the server request is in flight, with automatic rollback on failure.
 
 ## Self-Hosting
 
@@ -90,7 +95,7 @@ ALLOWED_EMAIL="your@email.com"
 
 # Optional
 GCS_BUCKET="your-bucket"                     # omit for local filesystem storage
-PUBLIC_READ_TOKEN="random-token"             # token for the /share read-only page
+PUBLIC_READ_TOKEN="random-token"             # token for the client portal read-only page
 # Note: Admin access is managed per-user in the web UI (no env var needed).
 # The first user matching ALLOWED_EMAIL is auto-promoted to admin on first login.
 ```
@@ -98,27 +103,27 @@ PUBLIC_READ_TOKEN="random-token"             # token for the /share read-only pa
 ### Docker
 
 ```bash
-docker build -t job-tracker .
-docker run -p 8080:8080 --env-file .env job-tracker
+docker build -t nexus-crm .
+docker run -p 8080:8080 --env-file .env nexus-crm
 ```
 
 ### GCP Cloud Run (CI/CD)
 
 The repo includes a GitHub Actions workflow (`.github/workflows/deploy-gcp.yml`) that on push to `main`:
 
-1. Pushes Schema updates (`prisma db push`)
+1. Pushes schema updates (`prisma db push`)
 2. Builds a Docker image
 3. Pushes to Artifact Registry
 4. Deploys to Cloud Run with secrets from Secret Manager
 
 Uses Workload Identity Federation — no service account keys needed.
 
-## Application Statuses
+## Pipeline Stages
 
-| Status | Meaning |
-|--------|---------|
-| `inbound` | Incoming opportunity |
-| `applied` | Submitted |
-| `interview` | Interview scheduled/done |
-| `offer` | Offer received |
-| `rejected` | Rejected |
+| Stage | Meaning |
+|-------|---------|
+| `inbound` | New lead |
+| `applied` | Contacted |
+| `interview` | Negotiation |
+| `offer` | Closing |
+| `rejected` | Lost |

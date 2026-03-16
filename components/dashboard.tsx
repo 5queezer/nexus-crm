@@ -183,7 +183,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="shrink-0 text-2xl">💼</span>
+              <span className="shrink-0 text-2xl">📊</span>
               <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">
                 {customTitle || tapp("title")}
               </h1>
@@ -235,7 +235,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center min-h-[44px] px-2 text-sm text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-                title="Readonly link for family/AMS"
+                title="Client portal link"
               >
                 🔗 Share
               </a>
@@ -315,8 +315,8 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
             <span className="text-base">⚠</span>
             <span>
               {overdueFollowUps.length === 1
-                ? `Follow-up überfällig: ${overdueFollowUps[0].company}`
-                : `${overdueFollowUps.length} Follow-ups überfällig`}
+                ? `Overdue follow-up: ${overdueFollowUps[0].company}`
+                : `${overdueFollowUps.length} overdue follow-ups`}
             </span>
           </div>
         )}

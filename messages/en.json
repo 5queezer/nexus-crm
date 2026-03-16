@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "Job Tracker",
-    "subtitle": "Your applications at a glance"
+    "title": "Nexus CRM",
+    "subtitle": "Your pipeline at a glance"
   },
   "nav": {
     "logout": "Sign out",
@@ -14,11 +14,11 @@
   "stats": {
     "total": "Total",
     "active": "Active",
-    "offers": "Offers",
-    "rejected": "Rejected"
+    "offers": "Closing",
+    "rejected": "Lost"
   },
   "actions": {
-    "new_application": "New Application",
+    "new_application": "New Opportunity",
     "export_csv": "CSV Export",
     "filter_reset": "Clear filters",
     "edit": "Edit",
@@ -36,35 +36,37 @@
     "remote_only": "Remote only"
   },
   "table": {
-    "company": "Company",
-    "role": "Role",
+    "company": "Account",
+    "role": "Opportunity",
     "status": "Status",
-    "applied_at": "Applied",
+    "applied_at": "Created",
     "last_contact": "Last Contact",
     "follow_up": "Follow-up",
     "notes": "Notes",
     "contacts": "Contacts",
     "source": "Source",
-    "count": "{filtered} of {total} applications",
-    "empty": "No applications found."
+    "salary": "Budget",
+    "rating": "Priority",
+    "count": "{filtered} of {total} opportunities",
+    "empty": "No opportunities found."
   },
   "modal": {
-    "title_new": "New Application",
-    "title_edit": "Edit Application",
-    "company": "Company",
-    "company_placeholder": "e.g. Google",
-    "role": "Role",
-    "role_placeholder": "e.g. Senior Engineer",
+    "title_new": "New Opportunity",
+    "title_edit": "Edit Opportunity",
+    "company": "Account",
+    "company_placeholder": "e.g. Acme Corp",
+    "role": "Opportunity",
+    "role_placeholder": "e.g. Platform Migration Q2",
     "status": "Status",
-    "applied_at": "Applied on",
+    "applied_at": "Created on",
     "last_contact": "Last Contact",
     "follow_up": "Follow-up Date",
     "notes": "Notes",
     "notes_placeholder": "Details, links...",
-    "job_description": "Job Description (JD)",
-    "job_description_placeholder": "Paste the job description here...",
-    "job_description_toggle_show": "📄 Show job description",
-    "job_description_toggle_hide": "📄 Hide job description",
+    "job_description": "Scope of Work",
+    "job_description_placeholder": "Paste the requirements or scope here...",
+    "job_description_toggle_show": "\ud83d\udcc4 Show scope of work",
+    "job_description_toggle_hide": "\ud83d\udcc4 Hide scope of work",
     "contacts_section": "Contacts",
     "contacts_add": "+ Add contact",
     "contact_name": "Name",
@@ -72,78 +74,82 @@
     "contact_email": "Email",
     "contact_email_placeholder": "john@company.com",
     "contact_role": "Role",
-    "contact_role_placeholder": "e.g. Recruiter, HR, Team Lead",
+    "contact_role_placeholder": "e.g. Decision Maker, Sponsor, Lead",
     "contact_linkedin": "LinkedIn",
     "contact_linkedin_placeholder": "https://linkedin.com/in/...",
     "contact_remove": "Remove",
     "contact_save": "Save",
     "required": "*",
-    "required_fields_error": "Company and role are required.",
-    "error_create": "Failed to create application.",
-    "error_update": "Failed to update application.",
+    "required_fields_error": "Account and opportunity are required.",
+    "error_create": "Failed to create opportunity.",
+    "error_update": "Failed to update opportunity.",
     "error_contact": "Failed to save contact.",
-    "resume_section": "Resume",
-    "resume_tailor": "Create tailored resume",
+    "resume_section": "Proposal",
+    "resume_tailor": "Generate proposal",
     "resume_tailoring": "Creating...",
     "resume_open": "Open in Reactive Resume",
     "resume_error": "Failed to create resume.",
     "resume_not_configured": "Resume integration not configured.",
     "source": "Source",
-    "source_placeholder": "e.g. LinkedIn, Indeed, referral",
-    "remote": "100% Remote"
+    "source_placeholder": "e.g. LinkedIn, referral, cold outreach",
+    "remote": "Remote Engagement",
+    "salary_range": "Budget Range (\u20ac)",
+    "salary_min_placeholder": "Min e.g. 80000",
+    "salary_max_placeholder": "Max e.g. 120000",
+    "rating": "Priority Rating"
   },
   "status": {
-    "inbound": "Inbound",
-    "applied": "Applied",
-    "interview": "Interview",
-    "offer": "Offer",
-    "rejected": "Rejected"
+    "inbound": "New Lead",
+    "applied": "Contacted",
+    "interview": "Negotiation",
+    "offer": "Closing",
+    "rejected": "Lost"
   },
   "kanban": {
     "empty": "No entries"
   },
   "dashboard": {
-    "applications": "Applications",
-    "loading_error": "Failed to load applications."
+    "applications": "Opportunities",
+    "loading_error": "Failed to load opportunities."
   },
   "confirm": {
-    "delete": "Really delete this application?"
+    "delete": "Really delete this opportunity?"
   },
   "login": {
-    "headline": "Your Job Search Cockpit",
-    "subtitle": "Track every application in one place.",
+    "headline": "Your Sales Pipeline",
+    "subtitle": "Manage leads, deals, and client relationships.",
     "button": "Sign in with Google",
     "error": "Login failed. Please try again."
   },
   "share": {
-    "title": "Job Applications of Christian Pojoni",
-    "subtitle": "Read-only view",
+    "title": "Client Portfolio of Christian Pojoni",
+    "subtitle": "Client view",
     "read_only_badge": "Read access",
     "stats": {
       "total": "Total",
       "active": "Active",
-      "offers": "Offers",
-      "rejected": "Rejected"
+      "offers": "Closing",
+      "rejected": "Lost"
     },
     "table": {
-      "heading": "Applications",
-      "company": "Company",
-      "role": "Role",
+      "heading": "Opportunities",
+      "company": "Account",
+      "role": "Opportunity",
       "status": "Status",
-      "applied": "Applied",
+      "applied": "Created",
       "last_contact": "Last Contact",
       "follow_up": "Follow-up",
       "notes": "Notes",
-      "empty": "No applications yet."
+      "empty": "No opportunities yet."
     },
     "status": {
-      "inbound": "Inbound",
-      "applied": "Applied",
-      "interview": "Interview",
-      "offer": "Offer",
-      "rejected": "Rejected"
+      "inbound": "New Lead",
+      "applied": "Contacted",
+      "interview": "Negotiation",
+      "offer": "Closing",
+      "rejected": "Lost"
     },
-    "footer_note": "This is a read-only view. Only Christian can make changes."
+    "footer_note": "This is a read-only view. Only authorized users can make changes."
   },
   "admin": {
     "title": "User Management",
@@ -161,13 +167,13 @@
     "back": "Back to dashboard",
     "appearance": {
       "title": "Appearance",
-      "description": "Customize the look and feel of your application.",
+      "description": "Customize the look and feel of your CRM.",
       "app_title": "Application Title",
       "app_subtitle": "Subtitle",
-      "app_subtitle_placeholder": "e.g. Your applications at a glance",
+      "app_subtitle_placeholder": "e.g. Your pipeline at a glance",
       "share_owner_name": "Share Page Name",
       "share_owner_placeholder": "e.g. John Doe",
-      "share_owner_hint": "Displayed on the public share page as the owner of the applications.",
+      "share_owner_hint": "Displayed on the public share page as the owner of the portfolio.",
       "saved": "Settings saved!"
     },
     "audit": {
@@ -180,11 +186,11 @@
     }
   },
   "email": {
-    "title": "Email Integration",
-    "description": "Connect your Gmail account to automatically detect job application emails and import them.",
+    "title": "Email Intelligence",
+    "description": "Connect your Gmail account to automatically detect client communications and import them.",
     "loading": "Loading...",
     "connect_gmail": "Connect Gmail",
-    "connect_hint": "Grants read-only access to scan for job-related emails. You can disconnect at any time.",
+    "connect_hint": "Grants read-only access to scan for business-related emails. You can disconnect at any time.",
     "connected": "Connected via {provider}",
     "disconnect": "Disconnect",
     "confirm_disconnect": "Disconnect email integration? All scanned emails will be deleted.",
@@ -195,7 +201,7 @@
     "every_30min": "Every 30 minutes",
     "every_60min": "Every hour",
     "auto_import": "Import mode",
-    "import_off": "Off — don't import",
+    "import_off": "Off \u2014 don't import",
     "import_review": "Review first",
     "import_auto": "Auto-import",
     "scan_days_back": "Scan window",
@@ -214,10 +220,10 @@
       "dismissed": "Dismissed"
     },
     "classification": {
-      "applied": "Applied",
-      "interview": "Interview",
-      "rejection": "Rejected",
-      "offer": "Offer",
+      "applied": "Contacted",
+      "interview": "Negotiation",
+      "rejection": "Lost",
+      "offer": "Closing",
       "unknown": "Unknown"
     }
   },
@@ -249,7 +255,7 @@
     "created": "Created",
     "last_used": "Last used",
     "never_used": "Never",
-    "show_once_warning": "Copy this token now — it will not be shown again.",
+    "show_once_warning": "Copy this token now \u2014 it will not be shown again.",
     "confirm_revoke": "Revoke this API token? Any integrations using it will stop working.",
     "confirm_regenerate": "This will revoke your existing token and create a new one. Continue?",
     "no_token": "No API token generated yet."

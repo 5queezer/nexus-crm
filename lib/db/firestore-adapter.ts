@@ -53,6 +53,9 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     jobDescription: data.jobDescription ?? null,
     source: data.source ?? null,
     remote: data.remote ?? false,
+    salaryMin: data.salaryMin ?? null,
+    salaryMax: data.salaryMax ?? null,
+    rating: data.rating ?? null,
     resumeId: data.resumeId ?? null,
     archivedAt: toDate(data.archivedAt) ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
@@ -140,6 +143,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
       notes: data.notes,
       jobDescription: data.jobDescription,
       remote: data.remote ?? false,
+      salaryMin: data.salaryMin ?? null,
+      salaryMax: data.salaryMax ?? null,
+      rating: data.rating ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -166,6 +172,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.notes !== undefined) update.notes = data.notes;
     if (data.jobDescription !== undefined) update.jobDescription = data.jobDescription;
     if (data.remote !== undefined) update.remote = data.remote;
+    if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
+    if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
+    if (data.rating !== undefined) update.rating = data.rating;
 
     await ref.update(update);
     return (await this.getApplication(id, userId))!;

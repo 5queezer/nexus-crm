@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "Job Tracker",
-    "subtitle": "Deine Bewerbungen im Überblick"
+    "title": "Nexus CRM",
+    "subtitle": "Deine Pipeline im \u00dcberblick"
   },
   "nav": {
     "logout": "Abmelden",
@@ -14,17 +14,17 @@
   "stats": {
     "total": "Gesamt",
     "active": "Aktiv",
-    "offers": "Angebote",
-    "rejected": "Abgelehnt"
+    "offers": "Abschluss",
+    "rejected": "Verloren"
   },
   "actions": {
-    "new_application": "Neue Bewerbung",
+    "new_application": "Neue Opportunity",
     "export_csv": "CSV Export",
-    "filter_reset": "Filter zurücksetzen",
+    "filter_reset": "Filter zur\u00fccksetzen",
     "edit": "Bearbeiten",
-    "delete": "Löschen",
+    "delete": "L\u00f6schen",
     "save": "Speichern",
-    "add": "Hinzufügen",
+    "add": "Hinzuf\u00fcgen",
     "cancel": "Abbrechen",
     "saving": "Speichern...",
     "search": "Suchen...",
@@ -36,114 +36,120 @@
     "remote_only": "Nur Remote"
   },
   "table": {
-    "company": "Firma",
-    "role": "Stelle",
+    "company": "Kunde",
+    "role": "Projekt",
     "status": "Status",
-    "applied_at": "Beworben",
+    "applied_at": "Erstellt",
     "last_contact": "Letzter Kontakt",
     "follow_up": "Follow-up",
     "notes": "Notizen",
     "contacts": "Kontakte",
     "source": "Quelle",
-    "count": "{filtered} von {total} Bewerbungen",
-    "empty": "Keine Bewerbungen gefunden."
+    "salary": "Budget",
+    "rating": "Priorit\u00e4t",
+    "count": "{filtered} von {total} Opportunities",
+    "empty": "Keine Opportunities gefunden."
   },
   "modal": {
-    "title_new": "Neue Bewerbung",
-    "title_edit": "Bewerbung bearbeiten",
-    "company": "Firma",
+    "title_new": "Neue Opportunity",
+    "title_edit": "Opportunity bearbeiten",
+    "company": "Kunde",
     "company_placeholder": "z.B. Google",
-    "role": "Stelle",
-    "role_placeholder": "z.B. Senior Engineer",
+    "role": "Projekt",
+    "role_placeholder": "z.B. Plattform-Migration Q2",
     "status": "Status",
-    "applied_at": "Beworben am",
+    "applied_at": "Erstellt am",
     "last_contact": "Letzter Kontakt",
     "follow_up": "Follow-up Datum",
     "notes": "Notizen",
     "notes_placeholder": "Details, Links...",
-    "job_description": "Stellenbeschreibung (JD)",
-    "job_description_placeholder": "Stellenbeschreibung hier einfügen...",
-    "job_description_toggle_show": "📄 Stellenbeschreibung anzeigen",
-    "job_description_toggle_hide": "📄 Stellenbeschreibung ausblenden",
+    "job_description": "Leistungsumfang",
+    "job_description_placeholder": "Anforderungen oder Leistungsumfang hier einf\u00fcgen...",
+    "job_description_toggle_show": "\ud83d\udcc4 Leistungsumfang anzeigen",
+    "job_description_toggle_hide": "\ud83d\udcc4 Leistungsumfang ausblenden",
     "contacts_section": "Kontaktpersonen",
-    "contacts_add": "+ Kontakt hinzufügen",
+    "contacts_add": "+ Kontakt hinzuf\u00fcgen",
     "contact_name": "Name",
     "contact_name_placeholder": "z.B. Max Mustermann",
     "contact_email": "E-Mail",
     "contact_email_placeholder": "max@firma.com",
     "contact_role": "Rolle",
-    "contact_role_placeholder": "z.B. Recruiter, HR, Team Lead",
+    "contact_role_placeholder": "z.B. Entscheider, Sponsor, Lead",
     "contact_linkedin": "LinkedIn",
     "contact_linkedin_placeholder": "https://linkedin.com/in/...",
     "contact_remove": "Entfernen",
     "contact_save": "Speichern",
     "required": "*",
-    "required_fields_error": "Firma und Stelle sind Pflichtfelder.",
-    "error_create": "Fehler beim Erstellen der Bewerbung.",
-    "error_update": "Fehler beim Aktualisieren der Bewerbung.",
+    "required_fields_error": "Kunde und Projekt sind Pflichtfelder.",
+    "error_create": "Fehler beim Erstellen der Opportunity.",
+    "error_update": "Fehler beim Aktualisieren der Opportunity.",
     "error_contact": "Fehler beim Speichern des Kontakts.",
-    "resume_section": "Lebenslauf",
-    "resume_tailor": "Lebenslauf erstellen",
+    "resume_section": "Angebot",
+    "resume_tailor": "Angebot erstellen",
     "resume_tailoring": "Erstelle...",
-    "resume_open": "In Reactive Resume öffnen",
+    "resume_open": "In Reactive Resume \u00f6ffnen",
     "resume_error": "Fehler beim Erstellen des Lebenslaufs.",
     "resume_not_configured": "Lebenslauf-Integration nicht konfiguriert.",
     "source": "Quelle",
-    "source_placeholder": "z.B. LinkedIn, Indeed, Empfehlung",
-    "remote": "100% Remote"
+    "source_placeholder": "z.B. LinkedIn, Empfehlung, Kaltakquise",
+    "remote": "Remote-Engagement",
+    "salary_range": "Budgetrahmen (\u20ac)",
+    "salary_min_placeholder": "Min z.B. 80000",
+    "salary_max_placeholder": "Max z.B. 120000",
+    "rating": "Priorit\u00e4tsbewertung"
   },
   "status": {
-    "inbound": "Eingehend",
-    "applied": "Beworben",
-    "interview": "Interview",
-    "offer": "Angebot",
-    "rejected": "Abgelehnt"
+    "inbound": "Neuer Lead",
+    "applied": "Kontaktiert",
+    "interview": "Verhandlung",
+    "offer": "Abschluss",
+    "rejected": "Verloren"
   },
   "kanban": {
-    "empty": "Keine Einträge"
+    "empty": "Keine Eintr\u00e4ge"
   },
   "dashboard": {
-    "applications": "Bewerbungen",
-    "loading_error": "Fehler beim Laden der Bewerbungen."
+    "applications": "Opportunities",
+    "loading_error": "Fehler beim Laden der Opportunities."
   },
   "confirm": {
-    "delete": "Bewerbung wirklich löschen?"
+    "delete": "Opportunity wirklich l\u00f6schen?"
   },
   "login": {
-    "headline": "Dein Bewerbungs-Cockpit",
-    "subtitle": "Behalte den Überblick über alle Bewerbungen.",
+    "headline": "Deine Vertriebs-Pipeline",
+    "subtitle": "Leads, Deals und Kundenbeziehungen verwalten.",
     "button": "Mit Google anmelden",
     "error": "Login fehlgeschlagen. Bitte versuche es erneut."
   },
   "share": {
-    "title": "Bewerbungen von Christian Pojoni",
-    "subtitle": "Read-only Ansicht",
+    "title": "Kundenportfolio von Christian Pojoni",
+    "subtitle": "Kundenansicht",
     "read_only_badge": "Lesezugriff",
     "stats": {
       "total": "Gesamt",
       "active": "Aktiv",
-      "offers": "Angebote",
-      "rejected": "Abgelehnt"
+      "offers": "Abschluss",
+      "rejected": "Verloren"
     },
     "table": {
-      "heading": "Bewerbungen",
-      "company": "Firma",
-      "role": "Stelle",
+      "heading": "Opportunities",
+      "company": "Kunde",
+      "role": "Projekt",
       "status": "Status",
-      "applied": "Beworben",
+      "applied": "Erstellt",
       "last_contact": "Letzter Kontakt",
       "follow_up": "Follow-up",
       "notes": "Notizen",
-      "empty": "Noch keine Bewerbungen eingetragen."
+      "empty": "Noch keine Opportunities eingetragen."
     },
     "status": {
-      "inbound": "Eingehend",
-      "applied": "Beworben",
-      "interview": "Interview",
-      "offer": "Angebot",
-      "rejected": "Abgelehnt"
+      "inbound": "Neuer Lead",
+      "applied": "Kontaktiert",
+      "interview": "Verhandlung",
+      "offer": "Abschluss",
+      "rejected": "Verloren"
     },
-    "footer_note": "Dies ist eine schreibgeschützte Ansicht. Nur Christian kann Änderungen vornehmen."
+    "footer_note": "Dies ist eine schreibgesch\u00fctzte Ansicht. Nur autorisierte Benutzer k\u00f6nnen \u00c4nderungen vornehmen."
   },
   "admin": {
     "title": "Benutzerverwaltung",
@@ -158,52 +164,52 @@
   },
   "settings": {
     "title": "Einstellungen",
-    "back": "Zurück zum Dashboard",
+    "back": "Zur\u00fcck zum Dashboard",
     "appearance": {
       "title": "Erscheinungsbild",
-      "description": "Passe das Aussehen deiner Anwendung an.",
+      "description": "Passe das Aussehen deines CRM an.",
       "app_title": "Anwendungstitel",
       "app_subtitle": "Untertitel",
-      "app_subtitle_placeholder": "z.B. Deine Bewerbungen im Überblick",
+      "app_subtitle_placeholder": "z.B. Deine Pipeline im \u00dcberblick",
       "share_owner_name": "Name auf der Teilen-Seite",
       "share_owner_placeholder": "z.B. Max Mustermann",
-      "share_owner_hint": "Wird auf der öffentlichen Teilen-Seite als Inhaber der Bewerbungen angezeigt.",
+      "share_owner_hint": "Wird auf der \u00f6ffentlichen Teilen-Seite als Inhaber des Portfolios angezeigt.",
       "saved": "Einstellungen gespeichert!"
     },
     "audit": {
-      "title": "Aktivitätsprotokoll",
+      "title": "Aktivit\u00e4tsprotokoll",
       "loading": "Lade Protokoll...",
       "error_load": "Fehler beim Laden des Protokolls.",
       "empty": "Noch keine Admin-Aktionen aufgezeichnet.",
-      "action_grant": "hat Admin-Rechte gewährt an",
+      "action_grant": "hat Admin-Rechte gew\u00e4hrt an",
       "action_revoke": "hat Admin-Rechte entzogen von"
     }
   },
   "email": {
-    "title": "E-Mail-Integration",
-    "description": "Verbinde dein Gmail-Konto, um Bewerbungs-E-Mails automatisch zu erkennen und zu importieren.",
-    "loading": "Lädt...",
+    "title": "E-Mail-Intelligence",
+    "description": "Verbinde dein Gmail-Konto, um Gesch\u00e4ftskommunikation automatisch zu erkennen und zu importieren.",
+    "loading": "L\u00e4dt...",
     "connect_gmail": "Gmail verbinden",
-    "connect_hint": "Gewährt Lesezugriff zum Scannen von bewerbungsrelevanten E-Mails. Du kannst die Verbindung jederzeit trennen.",
-    "connected": "Verbunden über {provider}",
+    "connect_hint": "Gew\u00e4hrt Lesezugriff zum Scannen von gesch\u00e4ftsrelevanten E-Mails. Du kannst die Verbindung jederzeit trennen.",
+    "connected": "Verbunden \u00fcber {provider}",
     "disconnect": "Trennen",
-    "confirm_disconnect": "E-Mail-Integration trennen? Alle gescannten E-Mails werden gelöscht.",
+    "confirm_disconnect": "E-Mail-Integration trennen? Alle gescannten E-Mails werden gel\u00f6scht.",
     "scan_now": "Jetzt scannen",
     "enabled": "E-Mail-Scanning aktiviert",
-    "scan_frequency": "Scan-Häufigkeit",
+    "scan_frequency": "Scan-H\u00e4ufigkeit",
     "every_15min": "Alle 15 Minuten",
     "every_30min": "Alle 30 Minuten",
     "every_60min": "Jede Stunde",
     "auto_import": "Import-Modus",
-    "import_off": "Aus — nicht importieren",
-    "import_review": "Erst prüfen",
+    "import_off": "Aus \u2014 nicht importieren",
+    "import_review": "Erst pr\u00fcfen",
     "import_auto": "Automatisch importieren",
     "scan_days_back": "Scan-Zeitraum",
     "days": "Tage",
     "last_scan": "Letzter Scan: {time}",
     "scanned_title": "Gescannte E-Mails",
     "no_emails": "Keine E-Mails gefunden.",
-    "select_all": "Alle auswählen",
+    "select_all": "Alle ausw\u00e4hlen",
     "import": "Importieren",
     "dismiss": "Verwerfen",
     "import_selected": "Importieren ({count})",
@@ -214,10 +220,10 @@
       "dismissed": "Verworfen"
     },
     "classification": {
-      "applied": "Beworben",
-      "interview": "Interview",
-      "rejection": "Abgelehnt",
-      "offer": "Angebot",
+      "applied": "Kontaktiert",
+      "interview": "Verhandlung",
+      "rejection": "Verloren",
+      "offer": "Abschluss",
       "unknown": "Unbekannt"
     }
   },
@@ -240,16 +246,16 @@
   },
   "token": {
     "title": "API-Token",
-    "description": "Persönlichen API-Token für LLM-Integrationen generieren.",
+    "description": "Pers\u00f6nlichen API-Token f\u00fcr LLM-Integrationen generieren.",
     "generate": "Token generieren",
     "revoke": "Token widerrufen",
     "copy": "Kopieren",
     "copied": "Kopiert!",
-    "loading": "Lädt...",
+    "loading": "L\u00e4dt...",
     "created": "Erstellt",
     "last_used": "Zuletzt verwendet",
     "never_used": "Nie",
-    "show_once_warning": "Kopiere diesen Token jetzt — er wird nicht erneut angezeigt.",
+    "show_once_warning": "Kopiere diesen Token jetzt \u2014 er wird nicht erneut angezeigt.",
     "confirm_revoke": "Diesen API-Token widerrufen? Alle Integrationen, die ihn verwenden, funktionieren dann nicht mehr.",
     "confirm_regenerate": "Der bestehende Token wird widerrufen und ein neuer erstellt. Fortfahren?",
     "no_token": "Noch kein API-Token generiert."
