@@ -8,8 +8,8 @@ import { getLocale, getMessages } from "next-intl/server";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Job Tracker",
-  description: "Track your job applications",
+  title: "Nexus CRM",
+  description: "Lead & opportunity management suite",
 };
 
 // Inline script to apply theme and custom title before first paint (prevents flash)

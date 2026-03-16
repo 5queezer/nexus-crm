@@ -12,7 +12,7 @@ export interface AppSettings {
 }
 
 const DEFAULTS: AppSettings = {
-  appTitle: "Job Tracker",
+  appTitle: "Nexus CRM",
   appSubtitle: "",
   shareOwnerName: "",
 };
@@ -87,7 +87,7 @@ export function AppSettingsPanel() {
             type="text"
             value={settings.appTitle}
             onChange={(e) => handleChange("appTitle", e.target.value)}
-            placeholder="Job Tracker"
+            placeholder="Nexus CRM"
             className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
           />
         </div>
