@@ -109,7 +109,7 @@ function CopyShareLink({ docId, docName }: { docId: string; docName: string }) {
   return (
     <button
       onClick={handleShare}
-      title="Share-Link kopieren"
+      title="Copy share link"
       className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm font-medium transition-colors"
     >
       {copied ? "✅" : "🔗"}
@@ -195,7 +195,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
       }
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload fehlgeschlagen");
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -209,7 +209,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
   }
 
   function handleDelete(id: string, name: string) {
-    if (confirm(`Dokument „${name}" wirklich löschen?`)) {
+    if (confirm(`Delete "${name}"?`)) {
       deleteMutation.mutate(id);
     }
   }
@@ -222,11 +222,11 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <Link href="/" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
-                ← Zurück
+                ← Back
               </Link>
               <span className="text-gray-200 dark:text-gray-600">|</span>
               <span className="text-2xl">📁</span>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Dokumente</h1>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Files</h1>
             </div>
             <div className="flex items-center gap-3">
               {user.image && (
@@ -269,11 +269,11 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           <div className="text-4xl mb-3">{uploading ? "⏳" : "📤"}</div>
           <p className="text-gray-700 dark:text-gray-200 font-medium">
             {uploading
-              ? "Wird hochgeladen…"
-              : "Datei hierher ziehen oder klicken zum Auswählen"}
+              ? "Uploading…"
+              : "Drag file here or click to select"}
           </p>
           <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">
-            PDF, JPEG, PNG · Max. 10 MB pro Datei
+            PDF, JPEG, PNG · Max 10 MB per file
           </p>
           {uploadError && (
             <p className="mt-3 text-sm text-red-600 font-medium">⚠ {uploadError}</p>
@@ -284,7 +284,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Hochgeladene Dokumente ({documents.length})
+              Uploaded Files ({documents.length})
             </h2>
           </div>
 
@@ -295,7 +295,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           ) : documents.length === 0 ? (
             <div className="text-center py-16 text-gray-400 dark:text-gray-500">
               <div className="text-4xl mb-3">📭</div>
-              <p>Noch keine Dokumente hochgeladen.</p>
+              <p>No files uploaded yet.</p>
             </div>
           ) : (
             <ul className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -312,7 +312,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                       <p
                         className="font-medium text-gray-900 dark:text-white truncate cursor-pointer"
                         onDoubleClick={() => setRenamingId(doc.id)}
-                        title="Doppelklick zum Umbenennen"
+                        title="Double-click to rename"
                       >
                         {doc.originalName}
                       </p>
@@ -344,7 +344,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                     </a>
                     <button
                       onClick={() => setRenamingId(doc.id)}
-                      title="Umbenennen"
+                      title="Rename"
                       className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm font-medium transition-colors"
                     >
                       ✏️
@@ -354,7 +354,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                       onClick={() => handleDelete(doc.id, doc.originalName)}
                       className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
                     >
-                      Löschen
+                      Delete
                     </button>
                   </div>
                 </li>
@@ -364,7 +364,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-6">
-          Dokumente sind nur für dich sichtbar (Login erforderlich).
+          Files are only visible to you (login required).
         </p>
       </main>
     </div>

@@ -82,20 +82,20 @@ export function normalizeStatus(status: string | null | undefined): ApplicationS
 // Preset source values for the source field
 export const SOURCE_PRESETS = [
   "linkedin",
-  "indeed",
-  "company-site",
   "referral",
-  "recruiter",
+  "website",
+  "cold-outreach",
+  "event",
+  "partner",
   "email",
-  "ams",
   "other",
 ] as const;
 
 // Legacy: for any place that still needs a label+color pair
 export const STATUS_OPTIONS: { value: ApplicationStatus; label: string; color: string }[] = [
-  { value: "inbound", label: "Eingehend", color: STATUS_COLORS.inbound },
-  { value: "applied", label: "Beworben", color: STATUS_COLORS.applied },
-  { value: "interview", label: "Interview", color: STATUS_COLORS.interview },
-  { value: "offer", label: "Angebot", color: STATUS_COLORS.offer },
-  { value: "rejected", label: "Abgelehnt", color: STATUS_COLORS.rejected },
+  { value: "inbound", label: "Neuer Lead", color: STATUS_COLORS.inbound },
+  { value: "applied", label: "Kontaktiert", color: STATUS_COLORS.applied },
+  { value: "interview", label: "Verhandlung", color: STATUS_COLORS.interview },
+  { value: "offer", label: "Abschluss", color: STATUS_COLORS.offer },
+  { value: "rejected", label: "Verloren", color: STATUS_COLORS.rejected },
 ];

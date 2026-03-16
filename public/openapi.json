@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Job Tracker API",
+    "title": "Nexus CRM API",
     "version": "1.0.0",
-    "description": "REST API for the Job Tracker application.\n\n## Authentication\n\nTwo auth methods are supported:\n\n- **BearerAuth** – `Authorization: Bearer <token>`. Per-user API token generated in the dashboard. Scoped to the token owner's data (admin tokens get cross-tenant read access).\n- **CookieAuth** – Session cookie set by the Better Auth `/api/auth` flow (Google OAuth).\n\nToken management (POST/DELETE `/api/token`) requires a session cookie. The file download endpoint also accepts a `PUBLIC_READ_TOKEN` query parameter for share links."
+    "description": "REST API for the Nexus CRM application.\n\n## Authentication\n\nTwo auth methods are supported:\n\n- **BearerAuth** – `Authorization: Bearer <token>`. Per-user API token generated in the dashboard. Scoped to the token owner's data (admin tokens get cross-tenant read access).\n- **CookieAuth** – Session cookie set by the Better Auth `/api/auth` flow (Google OAuth).\n\nToken management (POST/DELETE `/api/token`) requires a session cookie. The file download endpoint also accepts a `PUBLIC_READ_TOKEN` query parameter for share links."
   },
   "servers": [
     {
@@ -29,7 +29,7 @@
       "ApplicationStatus": {
         "type": "string",
         "enum": ["inbound", "applied", "interview", "offer", "rejected"],
-        "description": "Current stage of the job application lifecycle."
+        "description": "Current stage of the opportunity pipeline."
       },
       "ContactRef": {
         "type": "object",
@@ -58,7 +58,7 @@
       },
       "Application": {
         "type": "object",
-        "description": "A job application record.",
+        "description": "An opportunity record.",
         "required": ["id", "userId", "company", "role", "status", "createdAt", "updatedAt", "contacts"],
         "properties": {
           "id":             { "type": "integer",              "example": 42 },
@@ -884,8 +884,8 @@
     }
   },
   "tags": [
-    { "name": "Applications", "description": "Job application lifecycle management." },
-    { "name": "Contacts",     "description": "Contacts associated with job applications." },
+    { "name": "Applications", "description": "Opportunity pipeline management." },
+    { "name": "Contacts",     "description": "Contacts associated with opportunities." },
     { "name": "Documents",    "description": "File uploads linked to applications." },
     { "name": "Config",       "description": "Client-side configuration endpoints." },
     { "name": "Token",        "description": "Per-user API token management." },
