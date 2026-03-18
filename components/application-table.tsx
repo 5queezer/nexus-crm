@@ -105,22 +105,22 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("applied_at")}</div>
-          <div className="mt-1 text-gray-700 dark:text-gray-300">{formatDate(app.appliedAt)}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("applied_at")}</div>
+          <div className="text-gray-700 dark:text-gray-300 break-words">{formatDate(app.appliedAt)}</div>
         </div>
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("follow_up")}</div>
-          <div className="mt-1"><FollowUpCell date={app.followUpAt} /></div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("follow_up")}</div>
+          <div className="break-words"><FollowUpCell date={app.followUpAt} /></div>
         </div>
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("last_contact")}</div>
-          <div className="mt-1 text-gray-700 dark:text-gray-300">{formatDate(app.lastContact)}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("last_contact")}</div>
+          <div className="text-gray-700 dark:text-gray-300 break-words">{formatDate(app.lastContact)}</div>
         </div>
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("source")}</div>
-          <div className="mt-1 text-gray-700 dark:text-gray-300">{app.source || "—"}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("source")}</div>
+          <div className="text-gray-700 dark:text-gray-300 break-words">{app.source || "—"}</div>
         </div>
       </div>
 
