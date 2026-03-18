@@ -167,14 +167,39 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
     rejected: activeApplications.filter((a) => a.status === "rejected").length,
   };
 
-  // Overdue follow-ups banner (only active, non-archived)
+  // Overdue follow-ups banner (only active pipeline statuses, non-archived)
+  const [dismissedOverdue, setDismissedOverdue] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const stored = localStorage.getItem("dismissed-overdue");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
   const overdueFollowUps = activeApplications.filter((a) => {
     if (!a.followUpAt) return false;
+    // Only show for active pipeline statuses
+    if (a.status === "offer" || a.status === "rejected") return false;
     const d = new Date(a.followUpAt);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return d < today;
+    if (d >= today) return false;
+    // Check if dismissed
+    const key = `${a.id}:${a.followUpAt}`;
+    return !dismissedOverdue.has(key);
   });
+
+  function dismissOverdue(app: Application) {
+    const key = `${app.id}:${app.followUpAt}`;
+    setDismissedOverdue((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      localStorage.setItem("dismissed-overdue", JSON.stringify([...next]));
+      return next;
+    });
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
@@ -309,15 +334,30 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Overdue follow-up banner */}
+        {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
-          <div className="mb-6 p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/50 rounded-xl flex items-center gap-2 text-red-700 dark:text-red-400 text-sm">
-            <span className="text-base">⚠</span>
-            <span>
-              {overdueFollowUps.length === 1
-                ? `Overdue follow-up: ${overdueFollowUps[0].company}`
-                : `${overdueFollowUps.length} overdue follow-ups`}
-            </span>
+          <div className="mb-6 space-y-2">
+            {overdueFollowUps.map((app) => (
+              <div
+                key={app.id}
+                className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/50 rounded-xl flex items-center gap-2 text-red-700 dark:text-red-400 text-sm"
+              >
+                <span className="text-base">⚠</span>
+                <button
+                  onClick={() => handleEdit(app)}
+                  className="flex-1 text-left hover:underline font-medium"
+                >
+                  Overdue follow-up: {app.company}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); dismissOverdue(app); }}
+                  className="ml-auto shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-red-500 dark:text-red-400"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
