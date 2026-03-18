@@ -130,7 +130,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     company: application?.company || "",
     role: application?.role || "",
     status: (application?.status as ApplicationStatus) || "inbound",
-    appliedAt: toDateInput(application?.appliedAt),
+    appliedAt: toDateInput(application?.appliedAt) || (application ? "" : new Date().toISOString().split("T")[0]),
     lastContact: toDateInput(application?.lastContact),
     followUpAt: toDateInput(application?.followUpAt),
     notes: application?.notes || "",

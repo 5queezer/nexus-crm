@@ -13,6 +13,7 @@
   },
   "stats": {
     "total": "Gesamt",
+    "inbound": "Neue Leads",
     "active": "Aktiv",
     "offers": "Abschluss",
     "rejected": "Verloren"
