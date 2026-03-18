@@ -2,7 +2,7 @@
 
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ORDER, SOURCE_PRESETS } from "@/types";
 
 interface ApplicationModalProps {
@@ -124,6 +124,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
   const t = useTranslations("modal");
   const ts = useTranslations("status");
   const ta = useTranslations("actions");
+  const locale = useLocale();
   const isEditing = !!application;
 
   const [form, setForm] = useState<FormData>({
@@ -460,6 +461,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 name="appliedAt"
                 value={form.appliedAt}
                 onChange={handleChange}
+                lang={locale}
                 className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -473,6 +475,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 name="lastContact"
                 value={form.lastContact}
                 onChange={handleChange}
+                lang={locale}
                 className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -487,6 +490,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
               name="followUpAt"
               value={form.followUpAt}
               onChange={handleChange}
+              lang={locale}
               className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
