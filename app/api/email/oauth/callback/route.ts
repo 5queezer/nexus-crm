@@ -8,10 +8,12 @@ import { encryptToken } from "@/lib/email/encryption";
  * Exchange authorization code for refresh token.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const baseUrl = process.env.BETTER_AUTH_URL || "http://localhost:3001";
+
   const auth = await requireAuth();
   if (!auth) {
     return NextResponse.redirect(
-      new URL("/settings?error=unauthorized", req.url)
+      new URL("/settings?error=unauthorized", baseUrl)
     );
   }
 
@@ -22,7 +24,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/settings?error=${encodeURIComponent(error)}`, req.url)
+      new URL(`/settings?error=${encodeURIComponent(error)}`, baseUrl)
     );
   }
 
@@ -30,24 +32,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const storedState = req.cookies.get("email_oauth_state")?.value;
   if (!state || !storedState || state !== storedState) {
     return NextResponse.redirect(
-      new URL("/settings?error=invalid_state", req.url)
+      new URL("/settings?error=invalid_state", baseUrl)
     );
   }
 
   // Verify the state was issued for this user (prevents CSRF login attacks)
   if (!state.startsWith(`${auth.userId}:`)) {
     return NextResponse.redirect(
-      new URL("/settings?error=invalid_state", req.url)
+      new URL("/settings?error=invalid_state", baseUrl)
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      new URL("/settings?error=no_code", req.url)
+      new URL("/settings?error=no_code", baseUrl)
     );
   }
 
-  const baseUrl = process.env.BETTER_AUTH_URL || "http://localhost:3001";
   const redirectUri = `${baseUrl}/api/email/oauth/callback`;
 
   // Exchange code for tokens
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   if (!tokenResp.ok) {
     return NextResponse.redirect(
-      new URL("/settings?error=token_exchange_failed", req.url)
+      new URL("/settings?error=token_exchange_failed", baseUrl)
     );
   }
 
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   if (!tokens.refresh_token) {
     return NextResponse.redirect(
-      new URL("/settings?error=no_refresh_token", req.url)
+      new URL("/settings?error=no_refresh_token", baseUrl)
     );
   }
 
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   });
 
   const response = NextResponse.redirect(
-    new URL("/settings?email_connected=true", req.url)
+    new URL("/settings?email_connected=true", baseUrl)
   );
 
   // Clear state cookie
