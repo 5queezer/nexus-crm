@@ -325,5 +325,45 @@
   "resume_page": {
     "back": "Back",
     "title": "Resume Review"
+  },
+  "legal": {
+    "title": "Legal Notice",
+    "back": "Back",
+    "privacy": {
+      "title": "Privacy Policy",
+      "intro": "This is a personal, non-commercial project. The following explains what data is collected and how it is used.",
+      "what_collected_title": "What data is collected",
+      "what_collected_text": "When you sign in with Google, we receive your name, email address, and profile picture from Google. Additionally, any data you enter into the application (opportunities, contacts, notes, uploaded files) is stored in the database.",
+      "how_used_title": "How your data is used",
+      "how_used_text": "Your data is used solely to provide the functionality of this application. It is not shared with third parties, sold, or used for advertising.",
+      "cookies_title": "Cookies",
+      "cookies_text": "This application uses essential cookies only: an authentication session cookie and a language preference cookie. No tracking or analytics cookies are used.",
+      "data_storage_title": "Data storage",
+      "data_storage_text": "Data is stored on the server running this application. There is no guarantee of data availability or durability. You are responsible for making regular backups of your data.",
+      "deletion_title": "Data deletion",
+      "deletion_text": "To request deletion of your data, contact the operator listed in the Legal Notice section below."
+    },
+    "terms": {
+      "title": "Terms of Use",
+      "intro": "By using this application, you agree to the following terms.",
+      "as_is_title": "Provided as-is",
+      "as_is_text": "This application is provided \"as is\" without warranty of any kind, express or implied. The operator makes no guarantees regarding availability, reliability, or fitness for any particular purpose.",
+      "no_liability_title": "Limitation of liability",
+      "no_liability_text": "The operator is not liable for any data loss, downtime, or damages arising from the use of this application. Use it at your own risk.",
+      "backups_title": "Backups",
+      "backups_text": "You are solely responsible for maintaining backups of your data. The operator does not guarantee that data will be preserved.",
+      "changes_title": "Changes",
+      "changes_text": "These terms may be updated at any time. Continued use of the application constitutes acceptance of the updated terms."
+    },
+    "impressum": {
+      "title": "Legal Notice (Impressum)",
+      "operated_by": "Operated by",
+      "contact": "Contact",
+      "name": "Christian Pojoni",
+      "email": "[your email]",
+      "address": "[your address]",
+      "disclaimer": "This is a personal, non-commercial project."
+    },
+    "login_agree": "By signing in, you agree to the <terms>Terms of Use</terms> and <privacy>Privacy Policy</privacy>."
   }
 }
