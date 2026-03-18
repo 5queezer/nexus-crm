@@ -296,6 +296,15 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
             <div className="py-2 text-sm text-gray-600 dark:text-gray-300 font-medium">
               {user.name || user.email}
             </div>
+            {user.isAdmin && (
+              <Link
+                href="/settings"
+                className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {tn("settings")}
+              </Link>
+            )}
             <Link
               href="/documents"
               className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
