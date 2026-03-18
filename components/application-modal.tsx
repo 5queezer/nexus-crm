@@ -129,7 +129,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
   const [form, setForm] = useState<FormData>({
     company: application?.company || "",
     role: application?.role || "",
-    status: (application?.status as ApplicationStatus) || "applied",
+    status: (application?.status as ApplicationStatus) || "inbound",
     appliedAt: toDateInput(application?.appliedAt),
     lastContact: toDateInput(application?.lastContact),
     followUpAt: toDateInput(application?.followUpAt),
@@ -353,11 +353,6 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 </option>
               ))}
             </select>
-            <div className="mt-1.5">
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[form.status]}`}>
-                {ts(form.status)}
-              </span>
-            </div>
           </div>
 
           <div>
