@@ -525,6 +525,16 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                   className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y font-mono text-xs"
                   placeholder={t("job_description_placeholder")}
                 />
+                {isEditing && form.jobDescription.trim() && (
+                  <a
+                    href={`/resume-review?applicationId=${application!.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-700 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors"
+                  >
+                    🤖 Analyze
+                  </a>
+                )}
               </div>
             )}
           </div>
