@@ -130,7 +130,16 @@ export default function LegalPage() {
             <p className="font-semibold text-gray-800 dark:text-slate-200">
               {t("impressum.contact")}
             </p>
-            <p>{t("impressum.email")}</p>
+            <p>
+              <a
+                href="https://github.com/5queezer"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-800 dark:hover:text-slate-200 transition-colors"
+              >
+                github.com/5queezer
+              </a>
+            </p>
           </div>
         </section>
       </div>
