@@ -343,7 +343,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="sticky top-16 z-[5] border-b border-gray-100 bg-white/95 p-4 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
+      <div className="border-b border-gray-100 bg-white/95 p-4 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           <input
             type="text"
