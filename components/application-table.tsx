@@ -62,7 +62,7 @@ function FollowUpCell({ date }: { date: string | null }) {
     >
       {overdue && "⚠ "}
       {due && "🔔 "}
-      {format(d, "dd.MM.yy")}
+      {format(d, "dd.MM.yyyy")}
     </span>
   );
 }
@@ -197,7 +197,12 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       header: t("company"),
       cell: (info) => (
         <div className="flex items-center gap-1.5">
-          <span className="font-medium text-gray-900 dark:text-white">{info.getValue()}</span>
+          <button
+            onClick={() => onEdit(info.row.original)}
+            className="font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
+          >
+            {info.getValue()}
+          </button>
           {info.row.original.remote && (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
               Remote
@@ -220,7 +225,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       cell: (info) => {
         const val = info.getValue();
         return val ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300 whitespace-nowrap">
             {val}
           </span>
         ) : (

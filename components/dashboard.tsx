@@ -158,6 +158,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
 
   const stats = {
     total: activeApplications.length,
+    inbound: activeApplications.filter((a) => a.status === "inbound").length,
     active: activeApplications.filter((a) =>
       (["applied", "interview"] as ApplicationStatus[]).includes(a.status)
     ).length,
@@ -206,7 +207,6 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="shrink-0 text-2xl">📊</span>
               <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">
                 {customTitle || tapp("title")}
               </h1>
@@ -230,20 +230,20 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
                   href="/settings"
                   className="flex items-center min-h-[44px] px-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
                 >
-                  🛡️ {tn("settings")}
+                  {tn("settings")}
                 </Link>
               )}
               <Link
                 href="/documents"
                 className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
               >
-                📁 {tn("documents")}
+                {tn("documents")}
               </Link>
               <Link
                 href="/analytics"
                 className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
               >
-                📊 {tn("analytics")}
+                {tn("analytics")}
               </Link>
               <a
                 href={shareUrl}
@@ -252,7 +252,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
                 className="flex items-center min-h-[44px] px-2 text-sm text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
                 title="Client portal link"
               >
-                🔗 Share
+                Share
               </a>
               <button
                 onClick={handleLogout}
@@ -295,14 +295,14 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              📁 {tn("documents")}
+              {tn("documents")}
             </Link>
             <Link
               href="/analytics"
               className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              📊 {tn("analytics")}
+              {tn("analytics")}
             </Link>
             <a
               href={shareUrl}
@@ -311,7 +311,7 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
               className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              🔗 Share
+              Share
             </a>
             <button
               onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
@@ -352,11 +352,12 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
           <StatCard label={ts("total")} value={stats.total} color="blue" />
+          <StatCard label={ts("inbound")} value={stats.inbound} color="teal" />
           <StatCard label={ts("active")} value={stats.active} color="yellow" />
           <StatCard label={ts("offers")} value={stats.offers} color="green" />
-          <StatCard label={ts("rejected")} value={stats.rejected} color="gray" />
+          <StatCard label={ts("rejected")} value={stats.rejected} color="red" />
         </div>
 
         {/* Toolbar */}
@@ -462,13 +463,15 @@ function StatCard({
 }: {
   label: string;
   value: number;
-  color: "blue" | "yellow" | "green" | "gray";
+  color: "blue" | "teal" | "yellow" | "green" | "gray" | "red";
 }) {
   const colors = {
     blue: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+    teal: "bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
     yellow: "bg-yellow-50 text-yellow-700 dark:bg-amber-500/15 dark:text-amber-300",
     green: "bg-green-50 text-green-700 dark:bg-emerald-500/15 dark:text-emerald-300",
     gray: "bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-200",
+    red: "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300",
   };
 
   return (
