@@ -375,11 +375,11 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
-          <StatCard label={ts("total")} value={stats.total} color="blue" />
-          <StatCard label={ts("inbound")} value={stats.inbound} color="teal" />
-          <StatCard label={ts("active")} value={stats.active} color="yellow" />
-          <StatCard label={ts("offers")} value={stats.offers} color="green" />
-          <StatCard label={ts("rejected")} value={stats.rejected} color="red" />
+          <StatCard label={ts("total")} value={stats.total} color="blue" onClick={() => setViewMode("table")} />
+          <StatCard label={ts("inbound")} value={stats.inbound} color="teal" onClick={() => setViewMode("table")} />
+          <StatCard label={ts("active")} value={stats.active} color="yellow" onClick={() => setViewMode("table")} />
+          <StatCard label={ts("offers")} value={stats.offers} color="green" onClick={() => setViewMode("table")} />
+          <StatCard label={ts("rejected")} value={stats.rejected} color="red" onClick={() => setViewMode("table")} />
         </div>
 
         {/* Toolbar */}
@@ -482,10 +482,12 @@ function StatCard({
   label,
   value,
   color,
+  onClick,
 }: {
   label: string;
   value: number;
   color: "blue" | "teal" | "yellow" | "green" | "gray" | "red";
+  onClick?: () => void;
 }) {
   const colors = {
     blue: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
@@ -496,8 +498,15 @@ function StatCard({
     red: "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300",
   };
 
-  return (
-    <div className={`${colors[color]} rounded-xl p-4 text-center`}>
+  const className = `${colors[color]} rounded-xl p-4 text-center${onClick ? " cursor-pointer hover:opacity-80 transition-opacity" : ""}`;
+
+  return onClick ? (
+    <button type="button" onClick={onClick} className={className}>
+      <div className="text-3xl font-bold">{value}</div>
+      <div className="text-sm font-medium mt-1">{label}</div>
+    </button>
+  ) : (
+    <div className={className}>
       <div className="text-3xl font-bold">{value}</div>
       <div className="text-sm font-medium mt-1">{label}</div>
     </div>
