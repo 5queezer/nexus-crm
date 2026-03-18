@@ -23,7 +23,8 @@ export async function GET(
     }
     const lang = request.nextUrl.searchParams.get("lang");
     const langParam = lang === "en" ? "&lang=en" : "";
-    const url = new URL(`/share?token=${token}${langParam}`, request.url);
+    const base = process.env.BETTER_AUTH_URL || request.url;
+    const url = new URL(`/share?token=${token}${langParam}`, base);
     return NextResponse.redirect(url);
   }
 
