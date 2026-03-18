@@ -416,7 +416,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         )}
       </div>
 
-      <div className="hidden overflow-x-auto md:block relative">
+      <div className="hidden overflow-x-auto md:block relative [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-600 [&::-webkit-scrollbar-track]:bg-transparent">
         <table className="w-full border-collapse">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
