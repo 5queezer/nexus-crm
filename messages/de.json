@@ -306,5 +306,24 @@
     "confirm_revoke": "Diesen API-Token widerrufen? Alle Integrationen, die ihn verwenden, funktionieren dann nicht mehr.",
     "confirm_regenerate": "Der bestehende Token wird widerrufen und ein neuer erstellt. Fortfahren?",
     "no_token": "Noch kein API-Token generiert."
+  },
+  "documents_page": {
+    "back": "Zurück",
+    "title": "Dateien",
+    "uploading": "Wird hochgeladen…",
+    "drop_hint": "Datei hierher ziehen oder klicken zum Auswählen",
+    "file_types": "PDF, JPEG, PNG · Max. 10 MB pro Datei",
+    "uploaded_files": "Hochgeladene Dateien ({count})",
+    "no_files": "Noch keine Dateien hochgeladen.",
+    "download": "Herunterladen",
+    "delete": "Löschen",
+    "rename_hint": "Doppelklick zum Umbenennen",
+    "share_hint": "Freigabelink kopieren",
+    "footer": "Dateien sind nur für dich sichtbar (Anmeldung erforderlich).",
+    "confirm_delete": "\"{name}\" wirklich löschen?"
+  },
+  "resume_page": {
+    "back": "Zurück",
+    "title": "Lebenslauf-Check"
   }
 }

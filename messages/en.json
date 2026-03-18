@@ -306,5 +306,24 @@
     "confirm_revoke": "Revoke this API token? Any integrations using it will stop working.",
     "confirm_regenerate": "This will revoke your existing token and create a new one. Continue?",
     "no_token": "No API token generated yet."
+  },
+  "documents_page": {
+    "back": "Back",
+    "title": "Files",
+    "uploading": "Uploading…",
+    "drop_hint": "Drag file here or click to select",
+    "file_types": "PDF, JPEG, PNG · Max 10 MB per file",
+    "uploaded_files": "Uploaded Files ({count})",
+    "no_files": "No files uploaded yet.",
+    "download": "Download",
+    "delete": "Delete",
+    "rename_hint": "Double-click to rename",
+    "share_hint": "Copy share link",
+    "footer": "Files are only visible to you (login required).",
+    "confirm_delete": "Delete \"{name}\"?"
+  },
+  "resume_page": {
+    "back": "Back",
+    "title": "Resume Review"
   }
 }
