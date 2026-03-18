@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 
 const SETTINGS_KEY = "appSettings";
@@ -39,12 +39,8 @@ export function saveAppSettings(settings: AppSettings) {
 export function AppSettingsPanel() {
   const t = useTranslations("settings");
   const ta = useTranslations("actions");
-  const [settings, setSettings] = useState<AppSettings>(DEFAULTS);
+  const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
   const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    setSettings(loadAppSettings());
-  }, []);
 
   const handleChange = useCallback(
     (key: keyof AppSettings, value: string) => {

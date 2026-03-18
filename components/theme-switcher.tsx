@@ -27,18 +27,16 @@ const ICONS: Record<Theme, string> = {
 const CYCLE: Theme[] = ["light", "dark", "system"];
 
 export function ThemeSwitcher() {
-  const [theme, setTheme] = useState<Theme>("system");
+  const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
 
   useEffect(() => {
-    const stored = getStoredTheme();
-    setTheme(stored);
-    applyTheme(stored);
+    applyTheme(theme);
 
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => { if (getStoredTheme() === "system") applyTheme("system"); };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, []);
+  }, [theme]);
 
   function cycle() {
     const next = CYCLE[(CYCLE.indexOf(theme) + 1) % CYCLE.length];

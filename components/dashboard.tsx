@@ -84,15 +84,16 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const tc = useTranslations("confirm");
   const tapp = useTranslations("app");
 
-  const [customTitle, setCustomTitle] = useState("");
+  const [customTitle] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return loadAppSettings().appTitle || "";
+  });
 
   useEffect(() => {
-    const settings = loadAppSettings();
-    if (settings.appTitle) {
-      setCustomTitle(settings.appTitle);
-      document.title = settings.appTitle;
+    if (customTitle) {
+      document.title = customTitle;
     }
-  }, []);
+  }, [customTitle]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
