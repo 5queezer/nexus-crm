@@ -13,11 +13,12 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js requires unsafe-inline/eval in dev; tighten in prod if needed
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https://lh3.googleusercontent.com",
-      "connect-src 'self'",
+      "connect-src 'self' https://challenges.cloudflare.com",
       "font-src 'self'",
+      "frame-src https://challenges.cloudflare.com",
       "frame-ancestors 'none'",
     ].join("; "),
   },
