@@ -548,17 +548,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
   async createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord> {
     const { applicationIds, ...rest } = data;
 
-    // Verify ownership of referenced applications
-    let safeIds: string[] = [];
+    // Verify ownership of referenced applications and load refs in one batch
+    let appMap = new Map<string, { id: string; company: string; role: string }>();
     if (applicationIds.length > 0) {
-      const checks = await Promise.all(
-        applicationIds.map(async (id) => {
-          const doc = await this.apps.doc(id).get();
-          return doc.exists && doc.data()!.userId === userId ? id : null;
-        }),
-      );
-      safeIds = checks.filter((id): id is string => !!id);
+      appMap = await this.loadVerifiedAppRefs(applicationIds, userId);
     }
+    const safeIds = Array.from(appMap.keys());
 
     const ref = await this.docs.add({
       userId,
@@ -569,13 +564,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const snap = await ref.get();
     const rec = mapDoc(ref.id, snap.data()!);
 
-    // Resolve app refs
-    if (safeIds.length > 0) {
-      const appMap = await this.loadAppRefs(safeIds);
-      rec.applications = safeIds.map((id) => appMap.get(id)).filter((a): a is NonNullable<typeof a> => !!a);
-    } else {
-      rec.applications = [];
-    }
+    // Populate resolved app refs
+    rec.applications = safeIds
+      .map((id) => appMap.get(id))
+      .filter((a): a is NonNullable<typeof a> => !!a);
+
     return rec;
   }
 
@@ -586,23 +579,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
       throw new Error("Not found");
     }
 
-    // Verify ownership
-    const checks = await Promise.all(
-      applicationIds.map(async (aid) => {
-        const doc = await this.apps.doc(aid).get();
-        return doc.exists && doc.data()!.userId === userId ? aid : null;
-      }),
-    );
-    const safeIds = checks.filter((id): id is string => !!id);
+    // Verify ownership of referenced applications and load refs in one batch
+    let appMap = new Map<string, { id: string; company: string; role: string }>();
+    if (applicationIds.length > 0) {
+      appMap = await this.loadVerifiedAppRefs(applicationIds, userId);
+    }
+    const safeIds = Array.from(appMap.keys());
     await ref.update({ applicationIds: safeIds });
 
     const rec = mapDoc(id, (await ref.get()).data()!);
-    if (safeIds.length > 0) {
-      const appMap = await this.loadAppRefs(safeIds);
-      rec.applications = safeIds.map((id) => appMap.get(id)).filter((a): a is NonNullable<typeof a> => !!a);
-    } else {
-      rec.applications = [];
-    }
+    // Populate resolved app refs
+    rec.applications = safeIds
+      .map((aid) => appMap.get(aid))
+      .filter((a): a is NonNullable<typeof a> => !!a);
     return rec;
   }
 
@@ -612,14 +601,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (!existing.exists || existing.data()!.userId !== userId) return null;
     await ref.update({ originalName: newName });
     const updated = await ref.get();
-    const rec = mapDoc(id, updated.data()!);
-    const appIds: string[] = updated.data()!.applicationIds ?? [];
+    const data = updated.data()!;
+    const rec = mapDoc(id, data);
+    const appIds: string[] = data.applicationIds ?? [];
+
+    // Verify ownership of referenced applications and load refs in one batch
+    let appMap = new Map<string, { id: string; company: string; role: string }>();
     if (appIds.length > 0) {
-      const appMap = await this.loadAppRefs(appIds);
-      rec.applications = appIds.map((aid) => appMap.get(aid)).filter((a): a is NonNullable<typeof a> => !!a);
-    } else {
-      rec.applications = [];
+      appMap = await this.loadVerifiedAppRefs(appIds, userId);
     }
+    rec.applications = appIds
+      .map((aid) => appMap.get(aid))
+      .filter((a): a is NonNullable<typeof a> => !!a);
+
     return rec;
   }
 
@@ -774,6 +768,27 @@ export class FirestoreAdapter implements DatabaseAdapter {
         if (snap.exists) {
           const d = snap.data()!;
           map.set(snap.id, { id: snap.id, company: d.company, role: d.role });
+        }
+      }
+    }
+    return map;
+  }
+
+  private async loadVerifiedAppRefs(
+    ids: string[],
+    userId: string,
+  ): Promise<Map<string, { id: string; company: string; role: string }>> {
+    const map = new Map<string, { id: string; company: string; role: string }>();
+    for (let i = 0; i < ids.length; i += 30) {
+      const chunk = ids.slice(i, i + 30);
+      const refs = chunk.map((id) => this.apps.doc(id));
+      const snaps = await this.db.getAll(...refs);
+      for (const snap of snaps) {
+        if (snap.exists) {
+          const d = snap.data()!;
+          if (d.userId === userId) {
+            map.set(snap.id, { id: snap.id, company: d.company, role: d.role });
+          }
         }
       }
     }
