@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { fetchNewMessages, getMessageDetail } from "./gmail";
 import { classifyEmail } from "./classifier";
+import { logger } from "@/lib/logger";
 
 export interface ScanResult {
   userId: string;
@@ -98,8 +99,7 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
         result.autoImported++;
       }
     } catch (err) {
-      // Log but continue processing other messages
-      console.error(`Failed to process message ${msg.id}:`, err);
+      logger.error(`Failed to process message ${msg.id}:`, err);
     }
   }
 
@@ -202,7 +202,7 @@ export async function scanAllInboxes(): Promise<ScanResult[]> {
       const result = await scanUserInbox(integration.userId);
       results.push(result);
     } catch (err) {
-      console.error(`Scan failed for user ${integration.userId}:`, err);
+      logger.error(`Scan failed for user ${integration.userId}:`, err);
       results.push({
         userId: integration.userId,
         processed: 0,
