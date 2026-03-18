@@ -118,6 +118,17 @@ export default function LoginPage() {
           </svg>
           5queezer/nexus-crm
         </a>
+
+        {/* Legal links */}
+        <div className="mt-8 flex items-center justify-center gap-4 text-xs text-gray-400 dark:text-slate-500">
+          <a href="/privacy" className="hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+            {t("login.privacy")}
+          </a>
+          <span>&middot;</span>
+          <a href="/imprint" className="hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+            {t("login.imprint")}
+          </a>
+        </div>
       </div>
     </div>
   );

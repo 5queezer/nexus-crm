@@ -120,7 +120,9 @@
     "headline": "Your Sales Pipeline",
     "subtitle": "Manage leads, deals, and client relationships.",
     "button": "Sign in with Google",
-    "error": "Login failed. Please try again."
+    "error": "Login failed. Please try again.",
+    "privacy": "Privacy Policy",
+    "imprint": "Imprint"
   },
   "share": {
     "title": "Client Portfolio of Christian Pojoni",
