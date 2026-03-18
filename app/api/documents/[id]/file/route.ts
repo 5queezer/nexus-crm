@@ -43,6 +43,7 @@ export async function GET(
       "Content-Disposition": `attachment; filename="${encodeURIComponent(document.originalName)}"`,
       "Content-Length": String(buffer.length),
       "Cache-Control": "private, no-cache",
+      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
     },
   });
 }
