@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { ResumeAnalyzer } from "@/components/resume-analyzer";
+import { getTranslations } from "next-intl/server";
 
 interface PageProps {
   searchParams: Promise<{ applicationId?: string }>;
@@ -14,6 +15,7 @@ export default async function ResumeReviewPage({ searchParams }: PageProps) {
     redirect("/login");
   }
 
+  const t = await getTranslations("resume_page");
   const params = await searchParams;
   let jobDescription: string | undefined;
   let applicationId: string | undefined;
@@ -43,11 +45,11 @@ export default async function ResumeReviewPage({ searchParams }: PageProps) {
                 href="/"
                 className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
               >
-                ← Back
+                ← {t("back")}
               </a>
               <span className="text-2xl">🤖</span>
               <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-                Resume Review
+                {t("title")}
               </h1>
             </div>
           </div>

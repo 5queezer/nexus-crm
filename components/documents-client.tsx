@@ -3,8 +3,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { format } from "date-fns";
-import { de } from "date-fns/locale";
+import { de, enUS } from "date-fns/locale";
 import Link from "next/link";
+import { useTranslations, useLocale } from "next-intl";
 
 interface ApplicationRef {
   id: string;
@@ -106,10 +107,11 @@ function CopyShareLink({ docId, docName }: { docId: string; docName: string }) {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  const t = useTranslations("documents_page");
   return (
     <button
       onClick={handleShare}
-      title="Copy share link"
+      title={t("share_hint")}
       className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm font-medium transition-colors"
     >
       {copied ? "✅" : "🔗"}
@@ -157,6 +159,9 @@ function InlineRename({ doc, onDone }: { doc: Document; onDone: () => void }) {
 
 export function DocumentsClient({ user }: DocumentsClientProps) {
   const queryClient = useQueryClient();
+  const t = useTranslations("documents_page");
+  const locale = useLocale();
+  const dateFnsLocale = locale === "de" ? de : enUS;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -209,7 +214,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
   }
 
   function handleDelete(id: string, name: string) {
-    if (confirm(`Delete "${name}"?`)) {
+    if (confirm(t("confirm_delete", { name }))) {
       deleteMutation.mutate(id);
     }
   }
@@ -222,11 +227,11 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <Link href="/" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
-                ← Back
+                ← {t("back")}
               </Link>
               <span className="text-gray-200 dark:text-gray-600">|</span>
               <span className="text-2xl">📁</span>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Files</h1>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">{t("title")}</h1>
             </div>
             <div className="flex items-center gap-3">
               {user.image && (
@@ -269,11 +274,11 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           <div className="text-4xl mb-3">{uploading ? "⏳" : "📤"}</div>
           <p className="text-gray-700 dark:text-gray-200 font-medium">
             {uploading
-              ? "Uploading…"
-              : "Drag file here or click to select"}
+              ? t("uploading")
+              : t("drop_hint")}
           </p>
           <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">
-            PDF, JPEG, PNG · Max 10 MB per file
+            {t("file_types")}
           </p>
           {uploadError && (
             <p className="mt-3 text-sm text-red-600 font-medium">⚠ {uploadError}</p>
@@ -284,7 +289,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Uploaded Files ({documents.length})
+              {t("uploaded_files", { count: documents.length })}
             </h2>
           </div>
 
@@ -295,7 +300,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           ) : documents.length === 0 ? (
             <div className="text-center py-16 text-gray-400 dark:text-gray-500">
               <div className="text-4xl mb-3">📭</div>
-              <p>No files uploaded yet.</p>
+              <p>{t("no_files")}</p>
             </div>
           ) : (
             <ul className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -312,14 +317,14 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                       <p
                         className="font-medium text-gray-900 dark:text-white truncate cursor-pointer"
                         onDoubleClick={() => setRenamingId(doc.id)}
-                        title="Double-click to rename"
+                        title={t("rename_hint")}
                       >
                         {doc.originalName}
                       </p>
                     )}
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                       {formatBytes(doc.size)} ·{" "}
-                      {format(new Date(doc.uploadedAt), "dd.MM.yyyy HH:mm", { locale: de })}
+                      {format(new Date(doc.uploadedAt), "dd.MM.yyyy HH:mm", { locale: dateFnsLocale })}
                     </p>
                     {doc.applications.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
@@ -340,7 +345,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                       download={doc.originalName}
                       className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
                     >
-                      Download
+                      {t("download")}
                     </a>
                     <button
                       onClick={() => setRenamingId(doc.id)}
@@ -354,7 +359,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                       onClick={() => handleDelete(doc.id, doc.originalName)}
                       className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
                     >
-                      Delete
+                      {t("delete")}
                     </button>
                   </div>
                 </li>
@@ -364,7 +369,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-6">
-          Files are only visible to you (login required).
+          {t("footer")}
         </p>
       </main>
     </div>
