@@ -154,6 +154,14 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
   const [savingContactIdx, setSavingContactIdx] = useState<number | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const createMutation = useMutation({
     mutationFn: createApplication,
     onSuccess: async (newApp) => {
