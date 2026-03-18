@@ -56,10 +56,13 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-semibold text-gray-900 dark:text-white text-sm group-hover:text-blue-700 dark:group-hover:text-blue-400 truncate">
+          <div
+            className="font-semibold text-gray-900 dark:text-white text-sm group-hover:text-blue-700 dark:group-hover:text-blue-400 truncate"
+            title={app.company}
+          >
             {app.company}
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-300 mt-0.5 truncate">{app.role}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-300 mt-0.5 truncate" title={app.role}>{app.role}</div>
         </div>
         <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[app.status]}`}>
           {ts(app.status)}
@@ -70,7 +73,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
         {app.remote && (
           <span className="font-semibold text-emerald-700 dark:text-emerald-400">Remote</span>
         )}
-        {app.appliedAt && <span>{format(new Date(app.appliedAt), "dd.MM.yy")}</span>}
+        {app.appliedAt && <span>{format(new Date(app.appliedAt), "dd.MM.yyyy")}</span>}
         {followUpDate && (
           <span
             className={`font-medium ${
@@ -78,7 +81,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
             }`}
           >
             {isOverdue ? "⚠ " : isDueToday ? "🔔 " : "📅 "}
-            {format(followUpDate, "dd.MM.yy")}
+            {format(followUpDate, "dd.MM.yyyy")}
           </span>
         )}
       </div>
@@ -145,7 +148,7 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
         `}
       >
         {apps.length === 0 && !isOver ? (
-          <div className="text-xs text-gray-300 dark:text-gray-500 italic py-2 text-center border border-dashed border-gray-200 dark:border-gray-600 rounded-lg">
+          <div className="text-xs text-gray-300 dark:text-gray-500 italic py-6 text-center border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50/50 dark:bg-gray-800/30">
             {tk("empty")}
           </div>
         ) : (
