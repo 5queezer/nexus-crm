@@ -249,7 +249,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       header: t("notes"),
       cell: (info) => (
         <span
-          className="text-gray-500 dark:text-gray-300 text-sm max-w-xs truncate block"
+          className="text-gray-500 dark:text-gray-300 text-sm max-w-[200px] truncate block"
           title={info.getValue() || ""}
         >
           {info.getValue() || "—"}
@@ -411,8 +411,8 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         )}
       </div>
 
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full">
+      <div className="hidden overflow-x-auto md:block relative">
+        <table className="w-full border-collapse">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
@@ -420,7 +420,11 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                   <th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
-                    className={`text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider px-4 py-3 ${
+                    className={`text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider px-4 py-3 whitespace-nowrap ${
+                      header.id === "actions"
+                        ? "sticky right-0 bg-gray-50 dark:bg-gray-900/80 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]"
+                        : ""
+                    } ${
                       header.column.getCanSort()
                         ? "cursor-pointer select-none hover:text-gray-700 dark:hover:text-white"
                         : ""
@@ -453,7 +457,14 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                     className={`border-b border-gray-50 dark:border-gray-700/50 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-colors ${rowColor}`}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3">
+                      <td
+                        key={cell.id}
+                        className={`px-4 py-3 ${
+                          cell.column.id === "actions"
+                            ? "sticky right-0 bg-white dark:bg-gray-800 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]"
+                            : ""
+                        }`}
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
