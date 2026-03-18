@@ -390,7 +390,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </div>
       </div>
 
-      <div className="p-3 md:hidden">
+      <div className="p-3 pt-4 md:hidden">
         {table.getRowModel().rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
             {t("empty")}
