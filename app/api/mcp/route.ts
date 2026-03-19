@@ -6,9 +6,11 @@ import { getDb } from "@/lib/db";
 import { hashApiToken } from "@/lib/token";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
+import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 
-// ── Auth helper (standalone, avoids next/headers which doesn't work here) ────
+// ── Auth helper ──────────────────────────────────────────────────────────────
+// Tries MCP OAuth access token first, then falls back to CRM API token.
 
 async function authenticateFromRequest(
   req: NextRequest
@@ -18,6 +20,13 @@ async function authenticateFromRequest(
 
   const raw = authHeader.slice(7).trim();
   if (!raw) return null;
+
+  // 1. Try MCP OAuth access token (mcp_at_ prefix)
+  if (raw.startsWith("mcp_at_")) {
+    return verifyMcpAccessToken(raw);
+  }
+
+  // 2. Fall back to CRM API token (jt_ prefix)
   const hash = hashApiToken(raw);
   const token = await getDb().getApiTokenByHash(hash);
   if (!token) return null;

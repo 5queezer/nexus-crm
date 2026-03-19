@@ -75,6 +75,7 @@ model User {
   auditLogsAsTarget   AdminAuditLog[]    @relation("auditTarget")
   emailIntegration    EmailIntegration?
   scannedEmails       ScannedEmail[]
+  mcpAccessTokens     McpAccessToken[]
 }
 
 model UserApiToken {
@@ -184,4 +185,57 @@ model Verification {
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+// ── MCP OAuth 2.1 ───────────────────────────────────────────────────────────
+
+model McpOAuthClient {
+  id                   String   @id @default(cuid())
+  clientId             String   @unique
+  clientSecretHash     String?
+  clientName           String?
+  redirectUris         String[] // allowed redirect URIs
+  grantTypes           String[] // ["authorization_code", "refresh_token"]
+  responseTypes        String[] // ["code"]
+  tokenEndpointAuth    String   @default("client_secret_post")
+  clientSecretExpiresAt DateTime? // null = never expires
+  createdAt            DateTime @default(now())
+}
+
+model McpAuthCode {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  clientId        String
+  userId          String
+  redirectUri     String
+  codeChallenge   String   // PKCE S256
+  scopes          String[] // granted scopes
+  expiresAt       DateTime
+  used            Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([code])
+}
+
+model McpAccessToken {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  clientId   String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes     String[]
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+model McpRefreshToken {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  clientId   String
+  userId     String
+  scopes     String[]
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
 }
