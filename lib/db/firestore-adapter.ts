@@ -238,15 +238,21 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (filter.sort) {
       const desc = filter.sort.startsWith("-");
       const field = desc ? filter.sort.slice(1) : filter.sort;
-      apps.sort((a, b) => {
-        const av = (a as Record<string, unknown>)[field];
-        const bv = (b as Record<string, unknown>)[field];
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-        return desc ? -cmp : cmp;
-      });
+      const allowedSortFields = [
+        "createdAt", "updatedAt", "company", "role", "status",
+        "rating", "salaryMin", "salaryMax", "appliedAt", "lastContact",
+      ];
+      if (allowedSortFields.includes(field)) {
+        apps.sort((a, b) => {
+          const av = (a as Record<string, unknown>)[field];
+          const bv = (b as Record<string, unknown>)[field];
+          if (av == null && bv == null) return 0;
+          if (av == null) return 1;
+          if (bv == null) return -1;
+          const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+          return desc ? -cmp : cmp;
+        });
+      }
     }
 
     // Limit
@@ -385,10 +391,17 @@ export class FirestoreAdapter implements DatabaseAdapter {
         contactSnap.docs.forEach((d) => contactRefs.push(d.ref));
       }
 
-      const batch = this.db.batch();
-      contactRefs.forEach((ref) => batch.delete(ref));
-      toDelete.forEach(({ ref }) => batch.delete(ref));
-      await batch.commit();
+      // Firestore batches have a 500 operation limit; chunk if needed
+      const allRefs = [
+        ...contactRefs,
+        ...toDelete.map(({ ref }) => ref),
+      ];
+      for (let i = 0; i < allRefs.length; i += 499) {
+        const chunk = allRefs.slice(i, i + 499);
+        const batch = this.db.batch();
+        chunk.forEach((ref) => batch.delete(ref));
+        await batch.commit();
+      }
 
       for (const { id } of toDelete) {
         results.push({ id, deleted: true });

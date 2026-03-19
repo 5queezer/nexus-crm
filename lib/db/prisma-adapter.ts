@@ -61,6 +61,20 @@ function userWhere(userId: string | null): { userId: string } | object {
   return userId ? { userId } : {};
 }
 
+function pickFields(apps: ApplicationRecord[], fields?: string[]): Partial<ApplicationRecord>[] {
+  if (!fields?.length) return apps;
+  return apps.map((app) => {
+    const picked: Partial<ApplicationRecord> = {};
+    for (const f of fields) {
+      if (f in app) {
+        (picked as Record<string, unknown>)[f] = (app as Record<string, unknown>)[f];
+      }
+    }
+    picked.id = app.id;
+    return picked;
+  });
+}
+
 // ── Implementation ──────────────────────────────────────────────────────────
 
 export class PrismaAdapter implements DatabaseAdapter {
@@ -148,30 +162,24 @@ export class PrismaAdapter implements DatabaseAdapter {
 
     const includeContacts = filter.includeContacts ?? false;
 
+    if (includeContacts) {
+      const rows = await prisma.application.findMany({
+        where,
+        orderBy,
+        take: filter.limit ?? undefined,
+        include: { contacts: true },
+      });
+      return pickFields(rows.map(mapApp), filter.fields);
+    }
+
     const rows = await prisma.application.findMany({
       where,
       orderBy,
       take: filter.limit ?? undefined,
-      include: { contacts: includeContacts },
     });
-
-    const fields = filter.fields;
-    if (fields?.length) {
-      return rows.map((row) => {
-        const full = mapApp(row as AppRow);
-        const picked: Partial<ApplicationRecord> = {};
-        for (const f of fields) {
-          if (f in full) {
-            (picked as Record<string, unknown>)[f] = (full as Record<string, unknown>)[f];
-          }
-        }
-        // Always include id
-        picked.id = full.id;
-        return picked;
-      });
-    }
-
-    return rows.map((row) => mapApp(row as AppRow));
+    // Map without contacts — give mapApp an empty contacts array to satisfy the type
+    const mapped = rows.map((row) => mapApp({ ...row, contacts: [] }));
+    return pickFields(mapped, filter.fields);
   }
 
   async batchUpsertApplications(userId: string, items: BatchUpsertItem[]): Promise<BatchUpsertResult> {
