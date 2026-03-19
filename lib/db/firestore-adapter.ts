@@ -277,8 +277,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
       ];
       if (allowedSortFields.includes(field)) {
         apps.sort((a, b) => {
-          const av = (a as Record<string, unknown>)[field];
-          const bv = (b as Record<string, unknown>)[field];
+          const av = a[field as keyof ApplicationRecord];
+          const bv = b[field as keyof ApplicationRecord];
           if (av == null && bv == null) return 0;
           if (av == null) return 1;
           if (bv == null) return -1;
@@ -311,7 +311,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
         const picked: Partial<ApplicationRecord> = {};
         for (const f of fields) {
           if (f in app) {
-            (picked as Record<string, unknown>)[f] = (app as Record<string, unknown>)[f];
+            const key = f as keyof ApplicationRecord;
+            (picked as Record<string, unknown>)[f] = app[key];
           }
         }
         picked.id = app.id;
