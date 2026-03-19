@@ -89,25 +89,30 @@ export async function exchangeAuthCode(params: {
   redirectUri: string;
   codeVerifier: string;
 }): Promise<{ access_token: string; refresh_token: string; token_type: string; expires_in: number; scope: string } | null> {
+  // Atomically mark the code as used to prevent race conditions
+  const now = new Date();
+  const updated = await prisma.mcpAuthCode.updateMany({
+    where: {
+      code: params.code,
+      used: false,
+      expiresAt: { gt: now },
+      clientId: params.clientId,
+      redirectUri: params.redirectUri,
+    },
+    data: { used: true },
+  });
+
+  // If no rows updated, the code was invalid, expired, already used, or params didn't match
+  if (updated.count === 0) return null;
+
   const authCode = await prisma.mcpAuthCode.findUnique({
     where: { code: params.code },
   });
-
   if (!authCode) return null;
-  if (authCode.used) return null;
-  if (authCode.expiresAt < new Date()) return null;
-  if (authCode.clientId !== params.clientId) return null;
-  if (authCode.redirectUri !== params.redirectUri) return null;
 
   // Verify PKCE: S256
   const computedChallenge = sha256Base64Url(params.codeVerifier);
   if (computedChallenge !== authCode.codeChallenge) return null;
-
-  // Mark code as used
-  await prisma.mcpAuthCode.update({
-    where: { id: authCode.id },
-    data: { used: true },
-  });
 
   // Issue tokens
   const accessToken = generateToken("mcp_at");
@@ -233,9 +238,9 @@ export async function verifyClient(
 
   if (!client) return { valid: false, redirectUris: [] };
 
-  // If client has a secret, verify it
-  if (client.clientSecretHash && clientSecret) {
-    if (sha256(clientSecret) !== client.clientSecretHash) {
+  // If client has a secret registered, it MUST be provided and match
+  if (client.clientSecretHash) {
+    if (!clientSecret || sha256(clientSecret) !== client.clientSecretHash) {
       return { valid: false, redirectUris: [] };
     }
   }

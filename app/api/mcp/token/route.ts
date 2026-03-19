@@ -14,7 +14,13 @@ export async function POST(req: NextRequest) {
     params = new URLSearchParams(text);
   } else if (contentType.includes("application/json")) {
     const json = await req.json();
-    params = new URLSearchParams(json);
+    // Convert JSON object to URLSearchParams safely (only string values)
+    params = new URLSearchParams();
+    for (const [key, value] of Object.entries(json)) {
+      if (typeof value === "string") {
+        params.set(key, value);
+      }
+    }
   } else {
     return NextResponse.json(
       { error: "invalid_request", error_description: "Unsupported content type" },

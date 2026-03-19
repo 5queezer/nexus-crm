@@ -12,13 +12,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate redirect URIs
+    // Validate redirect URIs — only allow https (and http://localhost for dev)
     for (const uri of body.redirect_uris) {
+      let parsed: URL;
       try {
-        new URL(uri);
+        parsed = new URL(uri);
       } catch {
         return NextResponse.json(
           { error: "invalid_client_metadata", error_description: `Invalid redirect URI: ${uri}` },
+          { status: 400 }
+        );
+      }
+      const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+      if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLocalhost)) {
+        return NextResponse.json(
+          { error: "invalid_client_metadata", error_description: `redirect_uri must use https (got ${parsed.protocol}): ${uri}` },
           { status: 400 }
         );
       }

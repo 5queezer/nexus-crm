@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createAuthCode } from "@/lib/mcp-oauth";
@@ -24,7 +24,9 @@ function verifyAndParse<T>(cookie: string): T | null {
   if (idx === -1) return null;
   const payload = cookie.slice(0, idx);
   const sig = cookie.slice(idx + 1);
-  if (signPayload(payload) !== sig) return null;
+  const expected = signPayload(payload);
+  if (expected.length !== sig.length) return null;
+  if (!timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
   try {
     return JSON.parse(Buffer.from(payload, "base64url").toString());
   } catch {
