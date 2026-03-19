@@ -1,6 +1,19 @@
 import { randomBytes, createHash } from "node:crypto";
+import type { NextRequest } from "next/server";
 import { prisma } from "./prisma";
 import type { SessionAuthResult, SessionUser } from "./session";
+
+// ── Public URL helper ────────────────────────────────────────────────────────
+// Behind a reverse proxy, req.nextUrl.host resolves to the internal listener
+// (e.g. 0.0.0.0:8080). Use BETTER_AUTH_URL when available so OAuth discovery
+// and redirects use the real public origin.
+
+export function getPublicBaseUrl(req: NextRequest): string {
+  if (process.env.BETTER_AUTH_URL) {
+    return process.env.BETTER_AUTH_URL.replace(/\/+$/, "");
+  }
+  return `${req.nextUrl.protocol}//${req.nextUrl.host}`;
+}
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
