@@ -19,6 +19,8 @@ import type {
   CreateDocumentInput,
   CreateShareLinkInput,
   ListApplicationsFilter,
+  PaginationParams,
+  PaginatedResult,
   BatchUpsertItem,
   BatchUpsertResult,
   BatchDeleteResult,
@@ -119,6 +121,37 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
     }
     return applications;
+  }
+
+  async listApplicationsPaginated(
+    userId: string | null,
+    params: PaginationParams
+  ): Promise<PaginatedResult<ApplicationRecord>> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, params.pageSize ?? 10));
+
+    // Firestore doesn't support count + offset natively, so we fetch all IDs
+    let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
+    if (userId) q = q.where("userId", "==", userId);
+
+    const snap = await q.get();
+    const total = snap.docs.length;
+    const totalPages = Math.ceil(total / pageSize);
+
+    const start = (page - 1) * pageSize;
+    const pageDocs = snap.docs.slice(start, start + pageSize);
+    const applications = pageDocs.map((d) => mapApp(d.id, d.data()));
+
+    // Batch-load contacts for the page
+    const appIds = applications.map((a) => a.id);
+    if (appIds.length > 0) {
+      const contactsByApp = await this.loadContactsByAppIds(appIds);
+      for (const app of applications) {
+        app.contacts = contactsByApp.get(app.id) ?? [];
+      }
+    }
+
+    return { data: applications, total, page, pageSize, totalPages };
   }
 
   async getApplication(id: string, userId: string | null): Promise<ApplicationRecord | null> {

@@ -3,12 +3,30 @@ import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { normalizeStatus } from "@/types";
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   const auth = await requireAuth();
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const pageParam = searchParams.get("page");
+  const pageSizeParam = searchParams.get("pageSize");
+
+  // If pagination params are provided, use paginated endpoint
+  if (pageParam || pageSizeParam) {
+    const page = pageParam ? parseInt(pageParam, 10) : 1;
+    const pageSize = pageSizeParam ? parseInt(pageSizeParam, 10) : 10;
+
+    if (isNaN(page) || isNaN(pageSize) || page < 1 || pageSize < 1) {
+      return NextResponse.json({ error: "Invalid pagination parameters" }, { status: 400 });
+    }
+
+    const result = await getDb().listApplicationsPaginated(auth.readScopeUserId, { page, pageSize });
+    return NextResponse.json(result);
+  }
+
+  // Default: return all (backward compatible)
   const applications = await getDb().listApplications(auth.readScopeUserId);
   return NextResponse.json(applications);
 }
