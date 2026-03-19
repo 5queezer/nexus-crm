@@ -16,7 +16,8 @@ async function authenticateFromRequest(
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
 
-  const raw = authHeader.slice(7);
+  const raw = authHeader.slice(7).trim();
+  if (!raw) return null;
   const hash = hashApiToken(raw);
   const token = await getDb().getApiTokenByHash(hash);
   if (!token) return null;
@@ -402,9 +403,13 @@ async function handleMcpRequest(req: NextRequest): Promise<Response> {
     enableJsonResponse: true,
   });
 
-  await server.connect(transport);
-  const response = await transport.handleRequest(req as unknown as Request);
-  return response;
+  try {
+    await server.connect(transport);
+    return await transport.handleRequest(req as unknown as Request);
+  } finally {
+    await transport.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
 }
 
 export async function GET(req: NextRequest) {
