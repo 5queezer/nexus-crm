@@ -86,6 +86,12 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
         )}
       </div>
 
+      {app.rating && (
+        <div className="mt-2 text-yellow-400 text-xs tracking-tight" title={`${app.rating}/5`}>
+          {"★".repeat(app.rating)}{"☆".repeat(5 - app.rating)}
+        </div>
+      )}
+
       {app.notes && (
         <div className="mt-2 max-h-10 overflow-hidden text-xs text-gray-500 dark:text-gray-400" title={app.notes}>
           {app.notes}
@@ -273,7 +279,7 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
               {STATUS_ORDER.map((status) => (
                 <div
                   key={status}
-                  className="flex-none w-[260px] flex flex-col"
+                  className="flex-1 min-w-[220px] flex flex-col"
                 >
                   <KanbanColumn
                     status={status}

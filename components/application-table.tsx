@@ -123,6 +123,14 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
           <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("source")}</div>
           <div className="text-gray-700 dark:text-gray-300 break-words">{app.source || "—"}</div>
         </div>
+        {app.rating && (
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("rating")}</div>
+            <div className="text-yellow-400 text-sm tracking-tight" title={`${app.rating}/5`}>
+              {"★".repeat(app.rating)}{"☆".repeat(5 - app.rating)}
+            </div>
+          </div>
+        )}
       </div>
 
       {app.notes && (
@@ -221,6 +229,19 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       cell: (info) => <StatusBadge status={info.getValue() as ApplicationStatus} />,
       filterFn: "equals",
     }),
+    columnHelper.accessor("rating", {
+      header: t("rating"),
+      cell: (info) => {
+        const r = info.getValue();
+        if (!r) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+        return (
+          <span className="text-yellow-400 text-sm tracking-tight" title={`${r}/5`}>
+            {"★".repeat(r)}{"☆".repeat(5 - r)}
+          </span>
+        );
+      },
+      sortingFn: (a, b) => (a.original.rating ?? 0) - (b.original.rating ?? 0),
+    }),
     columnHelper.accessor("source", {
       header: t("source"),
       cell: (info) => {
@@ -274,19 +295,6 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         return <span className="text-sm text-gray-700 dark:text-gray-300">≤€{fmt(max!)}</span>;
       },
       sortingFn: (a, b) => (a.original.salaryMin ?? 0) - (b.original.salaryMin ?? 0),
-    }),
-    columnHelper.accessor("rating", {
-      header: t("rating"),
-      cell: (info) => {
-        const r = info.getValue();
-        if (!r) return <span className="text-gray-400 dark:text-gray-500">—</span>;
-        return (
-          <span className="text-yellow-400 text-sm tracking-tight" title={`${r}/5`}>
-            {"★".repeat(r)}{"☆".repeat(5 - r)}
-          </span>
-        );
-      },
-      sortingFn: (a, b) => (a.original.rating ?? 0) - (b.original.rating ?? 0),
     }),
     columnHelper.display({
       id: "contacts",
