@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createAuthCode } from "@/lib/mcp-oauth";
+import { createAuthCode, getPublicBaseUrl } from "@/lib/mcp-oauth";
 
 const COOKIE_NAME = "mcp_oauth_pending";
 const COOKIE_MAX_AGE = 600; // 10 minutes
@@ -122,8 +122,9 @@ export async function GET(req: NextRequest) {
     const signed = `${encoded}.${signPayload(encoded)}`;
 
     // Redirect to login — after Google OAuth, better-auth will redirect back here
-    const callbackUrl = new URL("/api/mcp/authorize", url.origin);
-    const loginUrl = new URL("/login", url.origin);
+    const publicBase = getPublicBaseUrl(req);
+    const callbackUrl = new URL("/api/mcp/authorize", publicBase);
+    const loginUrl = new URL("/login", publicBase);
     loginUrl.searchParams.set("callbackURL", callbackUrl.toString());
 
     const response = NextResponse.redirect(loginUrl.toString());
