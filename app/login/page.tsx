@@ -2,6 +2,7 @@
 
 import { authClient } from "@/lib/auth-client";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -11,14 +12,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useTranslations();
+  const searchParams = useSearchParams();
 
   async function handleGoogleLogin() {
     setLoading(true);
     setError(null);
     try {
+      // Support redirect back to MCP authorize endpoint after login
+      const callbackURL = searchParams.get("callbackURL") ?? "/";
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: "/",
+        callbackURL,
       });
     } catch {
       setError(t("login.error"));
