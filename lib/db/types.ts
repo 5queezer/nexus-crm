@@ -159,6 +159,21 @@ export interface CreateDocumentInput {
   applicationIds: string[];
 }
 
+// ── Pagination types ─────────────────────────────────────────────────────────
+
+export interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 // ── Batch & filter types ──────────────────────────────────────────────────────
 
 export interface ListApplicationsFilter {
@@ -170,6 +185,8 @@ export interface ListApplicationsFilter {
   fields?: string[];
   limit?: number;
   includeContacts?: boolean;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface BatchUpsertItem {

@@ -5,6 +5,7 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   getFilteredRowModel,
+  getPaginationRowModel,
   flexRender,
   createColumnHelper,
   SortingState,
@@ -337,6 +338,8 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageSize: 10 } },
   });
 
   const statusFilter = columnFilters.find((f) => f.id === "status")?.value as string | undefined;
@@ -481,12 +484,56 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </table>
       </div>
 
-      <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500">
-        {t("count", {
-          filtered: table.getFilteredRowModel().rows.length,
-          total: applications.length,
-        })}
+      <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="text-xs text-gray-400 dark:text-gray-500">
+          {t("count", { filtered: table.getFilteredRowModel().rows.length, total: applications.length })}
+        </div>
+        {table.getPageCount() > 1 && (
+          <PaginationControls
+            page={table.getState().pagination.pageIndex + 1}
+            totalPages={table.getPageCount()}
+            onPageChange={(p) => table.setPageIndex(p - 1)}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function PaginationControls({ page, totalPages, onPageChange }: { page: number; totalPages: number; onPageChange: (page: number) => void }) {
+  const btnClass = "px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors";
+
+  const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+    .reduce<(number | "ellipsis")[]>((acc, p, i, arr) => {
+      if (i > 0 && arr[i - 1] !== p - 1) acc.push("ellipsis");
+      acc.push(p);
+      return acc;
+    }, []);
+
+  return (
+    <div className="flex items-center gap-1">
+      <button onClick={() => onPageChange(1)} disabled={page <= 1} className={btnClass}>«</button>
+      <button onClick={() => onPageChange(page - 1)} disabled={page <= 1} className={btnClass}>‹</button>
+      {pageNumbers.map((item, i) =>
+        item === "ellipsis" ? (
+          <span key={`e${i}`} className="px-1 text-xs text-gray-400 dark:text-gray-500">…</span>
+        ) : (
+          <button
+            key={item}
+            onClick={() => onPageChange(item)}
+            className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+              item === page
+                ? "bg-blue-600 text-white border-blue-600"
+                : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            }`}
+          >
+            {item}
+          </button>
+        )
+      )}
+      <button onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} className={btnClass}>›</button>
+      <button onClick={() => onPageChange(totalPages)} disabled={page >= totalPages} className={btnClass}>»</button>
     </div>
   );
 }

@@ -100,7 +100,6 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showArchived, setShowArchived] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
   const { data: applications = [], isLoading, isError } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications,

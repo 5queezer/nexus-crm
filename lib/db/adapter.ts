@@ -14,6 +14,8 @@ import type {
   CreateDocumentInput,
   CreateShareLinkInput,
   ListApplicationsFilter,
+  PaginationParams,
+  PaginatedResult,
   BatchUpsertItem,
   BatchUpsertResult,
   BatchDeleteResult,
@@ -23,6 +25,8 @@ export interface DatabaseAdapter {
   // ── Applications ─────────────────────────────────────────────────────────
   /** List applications, optionally scoped to userId (null = admin/all). */
   listApplications(userId: string | null): Promise<ApplicationRecord[]>;
+  /** List applications with offset-based pagination. */
+  listApplicationsPaginated(userId: string | null, params: PaginationParams): Promise<PaginatedResult<ApplicationRecord>>;
   getApplication(id: string, userId: string | null): Promise<ApplicationRecord | null>;
   createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord>;
   updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord>;

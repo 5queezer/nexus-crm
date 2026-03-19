@@ -18,6 +18,8 @@ import type {
   CreateDocumentInput,
   CreateShareLinkInput,
   ListApplicationsFilter,
+  PaginationParams,
+  PaginatedResult,
   BatchUpsertItem,
   BatchUpsertResult,
   BatchDeleteResult,
@@ -87,6 +89,34 @@ export class PrismaAdapter implements DatabaseAdapter {
       include: { contacts: true },
     });
     return rows.map(mapApp);
+  }
+
+  async listApplicationsPaginated(
+    userId: string | null,
+    params: PaginationParams
+  ): Promise<PaginatedResult<ApplicationRecord>> {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, params.pageSize ?? 10));
+    const where = { ...userWhere(userId) };
+
+    const [total, rows] = await Promise.all([
+      prisma.application.count({ where }),
+      prisma.application.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: { contacts: true },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return {
+      data: rows.map(mapApp),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   async getApplication(id: string, userId: string | null): Promise<ApplicationRecord | null> {
