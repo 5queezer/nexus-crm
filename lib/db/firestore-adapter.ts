@@ -18,6 +18,10 @@ import type {
   UpdateContactInput,
   CreateDocumentInput,
   CreateShareLinkInput,
+  ListApplicationsFilter,
+  BatchUpsertItem,
+  BatchUpsertResult,
+  BatchDeleteResult,
 } from "./types";
 
 // ── Firestore init ──────────────────────────────────────────────────────────
@@ -192,6 +196,207 @@ export class FirestoreAdapter implements DatabaseAdapter {
     contactSnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(ref);
     await batch.commit();
+  }
+
+  async listApplicationsFiltered(
+    userId: string | null,
+    filter: ListApplicationsFilter
+  ): Promise<Partial<ApplicationRecord>[]> {
+    // Firestore has limited query capabilities, so we fetch and filter in memory
+    let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
+    if (userId) q = q.where("userId", "==", userId);
+    if (filter.status?.length === 1) {
+      q = q.where("status", "==", filter.status[0]);
+    }
+    if (filter.remote !== undefined) {
+      q = q.where("remote", "==", filter.remote);
+    }
+
+    const snap = await q.get();
+    let apps = snap.docs.map((d) => mapApp(d.id, d.data()));
+
+    // In-memory filters for capabilities Firestore doesn't support natively
+    if (filter.status && filter.status.length > 1) {
+      const statusSet = new Set(filter.status);
+      apps = apps.filter((a) => statusSet.has(a.status));
+    }
+    if (filter.ratingGte !== undefined) {
+      apps = apps.filter((a) => a.rating !== null && a.rating >= filter.ratingGte!);
+    }
+    if (filter.search) {
+      const term = filter.search.toLowerCase();
+      apps = apps.filter(
+        (a) =>
+          a.company.toLowerCase().includes(term) ||
+          a.role.toLowerCase().includes(term) ||
+          (a.notes?.toLowerCase().includes(term) ?? false) ||
+          (a.jobDescription?.toLowerCase().includes(term) ?? false)
+      );
+    }
+
+    // Sort
+    if (filter.sort) {
+      const desc = filter.sort.startsWith("-");
+      const field = desc ? filter.sort.slice(1) : filter.sort;
+      apps.sort((a, b) => {
+        const av = (a as Record<string, unknown>)[field];
+        const bv = (b as Record<string, unknown>)[field];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+        return desc ? -cmp : cmp;
+      });
+    }
+
+    // Limit
+    if (filter.limit) {
+      apps = apps.slice(0, filter.limit);
+    }
+
+    // Load contacts if requested
+    if (filter.includeContacts) {
+      const appIds = apps.map((a) => a.id);
+      if (appIds.length > 0) {
+        const contactsByApp = await this.loadContactsByAppIds(appIds);
+        for (const app of apps) {
+          app.contacts = contactsByApp.get(app.id) ?? [];
+        }
+      }
+    }
+
+    // Field selection
+    const fields = filter.fields;
+    if (fields?.length) {
+      return apps.map((app) => {
+        const picked: Partial<ApplicationRecord> = {};
+        for (const f of fields) {
+          if (f in app) {
+            (picked as Record<string, unknown>)[f] = (app as Record<string, unknown>)[f];
+          }
+        }
+        picked.id = app.id;
+        return picked;
+      });
+    }
+
+    return apps;
+  }
+
+  async batchUpsertApplications(userId: string, items: BatchUpsertItem[]): Promise<BatchUpsertResult> {
+    const results: BatchUpsertResult["results"] = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      try {
+        if (item.id) {
+          // Update
+          const ref = this.apps.doc(item.id);
+          const existing = await ref.get();
+          if (!existing.exists || existing.data()!.userId !== userId) {
+            results.push({ index: i, id: item.id, operation: "updated", error: "Not found or access denied" });
+            failed++;
+            continue;
+          }
+          const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+          if (item.company !== undefined) update.company = item.company;
+          if (item.role !== undefined) update.role = item.role;
+          if (item.status !== undefined) update.status = normalizeStatus(item.status);
+          if (item.appliedAt !== undefined) update.appliedAt = toTimestamp(item.appliedAt);
+          if (item.lastContact !== undefined) update.lastContact = toTimestamp(item.lastContact);
+          if (item.followUpAt !== undefined) update.followUpAt = toTimestamp(item.followUpAt);
+          if (item.notes !== undefined) update.notes = item.notes;
+          if (item.jobDescription !== undefined) update.jobDescription = item.jobDescription;
+          if (item.source !== undefined) update.source = item.source;
+          if (item.remote !== undefined) update.remote = item.remote;
+          if (item.salaryMin !== undefined) update.salaryMin = item.salaryMin;
+          if (item.salaryMax !== undefined) update.salaryMax = item.salaryMax;
+          if (item.rating !== undefined) update.rating = item.rating;
+
+          await ref.update(update);
+          results.push({ index: i, id: item.id, operation: "updated" });
+          succeeded++;
+        } else {
+          // Create
+          if (!item.company || !item.role) {
+            results.push({ index: i, id: "", operation: "created", error: "company and role are required for new applications" });
+            failed++;
+            continue;
+          }
+          const now = Timestamp.now();
+          const ref = await this.apps.add({
+            userId,
+            company: item.company,
+            role: item.role,
+            status: normalizeStatus(item.status || "applied"),
+            appliedAt: toTimestamp(item.appliedAt ?? null),
+            lastContact: toTimestamp(item.lastContact ?? null),
+            followUpAt: toTimestamp(item.followUpAt ?? null),
+            notes: item.notes ?? null,
+            jobDescription: item.jobDescription ?? null,
+            source: item.source ?? null,
+            remote: item.remote ?? false,
+            salaryMin: item.salaryMin ?? null,
+            salaryMax: item.salaryMax ?? null,
+            rating: item.rating ?? null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          results.push({ index: i, id: ref.id, operation: "created" });
+          succeeded++;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        results.push({ index: i, id: item.id ?? "", operation: item.id ? "updated" : "created", error: msg });
+        failed++;
+      }
+    }
+
+    return { total: items.length, succeeded, failed, results };
+  }
+
+  async batchDeleteApplications(ids: string[], userId: string): Promise<BatchDeleteResult> {
+    const results: BatchDeleteResult["results"] = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    // Verify ownership and collect refs for batch delete
+    const toDelete: { id: string; ref: FirebaseFirestore.DocumentReference }[] = [];
+    for (const id of ids) {
+      const ref = this.apps.doc(id);
+      const existing = await ref.get();
+      if (!existing.exists || existing.data()!.userId !== userId) {
+        results.push({ id, deleted: false, error: "Not found or access denied" });
+        failed++;
+      } else {
+        toDelete.push({ id, ref });
+      }
+    }
+
+    if (toDelete.length > 0) {
+      // Collect associated contacts for cascade delete
+      const appIds = toDelete.map((d) => d.id);
+      const contactRefs: FirebaseFirestore.DocumentReference[] = [];
+      for (let i = 0; i < appIds.length; i += 30) {
+        const chunk = appIds.slice(i, i + 30);
+        const contactSnap = await this.contacts.where("applicationId", "in", chunk).get();
+        contactSnap.docs.forEach((d) => contactRefs.push(d.ref));
+      }
+
+      const batch = this.db.batch();
+      contactRefs.forEach((ref) => batch.delete(ref));
+      toDelete.forEach(({ ref }) => batch.delete(ref));
+      await batch.commit();
+
+      for (const { id } of toDelete) {
+        results.push({ id, deleted: true });
+        succeeded++;
+      }
+    }
+
+    return { total: ids.length, succeeded, failed, results };
   }
 
   // ── Contacts ────────────────────────────────────────────────────────────
