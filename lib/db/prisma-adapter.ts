@@ -187,68 +187,78 @@ export class PrismaAdapter implements DatabaseAdapter {
     let succeeded = 0;
     let failed = 0;
 
-    await prisma.$transaction(async (tx) => {
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        try {
-          if (item.id) {
-            // Update
-            const data: Record<string, unknown> = {};
-            if (item.company !== undefined) data.company = item.company;
-            if (item.role !== undefined) data.role = item.role;
-            if (item.status !== undefined) data.status = normalizeStatus(item.status);
-            if (item.appliedAt !== undefined) data.appliedAt = item.appliedAt;
-            if (item.lastContact !== undefined) data.lastContact = item.lastContact;
-            if (item.followUpAt !== undefined) data.followUpAt = item.followUpAt;
-            if (item.notes !== undefined) data.notes = item.notes;
-            if (item.jobDescription !== undefined) data.jobDescription = item.jobDescription;
-            if (item.source !== undefined) data.source = item.source;
-            if (item.remote !== undefined) data.remote = item.remote;
-            if (item.salaryMin !== undefined) data.salaryMin = item.salaryMin;
-            if (item.salaryMax !== undefined) data.salaryMax = item.salaryMax;
-            if (item.rating !== undefined) data.rating = item.rating;
-
-            const row = await tx.application.update({
-              where: { id: nid(item.id), userId },
-              data,
-            });
-            results.push({ index: i, id: sid(row.id), operation: "updated" });
-            succeeded++;
-          } else {
-            // Create - company and role are required
-            if (!item.company || !item.role) {
-              results.push({ index: i, id: "", operation: "created", error: "company and role are required for new applications" });
-              failed++;
-              continue;
-            }
-            const row = await tx.application.create({
-              data: {
-                userId,
-                company: item.company,
-                role: item.role,
-                status: normalizeStatus(item.status || "applied"),
-                appliedAt: item.appliedAt ?? null,
-                lastContact: item.lastContact ?? null,
-                followUpAt: item.followUpAt ?? null,
-                notes: item.notes ?? null,
-                jobDescription: item.jobDescription ?? null,
-                source: item.source ?? null,
-                remote: item.remote ?? false,
-                salaryMin: item.salaryMin ?? null,
-                salaryMax: item.salaryMax ?? null,
-                rating: item.rating ?? null,
-              },
-            });
-            results.push({ index: i, id: sid(row.id), operation: "created" });
-            succeeded++;
+    // Process each item independently so one failure doesn't poison the rest.
+    // No outer transaction — partial success is the intended behaviour.
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      try {
+        if (item.id) {
+          // Pre-check ownership to avoid a throwing update on missing rows
+          const existing = await prisma.application.findFirst({
+            where: { id: nid(item.id), userId },
+            select: { id: true },
+          });
+          if (!existing) {
+            results.push({ index: i, id: item.id, operation: "updated", error: "Not found or access denied" });
+            failed++;
+            continue;
           }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Unknown error";
-          results.push({ index: i, id: item.id ?? "", operation: item.id ? "updated" : "created", error: msg });
-          failed++;
+
+          const data: Record<string, unknown> = {};
+          if (item.company !== undefined) data.company = item.company;
+          if (item.role !== undefined) data.role = item.role;
+          if (item.status !== undefined) data.status = normalizeStatus(item.status);
+          if (item.appliedAt !== undefined) data.appliedAt = item.appliedAt;
+          if (item.lastContact !== undefined) data.lastContact = item.lastContact;
+          if (item.followUpAt !== undefined) data.followUpAt = item.followUpAt;
+          if (item.notes !== undefined) data.notes = item.notes;
+          if (item.jobDescription !== undefined) data.jobDescription = item.jobDescription;
+          if (item.source !== undefined) data.source = item.source;
+          if (item.remote !== undefined) data.remote = item.remote;
+          if (item.salaryMin !== undefined) data.salaryMin = item.salaryMin;
+          if (item.salaryMax !== undefined) data.salaryMax = item.salaryMax;
+          if (item.rating !== undefined) data.rating = item.rating;
+
+          const row = await prisma.application.update({
+            where: { id: nid(item.id), userId },
+            data,
+          });
+          results.push({ index: i, id: sid(row.id), operation: "updated" });
+          succeeded++;
+        } else {
+          // Create - company and role are required
+          if (!item.company || !item.role) {
+            results.push({ index: i, id: "", operation: "created", error: "company and role are required for new applications" });
+            failed++;
+            continue;
+          }
+          const row = await prisma.application.create({
+            data: {
+              userId,
+              company: item.company,
+              role: item.role,
+              status: normalizeStatus(item.status || "applied"),
+              appliedAt: item.appliedAt ?? null,
+              lastContact: item.lastContact ?? null,
+              followUpAt: item.followUpAt ?? null,
+              notes: item.notes ?? null,
+              jobDescription: item.jobDescription ?? null,
+              source: item.source ?? null,
+              remote: item.remote ?? false,
+              salaryMin: item.salaryMin ?? null,
+              salaryMax: item.salaryMax ?? null,
+              rating: item.rating ?? null,
+            },
+          });
+          results.push({ index: i, id: sid(row.id), operation: "created" });
+          succeeded++;
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        results.push({ index: i, id: item.id ?? "", operation: item.id ? "updated" : "created", error: msg });
+        failed++;
       }
-    });
+    }
 
     return { total: items.length, succeeded, failed, results };
   }
@@ -258,19 +268,26 @@ export class PrismaAdapter implements DatabaseAdapter {
     let succeeded = 0;
     let failed = 0;
 
-    await prisma.$transaction(async (tx) => {
-      for (const id of ids) {
-        try {
-          await tx.application.delete({ where: { id: nid(id), userId } });
+    // Process each delete independently — use deleteMany to avoid throwing on
+    // missing/unauthorized rows (returns count instead of P2025 error).
+    for (const id of ids) {
+      try {
+        const { count } = await prisma.application.deleteMany({
+          where: { id: nid(id), userId },
+        });
+        if (count > 0) {
           results.push({ id, deleted: true });
           succeeded++;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Unknown error";
-          results.push({ id, deleted: false, error: msg });
+        } else {
+          results.push({ id, deleted: false, error: "Not found or access denied" });
           failed++;
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        results.push({ id, deleted: false, error: msg });
+        failed++;
       }
-    });
+    }
 
     return { total: ids.length, succeeded, failed, results };
   }
