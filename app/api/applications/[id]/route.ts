@@ -33,7 +33,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, resumeId, archivedAt } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt } = body;
 
   const parsedSalaryMin = salaryMin != null ? parseInt(String(salaryMin), 10) : null;
   const parsedSalaryMax = salaryMax != null ? parseInt(String(salaryMax), 10) : null;
@@ -69,6 +69,9 @@ export async function PATCH(
     ...(salaryMax !== undefined && { salaryMax: parsedSalaryMax }),
     ...(rating !== undefined && {
       rating: rating != null ? Math.min(5, Math.max(1, parseInt(String(rating), 10))) : null,
+    }),
+    ...(jobUrl !== undefined && {
+      jobUrl: jobUrl ? String(jobUrl).slice(0, 2000) : null,
     }),
     ...(resumeId !== undefined && {
       resumeId: resumeId ? String(resumeId).slice(0, 255) : null,

@@ -31,6 +31,7 @@ export interface Application {
   salaryMin: number | null;
   salaryMax: number | null;
   rating: number | null;
+  jobUrl: string | null;
   resumeId: string | null;
   archivedAt: string | null;
   createdAt: string;

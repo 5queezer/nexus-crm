@@ -16,6 +16,7 @@ export interface ApplicationRecord {
   salaryMin: number | null;
   salaryMax: number | null;
   rating: number | null;
+  jobUrl: string | null;
   resumeId: string | null;
   archivedAt: Date | null;
   createdAt: Date;
@@ -100,6 +101,7 @@ export interface CreateApplicationInput {
   salaryMin: number | null;
   salaryMax: number | null;
   rating: number | null;
+  jobUrl: string | null;
 }
 
 export interface UpdateApplicationInput {
@@ -116,6 +118,7 @@ export interface UpdateApplicationInput {
   salaryMin?: number | null;
   salaryMax?: number | null;
   rating?: number | null;
+  jobUrl?: string | null;
   resumeId?: string | null;
   archivedAt?: Date | null;
 }
@@ -204,6 +207,7 @@ export interface BatchUpsertItem {
   salaryMin?: number | null;
   salaryMax?: number | null;
   rating?: number | null;
+  jobUrl?: string | null;
 }
 
 export interface BatchUpsertResult {

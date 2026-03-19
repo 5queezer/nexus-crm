@@ -249,6 +249,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (item.salaryMin !== undefined) data.salaryMin = item.salaryMin;
           if (item.salaryMax !== undefined) data.salaryMax = item.salaryMax;
           if (item.rating !== undefined) data.rating = item.rating;
+          if (item.jobUrl !== undefined) data.jobUrl = item.jobUrl;
 
           const row = await prisma.application.update({
             where: { id: nid(item.id), userId },
@@ -279,6 +280,7 @@ export class PrismaAdapter implements DatabaseAdapter {
               salaryMin: item.salaryMin ?? null,
               salaryMax: item.salaryMax ?? null,
               rating: item.rating ?? null,
+              jobUrl: item.jobUrl ?? null,
             },
           });
           results.push({ index: i, id: sid(row.id), operation: "created" });

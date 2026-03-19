@@ -62,6 +62,7 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     salaryMin: data.salaryMin ?? null,
     salaryMax: data.salaryMax ?? null,
     rating: data.rating ?? null,
+    jobUrl: data.jobUrl ?? null,
     resumeId: data.resumeId ?? null,
     archivedAt: toDate(data.archivedAt) ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
@@ -183,6 +184,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       salaryMin: data.salaryMin ?? null,
       salaryMax: data.salaryMax ?? null,
       rating: data.rating ?? null,
+      jobUrl: data.jobUrl ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -212,6 +214,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
     if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
     if (data.rating !== undefined) update.rating = data.rating;
+    if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl;
 
     await ref.update(update);
     return (await this.getApplication(id, userId))!;
@@ -354,6 +357,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           if (item.salaryMin !== undefined) update.salaryMin = item.salaryMin;
           if (item.salaryMax !== undefined) update.salaryMax = item.salaryMax;
           if (item.rating !== undefined) update.rating = item.rating;
+          if (item.jobUrl !== undefined) update.jobUrl = item.jobUrl;
 
           await ref.update(update);
           results.push({ index: i, id: item.id, operation: "updated" });
@@ -381,6 +385,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
             salaryMin: item.salaryMin ?? null,
             salaryMax: item.salaryMax ?? null,
             rating: item.rating ?? null,
+            jobUrl: item.jobUrl ?? null,
             createdAt: now,
             updatedAt: now,
           });
