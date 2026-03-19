@@ -69,7 +69,8 @@ function pickFields(apps: ApplicationRecord[], fields?: string[]): Partial<Appli
     const picked: Partial<ApplicationRecord> = {};
     for (const f of fields) {
       if (f in app) {
-        (picked as Record<string, unknown>)[f] = (app as Record<string, unknown>)[f];
+        const key = f as keyof ApplicationRecord;
+        (picked as Record<string, unknown>)[f] = app[key];
       }
     }
     picked.id = app.id;
