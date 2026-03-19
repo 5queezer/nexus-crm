@@ -13,6 +13,10 @@ import type {
   UpdateContactInput,
   CreateDocumentInput,
   CreateShareLinkInput,
+  ListApplicationsFilter,
+  BatchUpsertItem,
+  BatchUpsertResult,
+  BatchDeleteResult,
 } from "./types";
 
 export interface DatabaseAdapter {
@@ -23,6 +27,13 @@ export interface DatabaseAdapter {
   createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord>;
   updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord>;
   deleteApplication(id: string, userId: string): Promise<void>;
+
+  /** List applications with optional filters and field selection. */
+  listApplicationsFiltered(userId: string | null, filter: ListApplicationsFilter): Promise<Partial<ApplicationRecord>[]>;
+  /** Batch create/update applications. Items with id → update, without → create. */
+  batchUpsertApplications(userId: string, items: BatchUpsertItem[]): Promise<BatchUpsertResult>;
+  /** Batch delete applications by IDs. */
+  batchDeleteApplications(ids: string[], userId: string): Promise<BatchDeleteResult>;
 
   // ── Contacts ─────────────────────────────────────────────────────────────
   /** Verify an application exists and belongs to userId. */

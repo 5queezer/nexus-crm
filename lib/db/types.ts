@@ -158,3 +158,56 @@ export interface CreateDocumentInput {
   mimeType: string;
   applicationIds: string[];
 }
+
+// ── Batch & filter types ──────────────────────────────────────────────────────
+
+export interface ListApplicationsFilter {
+  status?: string[];
+  ratingGte?: number;
+  search?: string;
+  remote?: boolean;
+  sort?: string;
+  fields?: string[];
+  limit?: number;
+  includeContacts?: boolean;
+}
+
+export interface BatchUpsertItem {
+  id?: string;
+  company?: string;
+  role?: string;
+  status?: string;
+  appliedAt?: Date | null;
+  lastContact?: Date | null;
+  followUpAt?: Date | null;
+  notes?: string | null;
+  jobDescription?: string | null;
+  source?: string | null;
+  remote?: boolean;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  rating?: number | null;
+}
+
+export interface BatchUpsertResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{
+    index: number;
+    id: string;
+    operation: "created" | "updated";
+    error?: string;
+  }>;
+}
+
+export interface BatchDeleteResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{
+    id: string;
+    deleted: boolean;
+    error?: string;
+  }>;
+}

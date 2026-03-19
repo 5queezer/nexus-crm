@@ -218,6 +218,145 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     }
   );
 
+  // ── Batch & filtered operations ───────────────────────────────────────
+
+  server.tool(
+    "batch_upsert_applications",
+    "Create or update multiple applications in one call. If an item has an 'id' it is updated; otherwise a new application is created. Max 50 items per call.",
+    {
+      items: z
+        .array(
+          z.object({
+            id: z.string().optional().describe("Application ID (omit to create new)"),
+            company: z.string().optional().describe("Company name (required for new)"),
+            role: z.string().optional().describe("Job role/title (required for new)"),
+            status: z
+              .enum(["inbound", "applied", "interview", "offer", "rejected"])
+              .optional()
+              .describe("Application status"),
+            appliedAt: z.string().nullable().optional().describe("Date applied (ISO 8601)"),
+            lastContact: z.string().nullable().optional().describe("Last contact date"),
+            followUpAt: z.string().nullable().optional().describe("Follow-up date"),
+            notes: z.string().nullable().optional().describe("Free-text notes"),
+            jobDescription: z.string().nullable().optional().describe("Job description"),
+            source: z.string().nullable().optional().describe("Source"),
+            remote: z.boolean().optional().describe("Remote position?"),
+            salaryMin: z.number().nullable().optional().describe("Minimum salary"),
+            salaryMax: z.number().nullable().optional().describe("Maximum salary"),
+            rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
+          })
+        )
+        .min(1)
+        .max(50)
+        .describe("Array of applications to create or update (max 50)"),
+    },
+    async ({ items }) => {
+      try {
+        const sanitized = items.map((item) => ({
+          id: item.id,
+          company: item.company?.slice(0, 255),
+          role: item.role?.slice(0, 255),
+          status: item.status,
+          appliedAt: item.appliedAt !== undefined ? (item.appliedAt ? new Date(item.appliedAt) : null) : undefined,
+          lastContact: item.lastContact !== undefined ? (item.lastContact ? new Date(item.lastContact) : null) : undefined,
+          followUpAt: item.followUpAt !== undefined ? (item.followUpAt ? new Date(item.followUpAt) : null) : undefined,
+          notes: item.notes !== undefined ? (item.notes?.slice(0, 10000) ?? null) : undefined,
+          jobDescription: item.jobDescription !== undefined ? (item.jobDescription?.slice(0, 50000) ?? null) : undefined,
+          source: item.source !== undefined ? (item.source?.slice(0, 100) ?? null) : undefined,
+          remote: item.remote,
+          salaryMin: item.salaryMin,
+          salaryMax: item.salaryMax,
+          rating: item.rating,
+        }));
+
+        const result = await getDb().batchUpsertApplications(auth.userId, sanitized);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch {
+        return {
+          content: [{ type: "text", text: "Batch upsert failed" }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "batch_delete_applications",
+    "Delete multiple applications and their contacts in one call. Max 50 IDs per call.",
+    {
+      ids: z
+        .array(z.string())
+        .min(1)
+        .max(50)
+        .describe("Array of application IDs to delete (max 50)"),
+    },
+    async ({ ids }) => {
+      try {
+        const result = await getDb().batchDeleteApplications(ids, auth.userId);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch {
+        return {
+          content: [{ type: "text", text: "Batch delete failed" }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "list_applications_filtered",
+    "List applications with filters, sorting, and field selection. Use 'fields' to exclude large fields like jobDescription and reduce token usage. Defaults to all fields, no contacts.",
+    {
+      status: z
+        .array(z.enum(["inbound", "applied", "interview", "offer", "rejected"]))
+        .optional()
+        .describe("Filter by status(es)"),
+      rating_gte: z.number().min(1).max(5).optional().describe("Minimum rating (inclusive)"),
+      search: z.string().optional().describe("Search in company, role, notes, jobDescription"),
+      remote: z.boolean().optional().describe("Filter by remote flag"),
+      sort: z
+        .string()
+        .optional()
+        .describe("Sort field, prefix with - for descending. e.g. '-rating', 'company', '-salaryMax'"),
+      fields: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Fields to include in response (id is always included). " +
+          "e.g. ['company','role','status','rating','notes','salaryMin','salaryMax']. " +
+          "Omit jobDescription to save ~30k tokens."
+        ),
+      limit: z.number().min(1).max(200).optional().describe("Max results to return"),
+      include_contacts: z.boolean().optional().describe("Include nested contacts? (default: false)"),
+    },
+    async (args) => {
+      try {
+        const apps = await getDb().listApplicationsFiltered(auth.readScopeUserId, {
+          status: args.status,
+          ratingGte: args.rating_gte,
+          search: args.search,
+          remote: args.remote,
+          sort: args.sort,
+          fields: args.fields,
+          limit: args.limit,
+          includeContacts: args.include_contacts,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
+        };
+      } catch {
+        return {
+          content: [{ type: "text", text: "Failed to list applications" }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // ── Contacts ────────────────────────────────────────────────────────────
 
   server.tool(
