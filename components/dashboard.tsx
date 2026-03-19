@@ -26,16 +26,8 @@ interface DashboardProps {
   shareUrl: string;
 }
 
-interface PaginatedResponse {
-  data: Application[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-async function fetchApplicationsPaginated(page: number, pageSize: number): Promise<PaginatedResponse> {
-  const res = await fetch(`/api/applications?page=${page}&pageSize=${pageSize}`);
+async function fetchApplications(): Promise<Application[]> {
+  const res = await fetch("/api/applications");
   if (!res.ok) throw new Error("Failed to fetch applications");
   return res.json();
 }
@@ -108,17 +100,10 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showArchived, setShowArchived] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-
-  const { data: paginatedData, isLoading, isError } = useQuery({
-    queryKey: ["applications", page, pageSize],
-    queryFn: () => fetchApplicationsPaginated(page, pageSize),
+  const { data: applications = [], isLoading, isError } = useQuery({
+    queryKey: ["applications"],
+    queryFn: fetchApplications,
   });
-
-  const applications = paginatedData?.data ?? [];
-  const totalPages = paginatedData?.totalPages ?? 1;
-  const totalCount = paginatedData?.total ?? 0;
 
   const deleteMutation = useMutation({
     mutationFn: deleteApplication,
@@ -134,10 +119,6 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
   });
-
-  function handlePageChange(newPage: number) {
-    setPage(newPage);
-  }
 
   async function handleLogout() {
     await authClient.signOut();
@@ -170,13 +151,13 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
     archiveMutation.mutate({ id, archive });
   }
 
-  // Filter by archive status (within current page)
+  // Filter by archive status
   const activeApplications = applications.filter((a) => !a.archivedAt);
   const archivedApplications = applications.filter((a) => !!a.archivedAt);
   const visibleApplications = showArchived ? archivedApplications : activeApplications;
 
   const stats = {
-    total: totalCount,
+    total: activeApplications.length,
     inbound: activeApplications.filter((a) => a.status === "inbound").length,
     active: activeApplications.filter((a) =>
       (["applied", "interview"] as ApplicationStatus[]).includes(a.status)
@@ -483,10 +464,6 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
             onDelete={handleDelete}
             onArchive={handleArchive}
             showArchived={showArchived}
-            page={page}
-            totalPages={totalPages}
-            totalCount={totalCount}
-            onPageChange={handlePageChange}
           />
         ) : (
           <KanbanView applications={visibleApplications} onEdit={handleEdit} />
