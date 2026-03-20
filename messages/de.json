@@ -9,7 +9,9 @@
     "kanban_view": "Kanban",
     "settings": "Einstellungen",
     "documents": "Dokumente",
-    "analytics": "Auswertungen"
+    "analytics": "Auswertungen",
+    "resume_ai": "Lebenslauf-KI",
+    "share": "Teilen"
   },
   "stats": {
     "total": "Gesamt",
@@ -185,7 +187,6 @@
   },
   "settings": {
     "title": "Einstellungen",
-    "back": "Zur\u00fcck zum Dashboard",
     "appearance": {
       "title": "Erscheinungsbild",
       "description": "Passe das Aussehen deines CRM an.",
@@ -256,7 +257,6 @@
     "avg_response_time": "Durchschnittliche Antwortzeit",
     "top_companies": "Top-Unternehmen",
     "source_breakdown": "Quellen-Verteilung",
-    "back_to_dashboard": "Zurück zum Dashboard",
     "no_data": "Noch keine Daten vorhanden.",
     "week": "Woche",
     "applications": "Bewerbungen",
@@ -328,7 +328,6 @@
     "no_token": "Noch kein API-Token generiert."
   },
   "documents_page": {
-    "back": "Zurück",
     "title": "Dateien",
     "uploading": "Wird hochgeladen…",
     "drop_hint": "Datei hierher ziehen oder klicken zum Auswählen",
@@ -341,10 +340,6 @@
     "share_hint": "Freigabelink kopieren",
     "footer": "Dateien sind nur für dich sichtbar (Anmeldung erforderlich).",
     "confirm_delete": "\"{name}\" wirklich löschen?"
-  },
-  "resume_page": {
-    "back": "Zurück",
-    "title": "Lebenslauf-Check"
   },
   "legal": {
     "title": "Rechtliche Hinweise",

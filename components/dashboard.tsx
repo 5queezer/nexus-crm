@@ -3,16 +3,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { authClient } from "@/lib/auth-client";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
 import { KanbanView } from "./kanban-view";
-import { LanguageSwitcher } from "./language-switcher";
-import { ThemeSwitcher } from "./theme-switcher";
+import { AppHeader } from "./app-header";
 import { loadAppSettings } from "./app-settings";
 import { Application, ApplicationStatus } from "@/types";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { format } from "date-fns";
 
 interface DashboardProps {
@@ -78,14 +74,12 @@ function exportToCsv(applications: Application[], filename = "applications.csv")
 type ViewMode = "table" | "kanban";
 
 export function Dashboard({ user, shareUrl, initialStatus, initialSource, initialSearch }: DashboardProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const t = useTranslations("dashboard");
   const tn = useTranslations("nav");
   const ts = useTranslations("stats");
   const ta = useTranslations("actions");
   const tc = useTranslations("confirm");
-  const tapp = useTranslations("app");
 
   const [customTitle] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -102,7 +96,6 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showArchived, setShowArchived] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { data: applications = [], isLoading, isError } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications,
@@ -122,12 +115,6 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
   });
-
-  async function handleLogout() {
-    await authClient.signOut();
-    router.push("/login");
-    router.refresh();
-  }
 
   function handleEdit(app: Application) {
     setEditingApp(app);
@@ -227,148 +214,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <h1 className="truncate text-lg font-bold text-gray-900 dark:text-white sm:text-xl">
-                {customTitle || tapp("title")}
-              </h1>
-            </div>
-
-            {/* Desktop nav */}
-            <div className="hidden md:flex items-center gap-3">
-              <ThemeSwitcher />
-              <LanguageSwitcher />
-              {user.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.image}
-                  alt={user.name || user.email}
-                  className="w-8 h-8 rounded-full"
-                />
-              )}
-              <span className="text-sm text-gray-600 dark:text-gray-300">{user.name || user.email}</span>
-              {user.isAdmin && (
-                <Link
-                  href="/settings"
-                  className="flex items-center min-h-[44px] px-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-                >
-                  {tn("settings")}
-                </Link>
-              )}
-              <Link
-                href="/documents"
-                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-              >
-                {tn("documents")}
-              </Link>
-              <Link
-                href="/analytics"
-                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-              >
-                {tn("analytics")}
-              </Link>
-              <Link
-                href="/resume-review"
-                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-              >
-                Resume AI
-              </Link>
-              <a
-                href={shareUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center min-h-[44px] px-2 text-sm text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-                title="Client portal link"
-              >
-                Share
-              </a>
-              <button
-                onClick={handleLogout}
-                className="flex items-center min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors"
-              >
-                {tn("logout")}
-              </button>
-            </div>
-
-            {/* Mobile nav: language + avatar + hamburger */}
-            <div className="flex shrink-0 md:hidden items-center gap-2">
-              <LanguageSwitcher />
-              {user.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.image}
-                  alt={user.name || user.email}
-                  className="w-8 h-8 rounded-full"
-                />
-              )}
-              <button
-                onClick={() => setMobileMenuOpen((v) => !v)}
-                className="flex items-center justify-center w-11 h-11 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                aria-label="Menu"
-              >
-                {mobileMenuOpen ? "✕" : "☰"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile dropdown menu */}
-        {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-100 dark:border-gray-700 px-4 py-2 flex flex-col gap-1 bg-white dark:bg-gray-800">
-            <div className="py-2 text-sm text-gray-600 dark:text-gray-300 font-medium">
-              {user.name || user.email}
-            </div>
-            {user.isAdmin && (
-              <Link
-                href="/settings"
-                className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                {tn("settings")}
-              </Link>
-            )}
-            <Link
-              href="/documents"
-              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              {tn("documents")}
-            </Link>
-            <Link
-              href="/analytics"
-              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              {tn("analytics")}
-            </Link>
-            <Link
-              href="/resume-review"
-              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              🤖 Resume AI
-            </Link>
-            <a
-              href={shareUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Share
-            </a>
-            <button
-              onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
-              className="flex items-center gap-2 min-h-[44px] px-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors w-full text-left"
-            >
-              {tn("logout")}
-            </button>
-          </div>
-        )}
-      </header>
+      <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Overdue follow-up banners */}

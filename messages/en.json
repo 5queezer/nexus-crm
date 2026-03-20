@@ -9,7 +9,9 @@
     "kanban_view": "Kanban",
     "settings": "Settings",
     "documents": "Documents",
-    "analytics": "Analytics"
+    "analytics": "Analytics",
+    "resume_ai": "Resume AI",
+    "share": "Share"
   },
   "stats": {
     "total": "Total",
@@ -185,7 +187,6 @@
   },
   "settings": {
     "title": "Settings",
-    "back": "Back to dashboard",
     "appearance": {
       "title": "Appearance",
       "description": "Customize the look and feel of your CRM.",
@@ -256,7 +257,6 @@
     "avg_response_time": "Average Response Time",
     "top_companies": "Top Companies",
     "source_breakdown": "Source Breakdown",
-    "back_to_dashboard": "Back to Dashboard",
     "no_data": "No data available yet.",
     "week": "Week",
     "applications": "applications",
@@ -328,7 +328,6 @@
     "no_token": "No API token generated yet."
   },
   "documents_page": {
-    "back": "Back",
     "title": "Files",
     "uploading": "Uploading…",
     "drop_hint": "Drag file here or click to select",
@@ -341,10 +340,6 @@
     "share_hint": "Copy share link",
     "footer": "Files are only visible to you (login required).",
     "confirm_delete": "Delete \"{name}\"?"
-  },
-  "resume_page": {
-    "back": "Back",
-    "title": "Resume Review"
   },
   "legal": {
     "title": "Legal Notice",
