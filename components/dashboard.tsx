@@ -76,6 +76,7 @@ type ViewMode = "table" | "kanban";
 export function Dashboard({ user, shareUrl, initialStatus, initialSource, initialSearch }: DashboardProps) {
   const queryClient = useQueryClient();
   const t = useTranslations("dashboard");
+  const tn = useTranslations("nav");
   const ts = useTranslations("stats");
   const ta = useTranslations("actions");
   const tc = useTranslations("confirm");

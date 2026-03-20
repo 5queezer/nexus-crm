@@ -191,7 +191,6 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
         {!hasData ? (
           <div className="text-center py-20 text-gray-500 dark:text-gray-400">
             {t("no_data")}
