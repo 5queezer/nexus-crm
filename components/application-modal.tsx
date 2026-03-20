@@ -24,6 +24,7 @@ interface FormData {
   salaryMin: string;
   salaryMax: string;
   rating: number | null;
+  jobUrl: string;
 }
 
 interface ContactFormRow {
@@ -48,6 +49,7 @@ function serializeForm(data: FormData) {
     salaryMin: data.salaryMin ? parseInt(data.salaryMin, 10) : null,
     salaryMax: data.salaryMax ? parseInt(data.salaryMax, 10) : null,
     rating: data.rating,
+    jobUrl: data.jobUrl || null,
   };
 }
 
@@ -141,6 +143,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     salaryMin: application?.salaryMin != null ? String(application.salaryMin) : "",
     salaryMax: application?.salaryMax != null ? String(application.salaryMax) : "",
     rating: application?.rating ?? null,
+    jobUrl: application?.jobUrl || "",
   });
 
   const [jdOpen, setJdOpen] = useState(false);
@@ -384,6 +387,20 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 ))}
               </datalist>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              {t("job_url")}
+            </label>
+            <input
+              type="url"
+              name="jobUrl"
+              value={form.jobUrl}
+              onChange={handleChange}
+              className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder={t("job_url_placeholder")}
+            />
           </div>
 
           <div>

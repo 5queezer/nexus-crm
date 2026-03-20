@@ -97,7 +97,9 @@
     "salary_range": "Budget Range (\u20ac)",
     "salary_min_placeholder": "Min e.g. 80000",
     "salary_max_placeholder": "Max e.g. 120000",
-    "rating": "Priority Rating"
+    "rating": "Priority Rating",
+    "job_url": "Listing Link",
+    "job_url_placeholder": "https://..."
   },
   "status": {
     "inbound": "New Lead",

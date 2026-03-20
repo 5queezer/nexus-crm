@@ -97,7 +97,9 @@
     "salary_range": "Budgetrahmen (\u20ac)",
     "salary_min_placeholder": "Min z.B. 80000",
     "salary_max_placeholder": "Max z.B. 120000",
-    "rating": "Priorit\u00e4tsbewertung"
+    "rating": "Priorit\u00e4tsbewertung",
+    "job_url": "Link zum Angebot",
+    "job_url_placeholder": "https://..."
   },
   "status": {
     "inbound": "Neuer Lead",

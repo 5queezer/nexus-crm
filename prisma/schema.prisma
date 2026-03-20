@@ -24,6 +24,7 @@ model Application {
   salaryMin       Int?      // minimum salary in EUR/year
   salaryMax       Int?      // maximum salary in EUR/year
   rating          Int?      // suitability rating 1–5
+  jobUrl          String?   // link to job listing / opportunity page
   resumeId        String?   // Reactive Resume resume ID
   archivedAt      DateTime?
   createdAt       DateTime  @default(now())

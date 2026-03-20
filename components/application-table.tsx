@@ -95,8 +95,22 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
     <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold text-gray-900 dark:text-white">
-            {app.company || <span className="italic font-normal text-gray-400 dark:text-gray-500">—</span>}
+          <h3 className="flex items-center gap-1.5 text-base font-semibold text-gray-900 dark:text-white">
+            <span className="truncate">{app.company || <span className="italic font-normal text-gray-400 dark:text-gray-500">—</span>}</span>
+            {app.jobUrl && (
+              <a
+                href={app.jobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={app.jobUrl}
+                className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            )}
           </h3>
           <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-300">{app.role}</p>
         </div>
@@ -212,6 +226,20 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
           >
             {info.getValue()}
           </button>
+          {info.row.original.jobUrl && (
+            <a
+              href={info.row.original.jobUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title={info.row.original.jobUrl}
+              className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          )}
           {info.row.original.remote && (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
               Remote
