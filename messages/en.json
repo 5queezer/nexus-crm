@@ -99,7 +99,16 @@
     "salary_max_placeholder": "Max e.g. 120000",
     "rating": "Priority Rating",
     "job_url": "Listing Link",
-    "job_url_placeholder": "https://..."
+    "job_url_placeholder": "https://...",
+    "documents_section": "Documents",
+    "documents_add": "+ Upload document",
+    "documents_uploading": "Uploading…",
+    "documents_download": "Download",
+    "documents_unlink": "Unlink",
+    "documents_share_hint": "Copy share link",
+    "documents_empty": "No documents attached.",
+    "documents_error": "Failed to manage document.",
+    "documents_upload_error": "Upload failed."
   },
   "status": {
     "inbound": "New Lead",

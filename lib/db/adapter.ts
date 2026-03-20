@@ -48,6 +48,8 @@ export interface DatabaseAdapter {
 
   // ── Documents ────────────────────────────────────────────────────────────
   listDocuments(userId: string | null): Promise<DocumentRecord[]>;
+  /** List documents linked to a specific application. */
+  listDocumentsByApplication(applicationId: string, userId: string): Promise<DocumentRecord[]>;
   getDocument(id: string, userId: string | null): Promise<DocumentRecord | null>;
   createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord>;
   /** Replace the set of linked application IDs on a document. */

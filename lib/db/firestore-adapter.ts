@@ -508,6 +508,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   // ── Documents ───────────────────────────────────────────────────────────
 
+  async listDocumentsByApplication(applicationId: string, userId: string): Promise<DocumentRecord[]> {
+    const all = await this.listDocuments(userId);
+    return all.filter((d) => d.applications?.some((a) => a.id === applicationId));
+  }
+
   async listDocuments(userId: string | null): Promise<DocumentRecord[]> {
     let q: FirebaseFirestore.Query = this.docs.orderBy("uploadedAt", "desc");
     if (userId) q = q.where("userId", "==", userId);
