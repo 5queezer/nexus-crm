@@ -24,6 +24,10 @@ import type {
   BatchUpsertItem,
   BatchUpsertResult,
   BatchDeleteResult,
+  CvProfileRecord,
+  UpsertCvProfileInput,
+  CvPatchRecord,
+  UpsertCvPatchInput,
 } from "./types";
 
 // ── Firestore init ──────────────────────────────────────────────────────────
@@ -798,5 +802,112 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
     }
     return map;
+  }
+
+  // CV — Always uses Prisma/PostgreSQL. CvPatch has integer foreign keys to
+  // Application, which is incompatible with Firestore's string document IDs.
+  // CvProfile is userId-keyed and works fine. CvPatch methods will fail if
+  // applications live in Firestore (applicationId would not be numeric).
+
+  async getCvProfile(userId: string): Promise<CvProfileRecord | null> {
+    const row = await prisma.cvProfile.findUnique({ where: { userId } });
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      userId: row.userId,
+      name: row.name,
+      contact: row.contact as unknown as CvProfileRecord["contact"],
+      profile: row.profile,
+      skills: row.skills as unknown as CvProfileRecord["skills"],
+      experience: row.experience as unknown as CvProfileRecord["experience"],
+      projects: row.projects as unknown as CvProfileRecord["projects"],
+      education: row.education as unknown as CvProfileRecord["education"],
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async upsertCvProfile(userId: string, data: UpsertCvProfileInput): Promise<CvProfileRecord> {
+    const payload = {
+      name: data.name,
+      contact: data.contact as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      profile: data.profile,
+      skills: data.skills as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      experience: data.experience as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      projects: (data.projects ?? []) as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      education: (data.education ?? []) as unknown as import("@prisma/client").Prisma.InputJsonValue,
+    };
+    const row = await prisma.cvProfile.upsert({
+      where: { userId },
+      create: { userId, ...payload },
+      update: payload,
+    });
+    return {
+      id: String(row.id),
+      userId: row.userId,
+      name: row.name,
+      contact: row.contact as unknown as CvProfileRecord["contact"],
+      profile: row.profile,
+      skills: row.skills as unknown as CvProfileRecord["skills"],
+      experience: row.experience as unknown as CvProfileRecord["experience"],
+      projects: row.projects as unknown as CvProfileRecord["projects"],
+      education: row.education as unknown as CvProfileRecord["education"],
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null> {
+    const row = await prisma.cvPatch.findFirst({
+      where: { applicationId: parseInt(applicationId, 10), application: { userId } },
+    });
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      applicationId: String(row.applicationId),
+      profileOverride: row.profileOverride,
+      experienceIds: row.experienceIds as string[],
+      skillCategories: row.skillCategories as string[],
+      includeProjects: row.includeProjects,
+      includeEducation: row.includeEducation,
+      documentId: row.documentId ? String(row.documentId) : null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord> {
+    const appId = parseInt(applicationId, 10);
+    const payload = {
+      profileOverride: data.profileOverride ?? null,
+      experienceIds: data.experienceIds as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      skillCategories: data.skillCategories as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      includeProjects: data.includeProjects ?? false,
+      includeEducation: data.includeEducation ?? true,
+    };
+    const row = await prisma.cvPatch.upsert({
+      where: { applicationId: appId },
+      create: { applicationId: appId, ...payload },
+      update: payload,
+    });
+    return {
+      id: String(row.id),
+      applicationId: String(row.applicationId),
+      profileOverride: row.profileOverride,
+      experienceIds: row.experienceIds as string[],
+      skillCategories: row.skillCategories as string[],
+      includeProjects: row.includeProjects,
+      includeEducation: row.includeEducation,
+      documentId: row.documentId ? String(row.documentId) : null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void> {
+    await prisma.cvPatch.update({
+      where: { id: parseInt(patchId, 10) },
+      data: { documentId: documentId ? parseInt(documentId, 10) : null },
+    });
   }
 }

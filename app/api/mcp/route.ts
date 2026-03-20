@@ -7,7 +7,9 @@ import { hashApiToken } from "@/lib/token";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
+import { generateAndStoreCv } from "@/lib/cv/generate";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
+import type { UpsertCvProfileInput } from "@/lib/db/types";
 
 // ── Auth helper ──────────────────────────────────────────────────────────────
 // Tries MCP OAuth access token first, then falls back to CRM API token.
@@ -529,6 +531,166 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       } catch {
         return {
           content: [{ type: "text", text: "Document not found or access denied" }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── CV ─────────────────────────────────────────────────────────────────
+
+  server.tool(
+    "get_cv_profile",
+    "Get the master CV profile for the authenticated user. Returns all experience entries, skill categories, projects, and education — use these IDs/names when calling generate_tailored_cv.",
+    {},
+    async () => {
+      const profile = await getDb().getCvProfile(auth.userId);
+      if (!profile) {
+        return {
+          content: [{ type: "text", text: "No CV profile found. Use upsert_cv_profile to create one." }],
+        };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "upsert_cv_profile",
+    "Create or update the master CV profile. This stores your base CV data that tailored CVs are generated from.",
+    {
+      name: z.string().describe("Full name"),
+      contact: z.object({
+        email: z.string().optional(),
+        phone: z.string().optional(),
+        linkedin: z.string().optional(),
+        github: z.string().optional(),
+        location: z.string().optional(),
+      }).describe("Contact information"),
+      profile: z.string().describe("Professional summary"),
+      skills: z.array(z.object({
+        category: z.string().describe("Skill category name"),
+        items: z.array(z.string()).describe("Skills in this category"),
+      })).describe("Skill categories"),
+      experience: z.array(z.object({
+        id: z.string().describe("Unique identifier for this entry (e.g. company-date slug)"),
+        company: z.string(),
+        title: z.string(),
+        date: z.string().describe("Date range, e.g. 'Jan 2023 -- Present'"),
+        location: z.string(),
+        tier: z.number().min(1).max(3).describe("1=detailed with bullets, 2=bullets, 3=compact no bullets"),
+        bullets: z.array(z.string()).describe("Achievement bullets"),
+      })).describe("Work experience entries"),
+      projects: z.array(z.object({
+        name: z.string(),
+        url: z.string().optional(),
+        stack: z.string(),
+        description: z.string(),
+      })).optional().describe("Side projects"),
+      education: z.array(z.object({
+        institution: z.string(),
+        degree: z.string(),
+        date: z.string(),
+        location: z.string(),
+        details: z.string().optional(),
+      })).optional().describe("Education entries"),
+    },
+    async (data) => {
+      try {
+        const input: UpsertCvProfileInput = {
+          name: data.name,
+          contact: data.contact,
+          profile: data.profile,
+          skills: data.skills,
+          experience: data.experience,
+          projects: data.projects,
+          education: data.education,
+        };
+        const profile = await getDb().upsertCvProfile(auth.userId, input);
+        return {
+          content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
+        };
+      } catch {
+        return {
+          content: [{ type: "text", text: "Failed to upsert CV profile" }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "generate_tailored_cv",
+    "Generate a tailored CV PDF for a specific application. Selects experience entries and skill categories from the master CV profile, renders a PDF, and stores it as a document linked to the application. Requires a CV profile to exist first (use upsert_cv_profile).",
+    {
+      applicationId: z.string().describe("Application ID to generate CV for"),
+      profileOverride: z.string().optional().describe("Custom professional summary for this application (omit to use master)"),
+      experienceIds: z.array(z.string()).describe("Ordered list of experience entry IDs to include"),
+      skillCategories: z.array(z.string()).describe("Ordered list of skill category names to include"),
+      includeProjects: z.boolean().optional().default(false).describe("Include projects section?"),
+      includeEducation: z.boolean().optional().default(true).describe("Include education section?"),
+    },
+    async (args) => {
+      try {
+        const db = getDb();
+
+        // Verify application ownership
+        const app = await db.getApplication(args.applicationId, auth.readScopeUserId);
+        if (!app) {
+          return {
+            content: [{ type: "text", text: "Application not found or access denied" }],
+            isError: true,
+          };
+        }
+
+        // Get CV profile
+        const profile = await db.getCvProfile(auth.userId);
+        if (!profile) {
+          return {
+            content: [{ type: "text", text: "No CV profile found. Use upsert_cv_profile first." }],
+            isError: true,
+          };
+        }
+
+        // Upsert the patch
+        const patch = await db.upsertCvPatch(args.applicationId, {
+          profileOverride: args.profileOverride,
+          experienceIds: args.experienceIds,
+          skillCategories: args.skillCategories,
+          includeProjects: args.includeProjects,
+          includeEducation: args.includeEducation,
+        });
+
+        const { doc, warnings } = await generateAndStoreCv({
+          db,
+          userId: auth.userId,
+          applicationId: args.applicationId,
+          company: app.company,
+          role: app.role,
+          profile,
+          patch,
+        });
+
+        const result: Record<string, unknown> = {
+          message: "CV generated successfully",
+          documentId: doc.id,
+          originalName: doc.originalName,
+          size: doc.size,
+          applicationId: args.applicationId,
+          company: app.company,
+          role: app.role,
+        };
+        if (warnings.length > 0) {
+          result.warnings = warnings;
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: `Failed to generate CV: ${err instanceof Error ? err.message : "unknown error"}` }],
           isError: true,
         };
       }

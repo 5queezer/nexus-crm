@@ -23,6 +23,10 @@ import type {
   BatchUpsertItem,
   BatchUpsertResult,
   BatchDeleteResult,
+  CvProfileRecord,
+  UpsertCvProfileInput,
+  CvPatchRecord,
+  UpsertCvPatchInput,
 } from "./types";
 
 // ── Helpers: convert Prisma int IDs ↔ string IDs ────────────────────────────
@@ -56,6 +60,24 @@ function mapDoc(d: { id: number; userId: string; filename: string; originalName:
     ...d,
     id: sid(d.id),
     applications: d.applications?.map((a) => ({ id: sid(a.id), company: a.company, role: a.role })),
+  };
+}
+
+type CvProfileRow = Prisma.CvProfileGetPayload<object>;
+
+function mapCvProfile(row: CvProfileRow): CvProfileRecord {
+  return {
+    id: sid(row.id),
+    userId: row.userId,
+    name: row.name,
+    contact: row.contact as unknown as CvProfileRecord["contact"],
+    profile: row.profile,
+    skills: row.skills as unknown as CvProfileRecord["skills"],
+    experience: row.experience as unknown as CvProfileRecord["experience"],
+    projects: row.projects as unknown as CvProfileRecord["projects"],
+    education: row.education as unknown as CvProfileRecord["education"],
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -562,5 +584,76 @@ export class PrismaAdapter implements DatabaseAdapter {
 
   async deleteShareLink(id: string, userId: string): Promise<void> {
     await prisma.shareLink.delete({ where: { id: nid(id), userId } });
+  }
+
+  // CV
+
+  async getCvProfile(userId: string): Promise<CvProfileRecord | null> {
+    const row = await prisma.cvProfile.findUnique({ where: { userId } });
+    if (!row) return null;
+    return mapCvProfile(row);
+  }
+
+  async upsertCvProfile(userId: string, data: UpsertCvProfileInput): Promise<CvProfileRecord> {
+    const payload = {
+      name: data.name,
+      contact: data.contact as unknown as Prisma.InputJsonValue,
+      profile: data.profile,
+      skills: data.skills as unknown as Prisma.InputJsonValue,
+      experience: data.experience as unknown as Prisma.InputJsonValue,
+      projects: (data.projects ?? []) as unknown as Prisma.InputJsonValue,
+      education: (data.education ?? []) as unknown as Prisma.InputJsonValue,
+    };
+    const row = await prisma.cvProfile.upsert({
+      where: { userId },
+      create: { userId, ...payload },
+      update: payload,
+    });
+    return mapCvProfile(row);
+  }
+
+  async getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null> {
+    const row = await prisma.cvPatch.findFirst({
+      where: { applicationId: nid(applicationId), application: { userId } },
+    });
+    if (!row) return null;
+    return {
+      ...row,
+      id: sid(row.id),
+      applicationId: sid(row.applicationId),
+      documentId: row.documentId ? sid(row.documentId) : null,
+      experienceIds: row.experienceIds as string[],
+      skillCategories: row.skillCategories as string[],
+    };
+  }
+
+  async upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord> {
+    const payload = {
+      profileOverride: data.profileOverride ?? null,
+      experienceIds: data.experienceIds as unknown as Prisma.InputJsonValue,
+      skillCategories: data.skillCategories as unknown as Prisma.InputJsonValue,
+      includeProjects: data.includeProjects ?? false,
+      includeEducation: data.includeEducation ?? true,
+    };
+    const row = await prisma.cvPatch.upsert({
+      where: { applicationId: nid(applicationId) },
+      create: { applicationId: nid(applicationId), ...payload },
+      update: payload,
+    });
+    return {
+      ...row,
+      id: sid(row.id),
+      applicationId: sid(row.applicationId),
+      documentId: row.documentId ? sid(row.documentId) : null,
+      experienceIds: row.experienceIds as string[],
+      skillCategories: row.skillCategories as string[],
+    };
+  }
+
+  async setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void> {
+    await prisma.cvPatch.update({
+      where: { id: nid(patchId) },
+      data: { documentId: documentId ? nid(documentId) : null },
+    });
   }
 }

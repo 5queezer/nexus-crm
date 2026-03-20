@@ -19,6 +19,10 @@ import type {
   BatchUpsertItem,
   BatchUpsertResult,
   BatchDeleteResult,
+  CvProfileRecord,
+  UpsertCvProfileInput,
+  CvPatchRecord,
+  UpsertCvPatchInput,
 } from "./types";
 
 export interface DatabaseAdapter {
@@ -80,4 +84,11 @@ export interface DatabaseAdapter {
   findShareLink(userId: string, targetType: string, targetId: string | null): Promise<ShareLinkRecord | null>;
   createShareLink(userId: string, data: CreateShareLinkInput): Promise<ShareLinkRecord>;
   deleteShareLink(id: string, userId: string): Promise<void>;
+
+  // ── CV ─────────────────────────────────────────────────────────────────
+  getCvProfile(userId: string): Promise<CvProfileRecord | null>;
+  upsertCvProfile(userId: string, data: UpsertCvProfileInput): Promise<CvProfileRecord>;
+  getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null>;
+  upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord>;
+  setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void>;
 }

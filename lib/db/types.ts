@@ -232,3 +232,88 @@ export interface BatchDeleteResult {
     error?: string;
   }>;
 }
+
+// ── CV types ────────────────────────────────────────────────────────────────
+
+export interface CvSkillCategory {
+  category: string;
+  items: string[];
+}
+
+export interface CvExperienceEntry {
+  id: string;
+  company: string;
+  title: string;
+  date: string;
+  location: string;
+  tier: number; // 1 = detailed, 2 = bullets, 3 = compact
+  bullets: string[];
+}
+
+export interface CvProject {
+  name: string;
+  url?: string;
+  stack: string;
+  description: string;
+}
+
+export interface CvEducation {
+  institution: string;
+  degree: string;
+  date: string;
+  location: string;
+  details?: string;
+}
+
+export interface CvContact {
+  email?: string;
+  phone?: string;
+  linkedin?: string;
+  github?: string;
+  location?: string;
+}
+
+export interface CvProfileRecord {
+  id: string;
+  userId: string;
+  name: string;
+  contact: CvContact;
+  profile: string;
+  skills: CvSkillCategory[];
+  experience: CvExperienceEntry[];
+  projects: CvProject[];
+  education: CvEducation[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface UpsertCvProfileInput {
+  name: string;
+  contact: CvContact;
+  profile: string;
+  skills: CvSkillCategory[];
+  experience: CvExperienceEntry[];
+  projects?: CvProject[];
+  education?: CvEducation[];
+}
+
+export interface CvPatchRecord {
+  id: string;
+  applicationId: string;
+  profileOverride: string | null;
+  experienceIds: string[];
+  skillCategories: string[];
+  includeProjects: boolean;
+  includeEducation: boolean;
+  documentId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface UpsertCvPatchInput {
+  profileOverride?: string | null;
+  experienceIds: string[];
+  skillCategories: string[];
+  includeProjects?: boolean;
+  includeEducation?: boolean;
+}
