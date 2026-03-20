@@ -118,7 +118,12 @@
     "rejected": "Verloren"
   },
   "kanban": {
-    "empty": "Keine Eintr\u00e4ge"
+    "empty": "Keine Einträge",
+    "sort_label": "Sortierung",
+    "sort_rating_desc": "Priorität (hoch → niedrig)",
+    "sort_updated_desc": "Zuletzt aktualisiert",
+    "sort_created_desc": "Neueste zuerst",
+    "sort_company_asc": "Kunde A–Z"
   },
   "dashboard": {
     "applications": "Opportunities",
