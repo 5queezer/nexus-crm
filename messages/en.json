@@ -311,6 +311,19 @@
     "tip_good_bullets": "Good use of bullet points for readability.",
     "tip_few_bullets": "Consider using bullet points to improve readability."
   },
+  "cv_viewer": {
+    "select_application": "Application",
+    "select_placeholder": "Select an application...",
+    "generate": "Generate CV",
+    "regenerate": "Regenerate CV",
+    "generating": "Generating...",
+    "no_selection": "Select an application to view or generate a tailored CV.",
+    "loading": "Loading...",
+    "no_cv": "No tailored CV generated yet for this application.",
+    "no_cv_hint": "Use Claude via MCP to generate a tailored CV, or click Generate CV.",
+    "no_jd": "No job description available — keyword analysis requires a job description.",
+    "download": "Download"
+  },
   "token": {
     "title": "API Token",
     "description": "Generate a personal API token for LLM integrations.",

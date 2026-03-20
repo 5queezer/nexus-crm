@@ -311,6 +311,19 @@
     "tip_good_bullets": "Gute Verwendung von Aufzählungszeichen für Lesbarkeit.",
     "tip_few_bullets": "Verwende Aufzählungszeichen für bessere Lesbarkeit."
   },
+  "cv_viewer": {
+    "select_application": "Bewerbung",
+    "select_placeholder": "Bewerbung auswählen...",
+    "generate": "Lebenslauf erstellen",
+    "regenerate": "Lebenslauf neu erstellen",
+    "generating": "Wird erstellt...",
+    "no_selection": "Wähle eine Bewerbung aus, um einen angepassten Lebenslauf anzuzeigen oder zu erstellen.",
+    "loading": "Wird geladen...",
+    "no_cv": "Noch kein angepasster Lebenslauf für diese Bewerbung erstellt.",
+    "no_cv_hint": "Verwende Claude über MCP, um einen angepassten Lebenslauf zu erstellen, oder klicke auf Lebenslauf erstellen.",
+    "no_jd": "Keine Stellenbeschreibung verfügbar — die Keyword-Analyse benötigt eine Stellenbeschreibung.",
+    "download": "Herunterladen"
+  },
   "token": {
     "title": "API-Token",
     "description": "Pers\u00f6nlichen API-Token f\u00fcr LLM-Integrationen generieren.",

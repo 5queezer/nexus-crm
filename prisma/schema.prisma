@@ -31,6 +31,7 @@ model Application {
   updatedAt       DateTime  @updatedAt
   documents       Document[]
   contacts        Contact[]
+  cvPatch         CvPatch?
 }
 
 model Contact {
@@ -77,6 +78,7 @@ model User {
   emailIntegration    EmailIntegration?
   scannedEmails       ScannedEmail[]
   mcpAccessTokens     McpAccessToken[]
+  cvProfile           CvProfile?
 }
 
 model UserApiToken {
@@ -239,4 +241,34 @@ model McpRefreshToken {
   scopes     String[]
   expiresAt  DateTime
   createdAt  DateTime @default(now())
+}
+
+// ── CV Generation ────────────────────────────────────────────────────────────
+
+model CvProfile {
+  id         Int      @id @default(autoincrement())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  contact    Json     // { email, phone, linkedin, github, location }
+  profile    String   // professional summary
+  skills     Json     // [{ category: string, items: string[] }]
+  experience Json     // [{ id, company, title, date, location, tier, bullets }]
+  projects   Json     @default("[]") // [{ name, url, stack, description }]
+  education  Json     @default("[]") // [{ institution, degree, date, location, details? }]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CvPatch {
+  id               Int         @id @default(autoincrement())
+  applicationId    Int         @unique
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  profileOverride  String?
+  experienceIds    Json        // string[] — ordered IDs of experience entries to include
+  skillCategories  Json        // string[] — ordered category names to include
+  includeProjects  Boolean     @default(false)
+  includeEducation Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 }
