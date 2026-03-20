@@ -3,9 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, normalizeSource } from "@/types";
+import { AppHeader } from "./app-header";
 
 async function fetchApplications(): Promise<Application[]> {
   const res = await fetch("/api/applications");
@@ -38,7 +38,16 @@ function formatWeekLabel(weekKey: string): string {
   return `${d}.${m}`;
 }
 
-export function AnalyticsDashboard() {
+interface AnalyticsDashboardProps {
+  user: {
+    name?: string | null;
+    email: string;
+    image?: string | null;
+    isAdmin?: boolean;
+  };
+}
+
+export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const t = useTranslations("analytics");
   const ts = useTranslations("status");
   const router = useRouter();
@@ -180,21 +189,8 @@ export function AnalyticsDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              📊 {t("title")}
-            </h1>
-          </div>
-          <Link
-            href="/"
-            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
-          >
-            ← {t("back_to_dashboard")}
-          </Link>
-        </div>
 
         {!hasData ? (
           <div className="text-center py-20 text-gray-500 dark:text-gray-400">

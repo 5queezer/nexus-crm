@@ -4,8 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { format } from "date-fns";
 import { de, enUS } from "date-fns/locale";
-import Link from "next/link";
 import { useTranslations, useLocale } from "next-intl";
+import { AppHeader } from "./app-header";
 
 interface ApplicationRef {
   id: string;
@@ -221,36 +221,9 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <Link href="/" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
-                ← {t("back")}
-              </Link>
-              <span className="text-gray-200 dark:text-gray-600">|</span>
-              <span className="text-2xl">📁</span>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">{t("title")}</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              {user.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.image}
-                  alt={user.name || user.email}
-                  className="w-8 h-8 rounded-full"
-                />
-              )}
-              <span className="text-sm text-gray-600 dark:text-gray-300 hidden sm:block">
-                {user.name || user.email}
-              </span>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader user={user} />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Upload zone */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}

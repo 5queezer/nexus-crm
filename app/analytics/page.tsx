@@ -9,5 +9,5 @@ export default async function AnalyticsPage() {
     redirect("/login");
   }
 
-  return <AnalyticsDashboard />;
+  return <AnalyticsDashboard user={session.user} />;
 }

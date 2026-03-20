@@ -9,7 +9,9 @@
     "kanban_view": "Kanban",
     "settings": "Settings",
     "documents": "Documents",
-    "analytics": "Analytics"
+    "analytics": "Analytics",
+    "resume_ai": "Resume AI",
+    "share": "Share"
   },
   "stats": {
     "total": "Total",
