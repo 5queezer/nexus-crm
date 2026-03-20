@@ -39,14 +39,22 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
     integration.scanDaysBack
   );
 
+  // Pre-fetch all existing scanned emails for these messages to prevent N+1 queries
+  const messageIds = messages.map(m => m.id);
+  const existingScans = await prisma.scannedEmail.findMany({
+    where: {
+      userId,
+      messageId: { in: messageIds },
+    },
+    select: { messageId: true },
+  });
+  const existingMessageIds = new Set(existingScans.map(scan => scan.messageId));
+
   for (const msg of messages) {
     result.processed++;
 
     // Check if already scanned (dedup by messageId)
-    const existing = await prisma.scannedEmail.findUnique({
-      where: { userId_messageId: { userId, messageId: msg.id } },
-    });
-    if (existing) {
+    if (existingMessageIds.has(msg.id)) {
       result.skipped++;
       continue;
     }
