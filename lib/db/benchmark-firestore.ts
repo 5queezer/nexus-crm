@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { FirestoreAdapter } from "./firestore-adapter";
 import { CreateDocumentInput } from "./types";
 
