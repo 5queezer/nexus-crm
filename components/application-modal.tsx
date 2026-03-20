@@ -780,6 +780,7 @@ function DocShareButton({ docId, docName }: { docId: string; docName: string }) 
 
   return (
     <button
+      type="button"
       onClick={handleShare}
       title={t("documents_share_hint")}
       className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-sm transition-colors"
