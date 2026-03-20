@@ -8,7 +8,12 @@ import { ApplicationModal } from "./application-modal";
 import { KanbanView } from "./kanban-view";
 import { AppHeader } from "./app-header";
 import { loadAppSettings } from "./app-settings";
-import { Application, ApplicationStatus } from "@/types";
+import { CommandPalette } from "./command-palette";
+import { KeyboardShortcutBar } from "./keyboard-shortcut-bar";
+import { KeyboardShortcutDialog } from "./keyboard-shortcut-dialog";
+import { BulkActionBar } from "./bulk-action-bar";
+import { OnboardingWizard } from "./onboarding-wizard";
+import { Application, ApplicationStatus, STATUS_ORDER } from "@/types";
 import { format } from "date-fns";
 
 interface DashboardProps {
@@ -96,6 +101,14 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   const [editingApp, setEditingApp] = useState<Application | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showArchived, setShowArchived] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isShortcutDialogOpen, setIsShortcutDialogOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [onboardingComplete, setOnboardingComplete] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("onboarding-complete") === "true";
+  });
   const { data: applications = [], isLoading, isError } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications,
@@ -220,6 +233,190 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       localStorage.setItem("dismissed-overdue", JSON.stringify([...next]));
       return next;
     });
+  }
+
+  // Selection helpers
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < 100) next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll(apps: Application[]) {
+    setSelectedIds(new Set(apps.slice(0, 100).map((a) => a.id)));
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  // Bulk action mutations
+  const bulkStatusMutation = useMutation({
+    mutationFn: async ({ ids, status }: { ids: string[]; status: ApplicationStatus }) => {
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/applications/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status }),
+          })
+        )
+      );
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      clearSelection();
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => deleteApplication(id)));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      clearSelection();
+    },
+  });
+
+  function handleBulkChangeStatus(status: ApplicationStatus) {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    bulkStatusMutation.mutate({ ids, status });
+  }
+
+  function handleBulkArchiveSelected() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    if (confirm(tc("bulk_archive_confirm", { count: ids.length }))) {
+      bulkArchiveMutation.mutate(ids);
+      clearSelection();
+    }
+  }
+
+  function handleBulkDeleteSelected() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    if (confirm(tc("bulk_delete_confirm", { count: ids.length }))) {
+      bulkDeleteMutation.mutate(ids);
+    }
+  }
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    function isInputFocused() {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag === "input" || tag === "textarea" || tag === "select" || (el as HTMLElement).isContentEditable;
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      // Cmd+K / Ctrl+K always works
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setIsCommandPaletteOpen(true);
+        return;
+      }
+
+      // Skip shortcuts when in input fields or modals are open
+      if (isInputFocused() || isModalOpen || isCommandPaletteOpen || isShortcutDialogOpen) return;
+
+      switch (e.key) {
+        case "/":
+          e.preventDefault();
+          setIsCommandPaletteOpen(true);
+          break;
+        case "?":
+          e.preventDefault();
+          setIsShortcutDialogOpen(true);
+          break;
+        case "n":
+          e.preventDefault();
+          handleNewApplication();
+          break;
+        case "t":
+          e.preventDefault();
+          setViewMode("table");
+          break;
+        case "b":
+          e.preventDefault();
+          setViewMode("kanban");
+          break;
+        case "j":
+        case "ArrowDown":
+          if (viewMode === "table") {
+            e.preventDefault();
+            setFocusedIndex((i) => Math.min(i + 1, visibleApplications.length - 1));
+          }
+          break;
+        case "k":
+        case "ArrowUp":
+          if (viewMode === "table") {
+            e.preventDefault();
+            setFocusedIndex((i) => Math.max(0, i - 1));
+          }
+          break;
+        case "Enter":
+          if (viewMode === "table" && focusedIndex >= 0 && focusedIndex < visibleApplications.length) {
+            e.preventDefault();
+            handleEdit(visibleApplications[focusedIndex]);
+          }
+          break;
+        case "e":
+          if (viewMode === "table" && focusedIndex >= 0 && focusedIndex < visibleApplications.length) {
+            e.preventDefault();
+            handleEdit(visibleApplications[focusedIndex]);
+          }
+          break;
+        case "x":
+          if (viewMode === "table" && focusedIndex >= 0 && focusedIndex < visibleApplications.length) {
+            e.preventDefault();
+            toggleSelect(visibleApplications[focusedIndex].id);
+          }
+          break;
+        case "Escape":
+          if (selectedIds.size > 0) {
+            e.preventDefault();
+            clearSelection();
+          }
+          break;
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "5": {
+          e.preventDefault();
+          const statusIdx = parseInt(e.key) - 1;
+          if (statusIdx < STATUS_ORDER.length) {
+            // This will be picked up by the URL - just navigate
+            const status = STATUS_ORDER[statusIdx];
+            window.history.replaceState(null, "", `/?status=${status}`);
+            window.location.reload();
+          }
+          break;
+        }
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isModalOpen, isCommandPaletteOpen, isShortcutDialogOpen, viewMode, focusedIndex, visibleApplications, selectedIds]);
+
+  // Show onboarding for new users
+  if (!isLoading && !onboardingComplete && applications.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
+        <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
+        <OnboardingWizard onComplete={() => {
+          setOnboardingComplete(true);
+          queryClient.invalidateQueries({ queryKey: ["applications"] });
+        }} />
+      </div>
+    );
   }
 
   return (
@@ -352,6 +549,11 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
             initialStatusFilter={initialStatus}
             initialSourceFilter={initialSource}
             initialGlobalFilter={initialSearch}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onSelectAll={() => selectAll(visibleApplications)}
+            onClearSelection={clearSelection}
+            focusedIndex={focusedIndex}
           />
         ) : (
           <KanbanView applications={visibleApplications} onEdit={handleEdit} />
@@ -362,6 +564,32 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       {isModalOpen && (
         <ApplicationModal application={editingApp} onClose={handleCloseModal} />
       )}
+
+      {/* Command Palette */}
+      {isCommandPaletteOpen && (
+        <CommandPalette
+          applications={applications}
+          onSelect={handleEdit}
+          onClose={() => setIsCommandPaletteOpen(false)}
+        />
+      )}
+
+      {/* Keyboard Shortcut Dialog */}
+      {isShortcutDialogOpen && (
+        <KeyboardShortcutDialog onClose={() => setIsShortcutDialogOpen(false)} />
+      )}
+
+      {/* Bulk Action Bar */}
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        onChangeStatus={handleBulkChangeStatus}
+        onArchive={handleBulkArchiveSelected}
+        onDelete={handleBulkDeleteSelected}
+        onClear={clearSelection}
+      />
+
+      {/* Keyboard Shortcut Hint Bar */}
+      {selectedIds.size === 0 && <KeyboardShortcutBar />}
     </div>
   );
 }

@@ -143,7 +143,9 @@
     "loading_error": "Fehler beim Laden der Opportunities."
   },
   "confirm": {
-    "delete": "Opportunity wirklich l\u00f6schen?"
+    "delete": "Opportunity wirklich l\u00f6schen?",
+    "bulk_archive_confirm": "{count} ausgew\u00e4hlte Opportunities archivieren?",
+    "bulk_delete_confirm": "{count} ausgew\u00e4hlte Opportunities l\u00f6schen? Dies kann nicht r\u00fcckg\u00e4ngig gemacht werden."
   },
   "login": {
     "headline": "Deine Vertriebs-Pipeline",
@@ -360,6 +362,72 @@
     "share_hint": "Freigabelink kopieren",
     "footer": "Dateien sind nur für dich sichtbar (Anmeldung erforderlich).",
     "confirm_delete": "\"{name}\" wirklich löschen?"
+  },
+  "command_palette": {
+    "placeholder": "Opportunities suchen... (@ eingeben f\u00fcr Statusfilter)",
+    "search_in_status": "In diesem Status suchen...",
+    "status_lock_hint": "Statusname eingeben und Tab dr\u00fccken zum Filtern (z.B. @int, @app, @offer)",
+    "no_results": "Keine passenden Opportunities gefunden.",
+    "navigate": "navigieren",
+    "select": "\u00f6ffnen",
+    "filter_status": "nach Status filtern"
+  },
+  "shortcuts": {
+    "title": "Tastaturk\u00fcrzel",
+    "navigation": "Navigation",
+    "nav_down": "Nach unten",
+    "nav_up": "Nach oben",
+    "status_filter": "Nach Status filtern (1=Neu, 2=Kontaktiert, ...)",
+    "open_focused": "Fokussierte Opportunity \u00f6ffnen",
+    "search": "Suche",
+    "open_search": "Suche \u00f6ffnen",
+    "lock_status": "Auf Status in der Suche fixieren",
+    "actions_group": "Aktionen",
+    "new_app": "Neue Opportunity",
+    "edit_focused": "Fokussierte Opportunity bearbeiten",
+    "toggle_select": "Auswahl umschalten",
+    "clear_selection": "Auswahl aufheben",
+    "views": "Ansichten",
+    "table_view": "Zur Tabellenansicht wechseln",
+    "kanban_view": "Zur Kanban-Ansicht wechseln",
+    "other": "Sonstiges",
+    "show_shortcuts": "Diesen Dialog anzeigen"
+  },
+  "bulk_actions": {
+    "selected": "{count} ausgew\u00e4hlt",
+    "max_warning": "Maximal 100 Eintr\u00e4ge",
+    "change_status": "Status \u00e4ndern",
+    "archive_selected": "Archivieren",
+    "delete_selected": "L\u00f6schen",
+    "clear": "Aufheben"
+  },
+  "onboarding": {
+    "welcome_title": "Willkommen bei Nexus CRM",
+    "welcome_description": "Verfolge deine Opportunities, verwalte Kontakte und behalte den \u00dcberblick \u00fcber deine Pipeline.",
+    "get_started": "Los geht's",
+    "profile_title": "Personalisiere dein CRM",
+    "profile_description": "Gib deinem CRM einen eigenen Namen, der im Browser-Tab erscheint.",
+    "app_title_label": "Anwendungstitel",
+    "app_title_placeholder": "z.B. Meine Vertriebspipeline",
+    "continue": "Weiter",
+    "first_app_title": "Erste Opportunity anlegen",
+    "first_app_description": "Erstelle deine erste Opportunity, um mit der Pipeline zu starten.",
+    "company_label": "Kunde",
+    "company_placeholder": "z.B. Acme GmbH",
+    "role_label": "Projekt",
+    "role_placeholder": "z.B. Plattform-Migration Q2",
+    "skip_step": "\u00dcberspringen",
+    "create_app": "Opportunity erstellen",
+    "required_fields": "Kunde und Projekt sind Pflichtfelder.",
+    "error_create": "Fehler beim Erstellen der Opportunity.",
+    "done_title": "Alles bereit!",
+    "done_description": "Dein CRM ist einsatzbereit. Hier sind ein paar Tipps:",
+    "tips_title": "Schnelltipps",
+    "tip_search": "zum Suchen von Opportunities",
+    "tip_new": "f\u00fcr eine neue Opportunity",
+    "tip_shortcuts": "f\u00fcr alle Tastaturk\u00fcrzel",
+    "go_to_dashboard": "Zum Dashboard",
+    "skip_setup": "Setup \u00fcberspringen"
   },
   "legal": {
     "title": "Rechtliche Hinweise",

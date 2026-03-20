@@ -204,9 +204,14 @@ interface ApplicationTableProps {
   initialStatusFilter?: string;
   initialSourceFilter?: string;
   initialGlobalFilter?: string;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onSelectAll?: () => void;
+  onClearSelection?: () => void;
+  focusedIndex?: number;
 }
 
-export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived, initialStatusFilter, initialSourceFilter, initialGlobalFilter }: ApplicationTableProps) {
+export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived, initialStatusFilter, initialSourceFilter, initialGlobalFilter, selectedIds, onToggleSelect, onSelectAll, onClearSelection, focusedIndex }: ApplicationTableProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
   const ts = useTranslations("status");
@@ -232,7 +237,37 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     }
   }
 
+  const hasSelection = !!selectedIds && !!onToggleSelect;
+  const allSelected = hasSelection && selectedIds.size > 0 && applications.every((a) => selectedIds.has(a.id));
+
   const columns = [
+    ...(hasSelection
+      ? [
+          columnHelper.display({
+            id: "select",
+            header: () => (
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() => {
+                  if (allSelected) onClearSelection?.();
+                  else onSelectAll?.();
+                }}
+                className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              />
+            ),
+            cell: ({ row }: { row: { original: Application } }) => (
+              <input
+                type="checkbox"
+                checked={selectedIds.has(row.original.id)}
+                onChange={() => onToggleSelect(row.original.id)}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              />
+            ),
+          }),
+        ]
+      : []),
     columnHelper.accessor("company", {
       header: t("company"),
       cell: (info) => (
@@ -510,13 +545,18 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row) => {
+              table.getRowModel().rows.map((row, rowIndex) => {
                 const status = row.original.status as ApplicationStatus;
                 const rowColor = STATUS_ROW_COLORS[status] || "";
+                const isSelected = hasSelection && selectedIds.has(row.original.id);
+                const isFocused = focusedIndex !== undefined && focusedIndex === rowIndex;
                 return (
                   <tr
                     key={row.id}
-                    className={`border-b border-gray-50 dark:border-gray-700/50 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-colors ${rowColor}`}
+                    data-row-index={rowIndex}
+                    className={`border-b border-gray-50 dark:border-gray-700/50 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-colors ${rowColor} ${
+                      isSelected ? "bg-blue-100/60 dark:bg-blue-900/30" : ""
+                    } ${isFocused ? "ring-2 ring-inset ring-blue-400 dark:ring-blue-500" : ""}`}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td

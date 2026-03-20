@@ -143,7 +143,9 @@
     "loading_error": "Failed to load opportunities."
   },
   "confirm": {
-    "delete": "Really delete this opportunity?"
+    "delete": "Really delete this opportunity?",
+    "bulk_archive_confirm": "Archive {count} selected opportunities?",
+    "bulk_delete_confirm": "Delete {count} selected opportunities? This cannot be undone."
   },
   "login": {
     "headline": "Your Sales Pipeline",
@@ -360,6 +362,72 @@
     "share_hint": "Copy share link",
     "footer": "Files are only visible to you (login required).",
     "confirm_delete": "Delete \"{name}\"?"
+  },
+  "command_palette": {
+    "placeholder": "Search opportunities... (type @ to filter by status)",
+    "search_in_status": "Search within this status...",
+    "status_lock_hint": "Type a status name and press Tab to lock (e.g. @int, @app, @offer)",
+    "no_results": "No matching opportunities found.",
+    "navigate": "navigate",
+    "select": "open",
+    "filter_status": "filter by status"
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "navigation": "Navigation",
+    "nav_down": "Move down",
+    "nav_up": "Move up",
+    "status_filter": "Filter by status (1=New, 2=Contacted, ...)",
+    "open_focused": "Open focused opportunity",
+    "search": "Search",
+    "open_search": "Open search",
+    "lock_status": "Lock to status in search",
+    "actions_group": "Actions",
+    "new_app": "New opportunity",
+    "edit_focused": "Edit focused opportunity",
+    "toggle_select": "Toggle selection",
+    "clear_selection": "Clear selection",
+    "views": "Views",
+    "table_view": "Switch to table view",
+    "kanban_view": "Switch to kanban view",
+    "other": "Other",
+    "show_shortcuts": "Show this dialog"
+  },
+  "bulk_actions": {
+    "selected": "{count} selected",
+    "max_warning": "Maximum 100 items",
+    "change_status": "Change status",
+    "archive_selected": "Archive",
+    "delete_selected": "Delete",
+    "clear": "Clear"
+  },
+  "onboarding": {
+    "welcome_title": "Welcome to Nexus CRM",
+    "welcome_description": "Track your opportunities, manage contacts, and stay on top of your pipeline. Let's get you set up.",
+    "get_started": "Get Started",
+    "profile_title": "Personalize Your CRM",
+    "profile_description": "Give your CRM a custom name that appears in the browser tab.",
+    "app_title_label": "Application Title",
+    "app_title_placeholder": "e.g. My Sales Pipeline",
+    "continue": "Continue",
+    "first_app_title": "Add Your First Opportunity",
+    "first_app_description": "Create your first opportunity to get started with the pipeline.",
+    "company_label": "Account",
+    "company_placeholder": "e.g. Acme Corp",
+    "role_label": "Opportunity",
+    "role_placeholder": "e.g. Platform Migration Q2",
+    "skip_step": "Skip",
+    "create_app": "Create Opportunity",
+    "required_fields": "Account and opportunity are required.",
+    "error_create": "Failed to create opportunity.",
+    "done_title": "You're All Set!",
+    "done_description": "Your CRM is ready to use. Here are some tips to get you started:",
+    "tips_title": "Quick Tips",
+    "tip_search": "to search opportunities",
+    "tip_new": "to create a new opportunity",
+    "tip_shortcuts": "to see all keyboard shortcuts",
+    "go_to_dashboard": "Go to Dashboard",
+    "skip_setup": "Skip setup"
   },
   "legal": {
     "title": "Legal Notice",
