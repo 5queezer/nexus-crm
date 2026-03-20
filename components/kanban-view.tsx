@@ -21,6 +21,28 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER } from "@/types";
 
+type KanbanSortKey = "rating_desc" | "updated_desc" | "created_desc" | "company_asc";
+
+const KANBAN_SORT_OPTIONS: KanbanSortKey[] = [
+  "rating_desc",
+  "updated_desc",
+  "created_desc",
+  "company_asc",
+];
+
+const SORT_COMPARATORS: Record<KanbanSortKey, (a: Application, b: Application) => number> = {
+  rating_desc: (a, b) => {
+    const diff = (b.rating ?? 0) - (a.rating ?? 0);
+    if (diff !== 0) return diff;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  },
+  updated_desc: (a, b) =>
+    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  created_desc: (a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  company_asc: (a, b) => a.company.localeCompare(b.company),
+};
+
 async function patchStatus(id: string, status: ApplicationStatus): Promise<Application> {
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
@@ -194,6 +216,15 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
   const queryClient = useQueryClient();
   const [activeApp, setActiveApp] = useState<Application | null>(null);
   const [overColumnId, setOverColumnId] = useState<UniqueIdentifier | null>(null);
+  const [sortKey, setSortKey] = useState<KanbanSortKey>(() => {
+    if (typeof window === "undefined") return "rating_desc";
+    return (localStorage.getItem("kanban-sort") as KanbanSortKey) || "rating_desc";
+  });
+
+  function handleSortChange(key: KanbanSortKey) {
+    setSortKey(key);
+    localStorage.setItem("kanban-sort", key);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -205,12 +236,13 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
   );
 
   const grouped = useMemo(() => {
+    const comparator = SORT_COMPARATORS[sortKey];
     const next = {} as Record<ApplicationStatus, Application[]>;
     for (const status of STATUS_ORDER) {
-      next[status] = applications.filter((a) => a.status === status);
+      next[status] = applications.filter((a) => a.status === status).sort(comparator);
     }
     return next;
-  }, [applications]);
+  }, [applications, sortKey]);
 
   const mobileStatuses = useMemo(
     () => STATUS_ORDER.filter((status) => grouped[status].length > 0),
@@ -256,6 +288,23 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
 
   return (
     <>
+      <div className="flex items-center justify-end gap-2 mb-3">
+        <label className="text-xs text-gray-400 dark:text-gray-500 font-medium">
+          {tk("sort_label")}
+        </label>
+        <select
+          value={sortKey}
+          onChange={(e) => handleSortChange(e.target.value as KanbanSortKey)}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+        >
+          {KANBAN_SORT_OPTIONS.map((key) => (
+            <option key={key} value={key}>
+              {tk(`sort_${key}`)}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="md:hidden space-y-4">
         {mobileStatuses.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
