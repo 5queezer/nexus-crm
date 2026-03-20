@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { authClient } from "@/lib/auth-client";
 import { ApplicationTable } from "./application-table";
@@ -154,10 +154,32 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     archiveMutation.mutate({ id, archive });
   }
 
+  const bulkArchiveMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => archiveApplication(id, true)));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+    },
+  });
+
   // Filter by archive status
   const activeApplications = applications.filter((a) => !a.archivedAt);
   const archivedApplications = applications.filter((a) => !!a.archivedAt);
   const visibleApplications = showArchived ? archivedApplications : activeApplications;
+
+  function handleBulkArchive(days: number) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const old = activeApplications.filter((a) => {
+      const d = a.appliedAt ? new Date(a.appliedAt) : new Date(a.createdAt);
+      return d < cutoff;
+    });
+    if (old.length === 0) return;
+    if (confirm(ta("archive_old_confirm", { count: old.length, days }))) {
+      bulkArchiveMutation.mutate(old.map((a) => a.id));
+    }
+  }
 
   const stats = {
     total: activeApplications.length,
@@ -433,6 +455,8 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
                 )}
               </button>
 
+              {!showArchived && <ArchiveOldDropdown applications={activeApplications} onArchive={handleBulkArchive} isPending={bulkArchiveMutation.isPending} />}
+
               <button
                 onClick={() => exportToCsv(visibleApplications)}
                 title={ta("export_csv")}
@@ -479,6 +503,90 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       {/* Modal */}
       {isModalOpen && (
         <ApplicationModal application={editingApp} onClose={handleCloseModal} />
+      )}
+    </div>
+  );
+}
+
+const ARCHIVE_THRESHOLDS = [30, 60, 90, 180] as const;
+
+function ArchiveOldDropdown({
+  applications,
+  onArchive,
+  isPending,
+}: {
+  applications: Application[];
+  onArchive: (days: number) => void;
+  isPending: boolean;
+}) {
+  const ta = useTranslations("actions");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const countForDays = useCallback(
+    (days: number) => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      return applications.filter((a) => {
+        const d = a.appliedAt ? new Date(a.appliedAt) : new Date(a.createdAt);
+        return d < cutoff;
+      }).length;
+    },
+    [applications]
+  );
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative w-full sm:w-auto">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={isPending}
+        className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+          open
+            ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
+            : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+        } ${isPending ? "opacity-50 cursor-wait" : ""}`}
+      >
+        {isPending ? ta("archive_old_archiving") : ta("archive_old")}
+        <span className="text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800">
+          {ARCHIVE_THRESHOLDS.map((days) => {
+            const count = countForDays(days);
+            return (
+              <button
+                key={days}
+                onClick={() => {
+                  setOpen(false);
+                  onArchive(days);
+                }}
+                disabled={count === 0}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed first:rounded-t-lg last:rounded-b-lg"
+              >
+                <span className="text-gray-700 dark:text-gray-200">
+                  {ta("archive_old_option", { days })}
+                </span>
+                {count > 0 && (
+                  <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );

@@ -34,7 +34,11 @@
     "unarchive": "Wiederherstellen",
     "show_archive": "Archiv",
     "show_active": "Aktiv",
-    "remote_only": "Nur Remote"
+    "remote_only": "Nur Remote",
+    "archive_old": "Alte archivieren",
+    "archive_old_option": "Älter als {days} Tage",
+    "archive_old_confirm": "{count} Opportunities älter als {days} Tage archivieren?",
+    "archive_old_archiving": "Archiviere..."
   },
   "table": {
     "company": "Kunde",
