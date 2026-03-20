@@ -69,7 +69,25 @@ export async function requireAuth(): Promise<SessionAuthResult | null> {
   }
 
   // 2. Fall back to session cookie
-  return authenticateSession();
+  const session = await authenticateSession();
+  if (session) return session;
+
+  // 3. Dev bypass: return a fake admin user when no session exists
+  if (process.env.NODE_ENV === "development") {
+    return {
+      userId: "dev-user",
+      readScopeUserId: null,
+      user: {
+        id: "dev-user",
+        name: "Dev User",
+        email: "dev@localhost",
+        image: null,
+        isAdmin: true,
+      },
+    };
+  }
+
+  return null;
 }
 
 async function authenticateBearer(raw: string): Promise<SessionAuthResult | null> {
