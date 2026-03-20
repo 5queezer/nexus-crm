@@ -99,7 +99,16 @@
     "salary_max_placeholder": "Max z.B. 120000",
     "rating": "Priorit\u00e4tsbewertung",
     "job_url": "Link zum Angebot",
-    "job_url_placeholder": "https://..."
+    "job_url_placeholder": "https://...",
+    "documents_section": "Dokumente",
+    "documents_add": "+ Dokument hochladen",
+    "documents_uploading": "Wird hochgeladen…",
+    "documents_download": "Herunterladen",
+    "documents_unlink": "Entfernen",
+    "documents_share_hint": "Freigabelink kopieren",
+    "documents_empty": "Keine Dokumente verknüpft.",
+    "documents_error": "Dokument konnte nicht verwaltet werden.",
+    "documents_upload_error": "Hochladen fehlgeschlagen."
   },
   "status": {
     "inbound": "Neuer Lead",

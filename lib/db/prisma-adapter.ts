@@ -366,6 +366,15 @@ export class PrismaAdapter implements DatabaseAdapter {
 
   // Documents
 
+  async listDocumentsByApplication(applicationId: string, userId: string): Promise<DocumentRecord[]> {
+    const rows = await prisma.document.findMany({
+      where: { userId, applications: { some: { id: nid(applicationId) } } },
+      orderBy: { uploadedAt: "desc" },
+      include: { applications: { select: { id: true, company: true, role: true } } },
+    });
+    return rows.map(mapDoc);
+  }
+
   async listDocuments(userId: string | null): Promise<DocumentRecord[]> {
     const rows = await prisma.document.findMany({
       where: { ...userWhere(userId) },
