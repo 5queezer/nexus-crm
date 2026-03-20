@@ -45,7 +45,9 @@
     "archive_by_rating": "By rating",
     "archive_rating_option_one": "1 star",
     "archive_rating_option": "{stars} stars and below",
-    "archive_rating_confirm": "Archive {count} opportunities rated {stars} stars and below?"
+    "archive_rating_confirm": "Archive {count} opportunities rated {stars} stars and below?",
+    "show_more": "Show more",
+    "show_less": "Show less"
   },
   "table": {
     "company": "Account",
