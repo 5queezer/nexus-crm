@@ -38,9 +38,14 @@
     "show_active": "Active",
     "remote_only": "Remote only",
     "archive_old": "Archive old",
+    "bulk_archive": "Bulk archive",
     "archive_old_option": "Older than {days} days",
     "archive_old_confirm": "Archive {count} opportunities older than {days} days?",
-    "archive_old_archiving": "Archiving..."
+    "archive_old_archiving": "Archiving...",
+    "archive_by_rating": "By rating",
+    "archive_rating_option_one": "1 star",
+    "archive_rating_option": "{stars} stars and below",
+    "archive_rating_confirm": "Archive {count} opportunities rated {stars} stars and below?"
   },
   "table": {
     "company": "Account",

@@ -38,9 +38,14 @@
     "show_active": "Aktiv",
     "remote_only": "Nur Remote",
     "archive_old": "Alte archivieren",
+    "bulk_archive": "Massenarchivierung",
     "archive_old_option": "Älter als {days} Tage",
     "archive_old_confirm": "{count} Opportunities älter als {days} Tage archivieren?",
-    "archive_old_archiving": "Archiviere..."
+    "archive_old_archiving": "Archiviere...",
+    "archive_by_rating": "Nach Bewertung",
+    "archive_rating_option_one": "1 Stern",
+    "archive_rating_option": "{stars} Sterne und darunter",
+    "archive_rating_confirm": "{count} Opportunities mit {stars} Sternen und darunter archivieren?"
   },
   "table": {
     "company": "Kunde",

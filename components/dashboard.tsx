@@ -168,6 +168,16 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     }
   }
 
+  function handleBulkArchiveByRating(maxRating: number) {
+    const lowRated = activeApplications.filter(
+      (a) => a.rating !== null && a.rating !== undefined && a.rating <= maxRating
+    );
+    if (lowRated.length === 0) return;
+    if (confirm(ta("archive_rating_confirm", { count: lowRated.length, stars: maxRating }))) {
+      bulkArchiveMutation.mutate(lowRated.map((a) => a.id));
+    }
+  }
+
   const stats = {
     total: activeApplications.length,
     inbound: activeApplications.filter((a) => a.status === "inbound").length,
@@ -301,7 +311,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
                 )}
               </button>
 
-              {!showArchived && <ArchiveOldDropdown applications={activeApplications} onArchive={handleBulkArchive} isPending={bulkArchiveMutation.isPending} />}
+              {!showArchived && <ArchiveOldDropdown applications={activeApplications} onArchive={handleBulkArchive} onArchiveByRating={handleBulkArchiveByRating} isPending={bulkArchiveMutation.isPending} />}
 
               <button
                 onClick={() => exportToCsv(visibleApplications)}
@@ -355,14 +365,17 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 }
 
 const ARCHIVE_THRESHOLDS = [30, 60, 90, 180] as const;
+const RATING_THRESHOLDS = [1, 2, 3] as const;
 
 function ArchiveOldDropdown({
   applications,
   onArchive,
+  onArchiveByRating,
   isPending,
 }: {
   applications: Application[];
   onArchive: (days: number) => void;
+  onArchiveByRating: (maxRating: number) => void;
   isPending: boolean;
 }) {
   const ta = useTranslations("actions");
@@ -378,6 +391,12 @@ function ArchiveOldDropdown({
         return d < cutoff;
       }).length;
     },
+    [applications]
+  );
+
+  const countForRating = useCallback(
+    (maxRating: number) =>
+      applications.filter((a) => a.rating !== null && a.rating !== undefined && a.rating <= maxRating).length,
     [applications]
   );
 
@@ -404,7 +423,7 @@ function ArchiveOldDropdown({
             : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
         } ${isPending ? "opacity-50 cursor-wait" : ""}`}
       >
-        {isPending ? ta("archive_old_archiving") : ta("archive_old")}
+        {isPending ? ta("archive_old_archiving") : ta("bulk_archive")}
         <span className="text-xs">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
@@ -413,16 +432,44 @@ function ArchiveOldDropdown({
             const count = countForDays(days);
             return (
               <button
-                key={days}
+                key={`age-${days}`}
                 onClick={() => {
                   setOpen(false);
                   onArchive(days);
                 }}
                 disabled={count === 0}
-                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed first:rounded-t-lg last:rounded-b-lg"
+                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed first:rounded-t-lg"
               >
                 <span className="text-gray-700 dark:text-gray-200">
                   {ta("archive_old_option", { days })}
+                </span>
+                {count > 0 && (
+                  <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          <div className="border-t border-gray-200 dark:border-gray-600 px-4 py-1.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {ta("archive_by_rating")}
+            </span>
+          </div>
+          {RATING_THRESHOLDS.map((stars) => {
+            const count = countForRating(stars);
+            return (
+              <button
+                key={`rating-${stars}`}
+                onClick={() => {
+                  setOpen(false);
+                  onArchiveByRating(stars);
+                }}
+                disabled={count === 0}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed last:rounded-b-lg"
+              >
+                <span className="text-gray-700 dark:text-gray-200">
+                  {ta(stars === 1 ? "archive_rating_option_one" : "archive_rating_option", { stars })}
                 </span>
                 {count > 0 && (
                   <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
