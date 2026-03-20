@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { normalizeStatus } from "@/types";
+import { normalizeStatus, normalizeSource } from "@/types";
 
 export async function GET(
   _request: NextRequest,
@@ -62,7 +62,7 @@ export async function PATCH(
       jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
     }),
     ...(source !== undefined && {
-      source: source ? String(source).slice(0, 100) : null,
+      source: normalizeSource(source),
     }),
     ...(remote !== undefined && { remote: !!remote }),
     ...(salaryMin !== undefined && { salaryMin: parsedSalaryMin }),

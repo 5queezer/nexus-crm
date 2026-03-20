@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { normalizeStatus } from "@/types";
+import { normalizeStatus, normalizeSource } from "@/types";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth();
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     followUpAt: followUpAt ? new Date(followUpAt) : null,
     notes: notes ? String(notes).slice(0, 10000) : null,
     jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
-    source: source ? String(source).slice(0, 100) : null,
+    source: normalizeSource(source),
     remote: !!remote,
     salaryMin: parsedSalaryMin,
     salaryMax: parsedSalaryMax,

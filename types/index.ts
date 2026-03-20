@@ -92,6 +92,52 @@ export const SOURCE_PRESETS = [
   "other",
 ] as const;
 
+const SOURCE_ALIASES: Record<string, string> = {
+  "linkedin inmail": "linkedin",
+  "linkedin-inmail": "linkedin",
+  "linkedin recruiter": "linkedin",
+  "webseite": "website",
+  "web": "website",
+  "homepage": "website",
+  "karriereseite": "website",
+  "kaltakquise": "cold-outreach",
+  "cold outreach": "cold-outreach",
+  "empfehlung": "referral",
+  "referenz": "referral",
+  "messe": "event",
+  "konferenz": "event",
+  "e-mail": "email",
+  "mail": "email",
+};
+
+export function normalizeSource(source: string | null | undefined): string | null {
+  if (!source) return null;
+  const trimmed = source.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+
+  // Exact match to a preset
+  if ((SOURCE_PRESETS as readonly string[]).includes(lower)) {
+    return lower;
+  }
+
+  // Check aliases
+  if (SOURCE_ALIASES[lower]) {
+    return SOURCE_ALIASES[lower];
+  }
+
+  // Substring match for linkedin variants
+  if (lower.includes("linkedin")) return "linkedin";
+
+  // Heuristic: if it looks like a domain name, map to "website"
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(lower)) {
+    return "website";
+  }
+
+  // Return trimmed original if no match
+  return trimmed;
+}
+
 // Legacy: for any place that still needs a label+color pair
 export const STATUS_OPTIONS: { value: ApplicationStatus; label: string; color: string }[] = [
   { value: "inbound", label: "Neuer Lead", color: STATUS_COLORS.inbound },
