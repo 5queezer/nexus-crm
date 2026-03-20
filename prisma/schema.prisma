@@ -269,6 +269,7 @@ model CvPatch {
   skillCategories  Json        // string[] — ordered category names to include
   includeProjects  Boolean     @default(false)
   includeEducation Boolean     @default(true)
+  documentId       Int?        // ID of the generated CV Document
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 }

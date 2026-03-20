@@ -804,7 +804,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return map;
   }
 
-  // CV — Firestore not supported, uses Prisma directly
+  // CV — Always uses Prisma/PostgreSQL. CvPatch has integer foreign keys to
+  // Application, which is incompatible with Firestore's string document IDs.
+  // CvProfile is userId-keyed and works fine. CvPatch methods will fail if
+  // applications live in Firestore (applicationId would not be numeric).
 
   async getCvProfile(userId: string): Promise<CvProfileRecord | null> {
     const row = await prisma.cvProfile.findUnique({ where: { userId } });
@@ -854,8 +857,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
     };
   }
 
-  async getCvPatch(applicationId: string): Promise<CvPatchRecord | null> {
-    const row = await prisma.cvPatch.findUnique({ where: { applicationId: parseInt(applicationId, 10) } });
+  async getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null> {
+    const row = await prisma.cvPatch.findFirst({
+      where: { applicationId: parseInt(applicationId, 10), application: { userId } },
+    });
     if (!row) return null;
     return {
       id: String(row.id),
@@ -865,6 +870,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       skillCategories: row.skillCategories as string[],
       includeProjects: row.includeProjects,
       includeEducation: row.includeEducation,
+      documentId: row.documentId ? String(row.documentId) : null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -892,8 +898,16 @@ export class FirestoreAdapter implements DatabaseAdapter {
       skillCategories: row.skillCategories as string[],
       includeProjects: row.includeProjects,
       includeEducation: row.includeEducation,
+      documentId: row.documentId ? String(row.documentId) : null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  async setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void> {
+    await prisma.cvPatch.update({
+      where: { id: parseInt(patchId, 10) },
+      data: { documentId: documentId ? parseInt(documentId, 10) : null },
+    });
   }
 }

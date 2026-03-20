@@ -305,6 +305,7 @@ export interface CvPatchRecord {
   skillCategories: string[];
   includeProjects: boolean;
   includeEducation: boolean;
+  documentId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

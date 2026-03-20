@@ -612,13 +612,16 @@ export class PrismaAdapter implements DatabaseAdapter {
     return mapCvProfile(row);
   }
 
-  async getCvPatch(applicationId: string): Promise<CvPatchRecord | null> {
-    const row = await prisma.cvPatch.findUnique({ where: { applicationId: nid(applicationId) } });
+  async getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null> {
+    const row = await prisma.cvPatch.findFirst({
+      where: { applicationId: nid(applicationId), application: { userId } },
+    });
     if (!row) return null;
     return {
       ...row,
       id: sid(row.id),
       applicationId: sid(row.applicationId),
+      documentId: row.documentId ? sid(row.documentId) : null,
       experienceIds: row.experienceIds as string[],
       skillCategories: row.skillCategories as string[],
     };
@@ -641,8 +644,16 @@ export class PrismaAdapter implements DatabaseAdapter {
       ...row,
       id: sid(row.id),
       applicationId: sid(row.applicationId),
+      documentId: row.documentId ? sid(row.documentId) : null,
       experienceIds: row.experienceIds as string[],
       skillCategories: row.skillCategories as string[],
     };
+  }
+
+  async setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void> {
+    await prisma.cvPatch.update({
+      where: { id: nid(patchId) },
+      data: { documentId: documentId ? nid(documentId) : null },
+    });
   }
 }

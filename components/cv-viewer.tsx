@@ -49,20 +49,28 @@ export function CvViewer({ applications, initialApplicationId }: CvViewerProps) 
     [applications, selectedAppId]
   );
 
-  // Fetch CV document for selected application
+  // Fetch CV document for selected application via patch
   const fetchCvDoc = useCallback(async (appId: string) => {
     setLoading(true);
     setError(null);
     setCvDoc(null);
     setResult(null);
     try {
-      const res = await fetch(`/api/applications/${appId}/documents`);
-      if (!res.ok) throw new Error("Failed to fetch documents");
-      const docs: Array<{ id: string; originalName: string; mimeType: string }> = await res.json();
-      const cv = docs.find((d) => d.originalName.startsWith("CV - ") && d.mimeType === "application/pdf");
-      setCvDoc(cv ? { id: cv.id, originalName: cv.originalName } : null);
+      const res = await fetch(`/api/cv/patch?applicationId=${appId}`);
+      if (!res.ok) {
+        setCvDoc(null);
+        return;
+      }
+      const patch = await res.json();
+      if (patch.documentId) {
+        const docRes = await fetch(`/api/documents/${patch.documentId}`);
+        if (docRes.ok) {
+          const doc = await docRes.json();
+          setCvDoc({ id: doc.id, originalName: doc.originalName });
+        }
+      }
     } catch {
-      setError("Failed to load documents");
+      setError("Failed to load CV data");
     } finally {
       setLoading(false);
     }

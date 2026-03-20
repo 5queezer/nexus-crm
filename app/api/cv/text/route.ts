@@ -16,17 +16,23 @@ export async function GET(req: NextRequest) {
 
   const db = getDb();
 
+  // Verify application ownership
+  const app = await db.getApplication(applicationId, session.readScopeUserId);
+  if (!app) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const profile = await db.getCvProfile(session.userId);
   if (!profile) {
     return NextResponse.json({ text: "" });
   }
 
-  const patch = await db.getCvPatch(applicationId);
+  const patch = await db.getCvPatch(applicationId, session.userId);
   if (!patch) {
     return NextResponse.json({ text: "" });
   }
 
-  const merged = mergeCvData(profile, patch);
+  const { data: merged } = mergeCvData(profile, patch);
 
   // Build plain text representation for keyword analysis
   const lines: string[] = [

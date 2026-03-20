@@ -2,14 +2,12 @@ import { NextRequest } from "next/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod/v3";
-import { randomUUID } from "crypto";
 import { getDb } from "@/lib/db";
 import { hashApiToken } from "@/lib/token";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
-import { mergeCvData, generateCvPdf } from "@/lib/cv/generate";
-import { uploadFile, deleteFile, fileExists } from "@/lib/storage";
+import { generateAndStoreCv } from "@/lib/cv/generate";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 import type { UpsertCvProfileInput } from "@/lib/db/types";
 
@@ -664,48 +662,31 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           includeEducation: args.includeEducation,
         });
 
-        // Merge profile + patch and generate PDF
-        const merged = mergeCvData(profile, patch);
-        const pdfBuffer = await generateCvPdf(merged);
-
-        // Store PDF as document
-        const filename = `${randomUUID()}.pdf`;
-        const originalName = `CV - ${app.company} - ${app.role}.pdf`;
-        await uploadFile(filename, Buffer.from(pdfBuffer), "application/pdf");
-
-        // Check if there's an existing CV document for this application, replace it
-        const existingDocs = await db.listDocumentsByApplication(args.applicationId, auth.userId);
-        const existingCv = existingDocs.find((d) => d.originalName.startsWith("CV - ") && d.mimeType === "application/pdf");
-        if (existingCv) {
-          // Delete old file and document record
-          if (await fileExists(existingCv.filename)) {
-            await deleteFile(existingCv.filename);
-          }
-          await db.deleteDocument(existingCv.id, auth.userId);
-        }
-
-        // Create new document record and link to application
-        const doc = await db.createDocument(auth.userId, {
-          filename,
-          originalName,
-          size: pdfBuffer.length,
-          mimeType: "application/pdf",
-          applicationIds: [args.applicationId],
+        const { doc, warnings } = await generateAndStoreCv({
+          db,
+          userId: auth.userId,
+          applicationId: args.applicationId,
+          company: app.company,
+          role: app.role,
+          profile,
+          patch,
         });
 
+        const result: Record<string, unknown> = {
+          message: "CV generated successfully",
+          documentId: doc.id,
+          originalName: doc.originalName,
+          size: doc.size,
+          applicationId: args.applicationId,
+          company: app.company,
+          role: app.role,
+        };
+        if (warnings.length > 0) {
+          result.warnings = warnings;
+        }
+
         return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              message: "CV generated successfully",
-              documentId: doc.id,
-              originalName: doc.originalName,
-              size: doc.size,
-              applicationId: args.applicationId,
-              company: app.company,
-              role: app.role,
-            }, null, 2),
-          }],
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       } catch (err) {
         return {

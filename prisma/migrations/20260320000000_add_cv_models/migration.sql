@@ -24,6 +24,7 @@ CREATE TABLE "CvPatch" (
     "skillCategories" JSONB NOT NULL,
     "includeProjects" BOOLEAN NOT NULL DEFAULT false,
     "includeEducation" BOOLEAN NOT NULL DEFAULT true,
+    "documentId" INTEGER,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
