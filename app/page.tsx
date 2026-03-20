@@ -4,8 +4,13 @@ import { Dashboard } from "@/components/dashboard";
 import { getDb } from "@/lib/db";
 import { generateShortCode } from "@/lib/token";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; source?: string; search?: string }>;
+}) {
   const session = await requireAuth();
+  const params = await searchParams;
 
   if (!session) {
     redirect("/login");
@@ -27,5 +32,5 @@ export default async function Home() {
     shareUrl = `${baseUrl}/s/${link.code}`;
   }
 
-  return <Dashboard user={session.user} shareUrl={shareUrl} />;
+  return <Dashboard user={session.user} shareUrl={shareUrl} initialStatus={params.status} initialSource={params.source} initialSearch={params.search} />;
 }

@@ -192,9 +192,12 @@ interface ApplicationTableProps {
   onDelete: (id: string) => void;
   onArchive?: (id: string, archive: boolean) => void;
   showArchived?: boolean;
+  initialStatusFilter?: string;
+  initialSourceFilter?: string;
+  initialGlobalFilter?: string;
 }
 
-export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived }: ApplicationTableProps) {
+export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived, initialStatusFilter, initialSourceFilter, initialGlobalFilter }: ApplicationTableProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
   const ts = useTranslations("status");
@@ -202,8 +205,13 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
   const dateFnsLocale = locale === "de" ? de : enUS;
 
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [globalFilter, setGlobalFilter] = useState("");
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
+    const filters: ColumnFiltersState = [];
+    if (initialStatusFilter) filters.push({ id: "status", value: initialStatusFilter });
+    if (initialSourceFilter) filters.push({ id: "source", value: initialSourceFilter });
+    return filters;
+  });
+  const [globalFilter, setGlobalFilter] = useState(initialGlobalFilter ?? "");
   const [remoteOnly, setRemoteOnly] = useState(false);
 
   function formatDate(dateStr: string | null): string {
@@ -394,11 +402,12 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
           <select
             value={statusFilter || ""}
             onChange={(e) => {
-              if (e.target.value) {
-                setColumnFilters([{ id: "status", value: e.target.value }]);
-              } else {
-                setColumnFilters([]);
-              }
+              setColumnFilters((prev) => {
+                const other = prev.filter((f) => f.id !== "status");
+                return e.target.value
+                  ? [...other, { id: "status", value: e.target.value }]
+                  : other;
+              });
             }}
             className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-auto"
           >

@@ -24,6 +24,9 @@ interface DashboardProps {
     isAdmin: boolean;
   };
   shareUrl: string;
+  initialStatus?: string;
+  initialSource?: string;
+  initialSearch?: string;
 }
 
 async function fetchApplications(): Promise<Application[]> {
@@ -74,7 +77,7 @@ function exportToCsv(applications: Application[], filename = "applications.csv")
 
 type ViewMode = "table" | "kanban";
 
-export function Dashboard({ user, shareUrl }: DashboardProps) {
+export function Dashboard({ user, shareUrl, initialStatus, initialSource, initialSearch }: DashboardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const t = useTranslations("dashboard");
@@ -464,6 +467,9 @@ export function Dashboard({ user, shareUrl }: DashboardProps) {
             onDelete={handleDelete}
             onArchive={handleArchive}
             showArchived={showArchived}
+            initialStatusFilter={initialStatus}
+            initialSourceFilter={initialSource}
+            initialGlobalFilter={initialSearch}
           />
         ) : (
           <KanbanView applications={visibleApplications} onEdit={handleEdit} />

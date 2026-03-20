@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER } from "@/types";
+import { useRouter } from "next/navigation";
+import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, normalizeSource } from "@/types";
 
 async function fetchApplications(): Promise<Application[]> {
   const res = await fetch("/api/applications");
@@ -40,6 +41,7 @@ function formatWeekLabel(weekKey: string): string {
 export function AnalyticsDashboard() {
   const t = useTranslations("analytics");
   const ts = useTranslations("status");
+  const router = useRouter();
 
   const { data: applications = [], isLoading, isError } = useQuery({
     queryKey: ["applications"],
@@ -59,13 +61,18 @@ export function AnalyticsDashboard() {
     return { statusCounts: counts, maxStatusCount: Math.max(...Object.values(counts), 1) };
   }, [activeApps]);
 
-  // === Applications Over Time (weekly buckets) ===
+  // === Applications Over Time (weekly buckets, stacked: inbound vs applied) ===
   const { finalWeeks, weeklyBuckets, maxWeeklyCount } = useMemo(() => {
-    const buckets: Record<string, number> = {};
+    const buckets: Record<string, { inbound: number; applied: number }> = {};
     for (const app of activeApps) {
       const date = app.appliedAt ? new Date(app.appliedAt) : new Date(app.createdAt);
       const week = getWeekKey(date);
-      buckets[week] = (buckets[week] || 0) + 1;
+      if (!buckets[week]) buckets[week] = { inbound: 0, applied: 0 };
+      if (app.status === "inbound") {
+        buckets[week].inbound += 1;
+      } else {
+        buckets[week].applied += 1;
+      }
     }
     const sorted = Object.keys(buckets).sort();
     // Fill in gaps between first and last week
@@ -74,18 +81,19 @@ export function AnalyticsDashboard() {
       const end = new Date(sorted[sorted.length - 1]);
       while (current <= end) {
         const key = getWeekKey(current);
-        if (!buckets[key]) buckets[key] = 0;
+        if (!buckets[key]) buckets[key] = { inbound: 0, applied: 0 };
         current.setDate(current.getDate() + 7);
       }
     }
     const weeks = Object.keys(buckets).sort();
-    return { finalWeeks: weeks, weeklyBuckets: buckets, maxWeeklyCount: Math.max(...Object.values(buckets), 1) };
+    const maxCount = Math.max(
+      ...weeks.map((w) => buckets[w].inbound + buckets[w].applied),
+      1
+    );
+    return { finalWeeks: weeks, weeklyBuckets: buckets, maxWeeklyCount: maxCount };
   }, [activeApps]);
 
   // === Response Rate ===
-  // Denominator: apps that moved past applied/inbound (interview, offer, or rejected).
-  // Note: rejections count as responses, so 100% is possible even with all rejections.
-  // We surface interview + offer sub-counts separately so the number tells a richer story.
   const { totalApplied, responded, interviewCount, offerCount, responseRate } = useMemo(() => {
     const total = activeApps.filter((a) =>
       (["applied", "interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
@@ -105,8 +113,6 @@ export function AnalyticsDashboard() {
   }, [activeApps]);
 
   // === Average Response Time ===
-  // Uses lastContact as a proxy for the first response date.
-  // Caveat: if lastContact is updated after a follow-up, this number will inflate.
   const avgResponseTime = useMemo(() => {
     const times: number[] = [];
     for (const app of activeApps) {
@@ -137,11 +143,11 @@ export function AnalyticsDashboard() {
     return { topCompanies: top, maxCompanyCount: top.length > 0 ? top[0][1] : 1 };
   }, [activeApps]);
 
-  // === Source Breakdown ===
+  // === Source Breakdown (normalized) ===
   const { topSources, maxSourceCount } = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const app of activeApps) {
-      const source = app.source?.trim() || "Unknown";
+      const source = normalizeSource(app.source) || "Unknown";
       counts[source] = (counts[source] || 0) + 1;
     }
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -203,7 +209,11 @@ export function AnalyticsDashboard() {
               </h2>
               <div className="space-y-3">
                 {STATUS_ORDER.map((status) => (
-                  <div key={status} className="flex items-center gap-3">
+                  <div
+                    key={status}
+                    className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                    onClick={() => router.push(`/?status=${status}`)}
+                  >
                     <span
                       className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium w-24 text-center ${STATUS_COLORS[status]}`}
                     >
@@ -226,11 +236,23 @@ export function AnalyticsDashboard() {
               </div>
             </div>
 
-            {/* Applications Over Time */}
+            {/* Applications Over Time (stacked: blue = applied, teal = inbound) */}
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {t("over_time")}
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {t("over_time")}
+                </h2>
+                <div className="flex gap-3 text-[10px] text-gray-500 dark:text-gray-400">
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-500 dark:bg-blue-400" />
+                    {ts("applied")}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-2.5 h-2.5 rounded-sm bg-teal-500 dark:bg-teal-400" />
+                    {ts("inbound")}
+                  </span>
+                </div>
+              </div>
               {finalWeeks.length === 0 ? (
                 <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">
                   {t("no_data")}
@@ -238,25 +260,38 @@ export function AnalyticsDashboard() {
               ) : (
                 <div className="flex items-end gap-1 h-48 overflow-x-auto pb-2">
                   {finalWeeks.map((week) => {
-                    const count = weeklyBuckets[week] || 0;
-                    const heightPct = (count / maxWeeklyCount) * 100;
+                    const bucket = weeklyBuckets[week] || { inbound: 0, applied: 0 };
+                    const total = bucket.inbound + bucket.applied;
+                    const appliedPct = (bucket.applied / maxWeeklyCount) * 100;
+                    const inboundPct = (bucket.inbound / maxWeeklyCount) * 100;
                     return (
                       <div
                         key={week}
                         className="flex flex-col items-center flex-1 min-w-[2rem]"
-                        title={`${t("week")} ${formatWeekLabel(week)}: ${count} ${t("applications")}`}
+                        title={`${t("week")} ${formatWeekLabel(week)}: ${bucket.applied} ${ts("applied")}, ${bucket.inbound} ${ts("inbound")}`}
                       >
                         <span className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          {count > 0 ? count : ""}
+                          {total > 0 ? total : ""}
                         </span>
-                        <div className="w-full flex items-end h-36">
-                          <div
-                            className="w-full bg-blue-500 dark:bg-blue-400 rounded-t transition-all duration-500"
-                            style={{
-                              height: `${heightPct}%`,
-                              minHeight: count > 0 ? "4px" : "0",
-                            }}
-                          />
+                        <div className="w-full flex flex-col items-stretch justify-end h-36">
+                          {bucket.inbound > 0 && (
+                            <div
+                              className="w-full bg-teal-500 dark:bg-teal-400 rounded-t transition-all duration-500"
+                              style={{
+                                height: `${inboundPct}%`,
+                                minHeight: "4px",
+                              }}
+                            />
+                          )}
+                          {bucket.applied > 0 && (
+                            <div
+                              className={`w-full bg-blue-500 dark:bg-blue-400 transition-all duration-500 ${bucket.inbound === 0 ? "rounded-t" : ""}`}
+                              style={{
+                                height: `${appliedPct}%`,
+                                minHeight: "4px",
+                              }}
+                            />
+                          )}
                         </div>
                         <span className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 whitespace-nowrap">
                           {formatWeekLabel(week)}
@@ -338,7 +373,11 @@ export function AnalyticsDashboard() {
               ) : (
                 <div className="space-y-2">
                   {topCompanies.map(([company, count]) => (
-                    <div key={company} className="flex items-center gap-3">
+                    <div
+                      key={company}
+                      className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      onClick={() => router.push(`/?search=${encodeURIComponent(company)}`)}
+                    >
                       <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate" title={company}>
                         {company}
                       </span>
@@ -372,7 +411,11 @@ export function AnalyticsDashboard() {
               ) : (
                 <div className="space-y-2">
                   {topSources.map(([source, count]) => (
-                    <div key={source} className="flex items-center gap-3">
+                    <div
+                      key={source}
+                      className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                      onClick={() => router.push(`/?source=${encodeURIComponent(source)}`)}
+                    >
                       <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate" title={source}>
                         {source}
                       </span>
