@@ -34,7 +34,11 @@
     "unarchive": "Unarchive",
     "show_archive": "Archive",
     "show_active": "Active",
-    "remote_only": "Remote only"
+    "remote_only": "Remote only",
+    "archive_old": "Archive old",
+    "archive_old_option": "Older than {days} days",
+    "archive_old_confirm": "Archive {count} opportunities older than {days} days?",
+    "archive_old_archiving": "Archiving..."
   },
   "table": {
     "company": "Account",
