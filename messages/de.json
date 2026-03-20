@@ -45,7 +45,9 @@
     "archive_by_rating": "Nach Bewertung",
     "archive_rating_option_one": "1 Stern",
     "archive_rating_option": "{stars} Sterne und darunter",
-    "archive_rating_confirm": "{count} Opportunities mit {stars} Sternen und darunter archivieren?"
+    "archive_rating_confirm": "{count} Opportunities mit {stars} Sternen und darunter archivieren?",
+    "show_more": "Mehr anzeigen",
+    "show_less": "Weniger anzeigen"
   },
   "table": {
     "company": "Kunde",

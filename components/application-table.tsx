@@ -81,6 +81,7 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
   const ta = useTranslations("actions");
   const locale = useLocale();
   const dateFnsLocale = locale === "de" ? de : enUS;
+  const [notesExpanded, setNotesExpanded] = useState(false);
 
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return "—";
@@ -149,7 +150,15 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
 
       {app.notes && (
         <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:bg-gray-900/60 dark:text-gray-300">
-          {app.notes}
+          <div className={notesExpanded ? "" : "line-clamp-3"}>{app.notes}</div>
+          {app.notes.length > 120 && (
+            <button
+              onClick={() => setNotesExpanded((v) => !v)}
+              className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {notesExpanded ? ta("show_less") : ta("show_more")}
+            </button>
+          )}
         </div>
       )}
 
@@ -391,13 +400,13 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="border-b border-gray-100 bg-white/95 p-4 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:flex-wrap">
           <input
             type="text"
             value={globalFilter}
             onChange={(e) => setGlobalFilter(e.target.value)}
             placeholder={ta("search")}
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-52"
+            className="col-span-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-52"
           />
           <select
             value={statusFilter || ""}
@@ -435,7 +444,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                 setColumnFilters([]);
                 setRemoteOnly(false);
               }}
-              className="text-left text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 sm:text-center"
+              className="col-span-2 text-left text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 sm:text-center"
             >
               {ta("filter_reset")}
             </button>
@@ -443,13 +452,13 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </div>
       </div>
 
-      <div className="p-3 pt-4 md:hidden">
+      <div className="p-2 pt-3 sm:p-3 sm:pt-4 md:hidden">
         {table.getRowModel().rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
             {t("empty")}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2 sm:space-y-3">
             {table.getRowModel().rows.map((row) => (
               <MobileApplicationCard
                 key={row.id}

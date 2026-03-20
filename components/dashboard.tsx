@@ -226,7 +226,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
       <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
           <div className="mb-6 space-y-2">
@@ -255,16 +255,18 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6 sm:gap-4 sm:mb-8">
           <StatCard label={ts("total")} value={stats.total} color="blue" onClick={() => setViewMode("table")} />
           <StatCard label={ts("inbound")} value={stats.inbound} color="teal" onClick={() => setViewMode("table")} />
           <StatCard label={ts("active")} value={stats.active} color="yellow" onClick={() => setViewMode("table")} />
           <StatCard label={ts("offers")} value={stats.offers} color="green" onClick={() => setViewMode("table")} />
-          <StatCard label={ts("rejected")} value={stats.rejected} color="red" onClick={() => setViewMode("table")} />
+          <div className="col-span-2 sm:col-span-1">
+            <StatCard label={ts("rejected")} value={stats.rejected} color="red" onClick={() => setViewMode("table")} />
+          </div>
         </div>
 
         {/* Toolbar */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
               {showArchived ? ta("archive") : t("applications")} ({visibleApplications.length})
@@ -294,7 +296,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
               </button>
             </div>
 
-            <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
               <button
                 onClick={() => setShowArchived((v) => !v)}
                 className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
@@ -324,7 +326,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
               <button
                 onClick={handleNewApplication}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 sm:w-auto"
+                className="col-span-2 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 sm:w-auto"
               >
                 <span>+</span>
                 {ta("new_application")}
@@ -505,16 +507,16 @@ function StatCard({
     red: "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300",
   };
 
-  const className = `${colors[color]} rounded-xl p-4 text-center${onClick ? " cursor-pointer hover:opacity-80 transition-opacity" : ""}`;
+  const className = `${colors[color]} rounded-xl p-4 text-center h-full${onClick ? " cursor-pointer hover:opacity-80 transition-opacity" : ""}`;
 
   return onClick ? (
     <button type="button" onClick={onClick} className={className}>
-      <div className="text-3xl font-bold">{value}</div>
+      <div className="text-2xl sm:text-3xl font-bold">{value}</div>
       <div className="text-sm font-medium mt-1">{label}</div>
     </button>
   ) : (
     <div className={className}>
-      <div className="text-3xl font-bold">{value}</div>
+      <div className="text-2xl sm:text-3xl font-bold">{value}</div>
       <div className="text-sm font-medium mt-1">{label}</div>
     </div>
   );

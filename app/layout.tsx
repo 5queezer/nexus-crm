@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -10,6 +10,11 @@ const geist = Geist({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Nexus CRM",
   description: "Lead & opportunity management suite",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 // Inline script to apply theme and custom title before first paint (prevents flash)
