@@ -158,10 +158,15 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     mutationFn: async (ids: string[]) => {
       await Promise.all(ids.map((id) => archiveApplication(id, true)));
     },
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
   });
+
+  // Filter by archive status
+  const activeApplications = applications.filter((a) => !a.archivedAt);
+  const archivedApplications = applications.filter((a) => !!a.archivedAt);
+  const visibleApplications = showArchived ? archivedApplications : activeApplications;
 
   function handleBulkArchive(days: number) {
     const cutoff = new Date();
@@ -175,11 +180,6 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       bulkArchiveMutation.mutate(old.map((a) => a.id));
     }
   }
-
-  // Filter by archive status
-  const activeApplications = applications.filter((a) => !a.archivedAt);
-  const archivedApplications = applications.filter((a) => !!a.archivedAt);
-  const visibleApplications = showArchived ? archivedApplications : activeApplications;
 
   const stats = {
     total: activeApplications.length,
