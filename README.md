@@ -2,7 +2,7 @@
 
 A lead and opportunity management suite for tracking your sales pipeline. Manage applications across a Kanban board or sortable table, store documents, track contacts, scan emails for leads, and integrate with AI agents via a built-in MCP server.
 
-**Live:** [jobs.vasudev.xyz](https://jobs.vasudev.xyz)
+**Live:** [nexus.vasudev.xyz](https://nexus.vasudev.xyz)
 
 ---
 
@@ -300,7 +300,7 @@ Key relationships:
 | -------- | ----------- | ------- |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/nexus` |
 | `BETTER_AUTH_SECRET` | Session encryption secret | `openssl rand -base64 32` |
-| `BETTER_AUTH_URL` | Public URL of the app | `https://jobs.vasudev.xyz` |
+| `BETTER_AUTH_URL` | Public URL of the app | `https://nexus.vasudev.xyz` |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | `xxx.apps.googleusercontent.com` |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | `GOCSPX-xxx` |
 | `ALLOWED_EMAIL` | Comma-separated allowed emails | `user@example.com,other@example.com` |
@@ -391,9 +391,9 @@ Tests use Vitest with the `@` path alias configured to the project root.
 
 ### OpenAPI Documentation
 
-- **Swagger UI**: [/api-docs](https://jobs.vasudev.xyz/api-docs) — interactive API explorer
-- **OpenAPI spec**: [/openapi.json](https://jobs.vasudev.xyz/openapi.json) — machine-readable spec
-- **LLM guide**: [/llm.txt](https://jobs.vasudev.xyz/llm.txt) — plain-text API reference for AI agents
+- **Swagger UI**: [/api-docs](https://nexus.vasudev.xyz/api-docs) — interactive API explorer
+- **OpenAPI spec**: [/openapi.json](https://nexus.vasudev.xyz/openapi.json) — machine-readable spec
+- **LLM guide**: [/llm.txt](https://nexus.vasudev.xyz/llm.txt) — plain-text API reference for AI agents
 
 ### Authentication
 
@@ -505,7 +505,7 @@ The MCP server supports two auth methods:
 {
   "mcpServers": {
     "nexus-crm": {
-      "url": "https://jobs.vasudev.xyz/api/mcp",
+      "url": "https://nexus.vasudev.xyz/api/mcp",
       "headers": {
         "Authorization": "Bearer jt_<your-token>"
       }
