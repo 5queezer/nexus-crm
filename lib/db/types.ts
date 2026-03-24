@@ -102,6 +102,7 @@ export interface CreateApplicationInput {
   salaryMax: number | null;
   rating: number | null;
   jobUrl: string | null;
+  resumeId?: string | null;
 }
 
 export interface UpdateApplicationInput {
@@ -208,6 +209,7 @@ export interface BatchUpsertItem {
   salaryMax?: number | null;
   rating?: number | null;
   jobUrl?: string | null;
+  resumeId?: string | null;
 }
 
 export interface BatchUpsertResult {
