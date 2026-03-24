@@ -10,6 +10,7 @@ import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 import type { UpsertCvProfileInput } from "@/lib/db/types";
+import { findDuplicateApplications } from "@/lib/duplicates";
 
 // ── Auth helper ──────────────────────────────────────────────────────────────
 // Tries MCP OAuth access token first, then falls back to CRM API token.
@@ -125,8 +126,30 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       salaryMin: z.number().optional().describe("Minimum salary"),
       salaryMax: z.number().optional().describe("Maximum salary"),
       jobUrl: z.string().optional().describe("URL to job listing or opportunity page"),
+      force: z.boolean().optional().describe("Skip duplicate detection (default: false)"),
     },
     async (args) => {
+      // Duplicate detection (skip if force flag is set)
+      if (!args.force) {
+        const duplicates = await findDuplicateApplications(
+          args.company,
+          args.role,
+          auth.userId,
+        );
+        if (duplicates.length > 0) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                duplicates,
+                message: "Possible duplicates found. Set force=true to create anyway.",
+              }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+      }
+
       const app = await getDb().createApplication(auth.userId, {
         company: args.company.slice(0, 255),
         role: args.role.slice(0, 255),
@@ -251,6 +274,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             salaryMax: z.number().nullable().optional().describe("Maximum salary"),
             rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
             jobUrl: z.string().nullable().optional().describe("URL to job listing"),
+            force: z.boolean().optional().describe("Skip duplicate detection for this item"),
           })
         )
         .min(1)
@@ -259,6 +283,34 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ items }) => {
       try {
+        // Check duplicates for new items (no id) that don't have force=true
+        const checksNeeded = items
+          .map((item, i) => ({ item, i }))
+          .filter(({ item }) => !item.id && !item.force && item.company && item.role);
+        const dupeResults = await Promise.all(
+          checksNeeded.map(({ item }) =>
+            findDuplicateApplications(item.company!, item.role!, auth.userId)
+          )
+        );
+        const duplicateWarnings: Array<{ index: number; company: string; role: string; duplicates: unknown[] }> = [];
+        checksNeeded.forEach(({ item, i }, j) => {
+          if (dupeResults[j].length > 0) {
+            duplicateWarnings.push({ index: i, company: item.company!, role: item.role!, duplicates: dupeResults[j] });
+          }
+        });
+        if (duplicateWarnings.length > 0) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                duplicateWarnings,
+                message: "Possible duplicates found for some items. Set force=true on those items to proceed.",
+              }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
         const sanitized = items.map((item) => ({
           id: item.id,
           company: item.company?.slice(0, 255),

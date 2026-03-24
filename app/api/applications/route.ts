@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource } from "@/types";
+import { findDuplicateApplications } from "@/lib/duplicates";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth();
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, force } = body;
 
   if (!company || !role) {
     return NextResponse.json(
@@ -55,6 +56,21 @@ export async function POST(request: NextRequest) {
       { error: "salaryMin must not exceed salaryMax" },
       { status: 400 }
     );
+  }
+
+  // Duplicate detection (skip if force flag is set)
+  if (!force) {
+    const duplicates = await findDuplicateApplications(
+      String(company),
+      String(role),
+      auth.userId,
+    );
+    if (duplicates.length > 0) {
+      return NextResponse.json(
+        { duplicates, message: "Possible duplicates found" },
+        { status: 409 },
+      );
+    }
   }
 
   const application = await getDb().createApplication(auth.userId, {
