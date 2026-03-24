@@ -103,7 +103,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "create_application",
-    "Create a new job application",
+    "Create a new job application. Supports linking a Reactive Resume via resumeId.",
     {
       company: z.string().describe("Company name"),
       role: z.string().describe("Job role/title"),
@@ -125,6 +125,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       salaryMin: z.number().optional().describe("Minimum salary"),
       salaryMax: z.number().optional().describe("Maximum salary"),
       jobUrl: z.string().optional().describe("URL to job listing or opportunity page"),
+      resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
     },
     async (args) => {
       const app = await getDb().createApplication(auth.userId, {
@@ -142,6 +143,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         salaryMax: args.salaryMax ?? null,
         rating: null,
         jobUrl: args.jobUrl?.slice(0, 2000) ?? null,
+        resumeId: args.resumeId ?? null,
       });
       return {
         content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
@@ -151,7 +153,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "update_application",
-    "Update an existing application",
+    "Update an existing application. Supports linking a Reactive Resume via resumeId.",
     {
       id: z.string().describe("Application ID"),
       company: z.string().optional().describe("Company name"),
@@ -171,6 +173,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       salaryMax: z.number().nullable().optional().describe("Maximum salary"),
       rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
       jobUrl: z.string().nullable().optional().describe("URL to job listing or opportunity page"),
+      resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
     },
     async ({ id, ...data }) => {
       const update: Record<string, unknown> = {};
@@ -192,6 +195,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
       if (data.rating !== undefined) update.rating = data.rating;
       if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl?.slice(0, 2000) ?? null;
+      if (data.resumeId !== undefined) update.resumeId = data.resumeId ?? null;
 
       try {
         const app = await getDb().updateApplication(id, auth.userId, update);
@@ -228,7 +232,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "batch_upsert_applications",
-    "Create or update multiple applications in one call. If an item has an 'id' it is updated; otherwise a new application is created. Max 50 items per call.",
+    "Create or update multiple applications in one call. If an item has an 'id' it is updated; otherwise a new application is created. Supports linking a Reactive Resume via resumeId. Max 50 items per call.",
     {
       items: z
         .array(
@@ -251,6 +255,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             salaryMax: z.number().nullable().optional().describe("Maximum salary"),
             rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
             jobUrl: z.string().nullable().optional().describe("URL to job listing"),
+            resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
           })
         )
         .min(1)
@@ -275,6 +280,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           salaryMax: item.salaryMax,
           rating: item.rating,
           jobUrl: item.jobUrl !== undefined ? (item.jobUrl?.slice(0, 2000) ?? null) : undefined,
+          resumeId: item.resumeId !== undefined ? (item.resumeId ?? null) : undefined,
         }));
 
         const result = await getDb().batchUpsertApplications(auth.userId, sanitized);
