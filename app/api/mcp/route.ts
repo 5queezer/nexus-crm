@@ -284,16 +284,20 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ items }) => {
       try {
         // Check duplicates for new items (no id) that don't have force=true
+        const checksNeeded = items
+          .map((item, i) => ({ item, i }))
+          .filter(({ item }) => !item.id && !item.force && item.company && item.role);
+        const dupeResults = await Promise.all(
+          checksNeeded.map(({ item }) =>
+            findDuplicateApplications(item.company!, item.role!, auth.userId)
+          )
+        );
         const duplicateWarnings: Array<{ index: number; company: string; role: string; duplicates: unknown[] }> = [];
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          if (!item.id && !item.force && item.company && item.role) {
-            const dupes = await findDuplicateApplications(item.company, item.role, auth.userId);
-            if (dupes.length > 0) {
-              duplicateWarnings.push({ index: i, company: item.company, role: item.role, duplicates: dupes });
-            }
+        checksNeeded.forEach(({ item, i }, j) => {
+          if (dupeResults[j].length > 0) {
+            duplicateWarnings.push({ index: i, company: item.company!, role: item.role!, duplicates: dupeResults[j] });
           }
-        }
+        });
         if (duplicateWarnings.length > 0) {
           return {
             content: [{

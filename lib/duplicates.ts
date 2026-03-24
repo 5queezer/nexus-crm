@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
 /** Trigram similarity threshold – raise to be stricter, lower to catch more. */
-export const DUPLICATE_SIMILARITY_THRESHOLD = 0.4;
+export const DUPLICATE_SIMILARITY_THRESHOLD =
+  Number(process.env.DUPLICATE_THRESHOLD) || 0.4;
 
 export interface DuplicateMatch {
   id: string;

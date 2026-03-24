@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, force } = body;
 
   if (!company || !role) {
     return NextResponse.json(
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Duplicate detection (skip if force flag is set)
-  if (!body.force) {
+  if (!force) {
     const duplicates = await findDuplicateApplications(
       String(company),
       String(role),
