@@ -21,8 +21,9 @@ export async function findDuplicateApplications(
   role: string,
   userId: string,
 ): Promise<DuplicateMatch[]> {
-  const needle = `${company} ${role}`.toLowerCase();
+  const needle = `${company} ${role}`;
 
+  // id is int (autoincrement PK) — converted to string to match adapter convention
   const rows = await prisma.$queryRaw<
     { id: number; company: string; role: string; sim: number }[]
   >(
