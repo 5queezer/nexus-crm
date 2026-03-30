@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, companySize, salaryBandMentioned, triageQuality, triageReason, incomingSource, autoRejected, autoRejectReason } = body;
 
   if (!company || !role) {
     return NextResponse.json(
@@ -72,6 +72,13 @@ export async function POST(request: NextRequest) {
     salaryMax: parsedSalaryMax,
     rating: rating != null ? Math.min(5, Math.max(1, parseInt(String(rating), 10))) : null,
     jobUrl: jobUrl ? String(jobUrl).slice(0, 2000) : null,
+    companySize: companySize ? String(companySize).slice(0, 20) : null,
+    salaryBandMentioned: !!salaryBandMentioned,
+    triageQuality: triageQuality != null ? Math.min(5, Math.max(1, parseInt(String(triageQuality), 10))) : null,
+    triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
+    incomingSource: incomingSource ? String(incomingSource).slice(0, 20) : null,
+    autoRejected: !!autoRejected,
+    autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
   });
 
   return NextResponse.json(application, { status: 201 });

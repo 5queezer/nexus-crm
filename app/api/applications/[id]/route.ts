@@ -33,7 +33,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt, companySize, salaryBandMentioned, triageQuality, triageReason, incomingSource, autoRejected, autoRejectReason } = body;
 
   const parsedSalaryMin = salaryMin != null ? parseInt(String(salaryMin), 10) : null;
   const parsedSalaryMax = salaryMax != null ? parseInt(String(salaryMax), 10) : null;
@@ -75,6 +75,23 @@ export async function PATCH(
     }),
     ...(resumeId !== undefined && {
       resumeId: resumeId ? String(resumeId).slice(0, 255) : null,
+    }),
+    ...(companySize !== undefined && {
+      companySize: companySize ? String(companySize).slice(0, 20) : null,
+    }),
+    ...(salaryBandMentioned !== undefined && { salaryBandMentioned: !!salaryBandMentioned }),
+    ...(triageQuality !== undefined && {
+      triageQuality: triageQuality != null ? Math.min(5, Math.max(1, parseInt(String(triageQuality), 10))) : null,
+    }),
+    ...(triageReason !== undefined && {
+      triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
+    }),
+    ...(incomingSource !== undefined && {
+      incomingSource: incomingSource ? String(incomingSource).slice(0, 20) : null,
+    }),
+    ...(autoRejected !== undefined && { autoRejected: !!autoRejected }),
+    ...(autoRejectReason !== undefined && {
+      autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
     }),
     ...(archivedAt !== undefined && {
       archivedAt: archivedAt ? new Date(archivedAt) : null,

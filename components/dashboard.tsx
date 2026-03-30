@@ -201,6 +201,22 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     rejected: activeApplications.filter((a) => a.status === "rejected").length,
   };
 
+  // Triage stats
+  const td = useTranslations("dashboard");
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  const recentApps = activeApplications.filter((a) => new Date(a.createdAt) >= oneWeekAgo);
+  const triageStats = {
+    thisWeek: recentApps.length,
+    perfect: activeApplications.filter((a) => a.triageQuality === 5).length,
+    strong: activeApplications.filter((a) => a.triageQuality === 4).length,
+    consider: activeApplications.filter((a) => a.triageQuality === 3).length,
+    weak: activeApplications.filter((a) => a.triageQuality === 2).length,
+    pass: activeApplications.filter((a) => a.triageQuality === 1).length,
+    unrated: activeApplications.filter((a) => a.triageQuality == null).length,
+    highPriority: activeApplications.filter((a) => a.triageQuality != null && a.triageQuality >= 4).length,
+  };
+
   // Overdue follow-ups banner (only active pipeline statuses, non-archived)
   const [dismissedOverdue, setDismissedOverdue] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
@@ -461,6 +477,36 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
             <StatCard label={ts("rejected")} value={stats.rejected} color="red" onClick={() => setViewMode("table")} />
           </div>
         </div>
+
+        {/* Triage Summary Widget */}
+        {(triageStats.perfect > 0 || triageStats.strong > 0 || triageStats.thisWeek > 0) && (
+          <div className="mb-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{td("triage_title")}</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div className="rounded-lg bg-gray-50 dark:bg-gray-900/50 p-2">
+                <div className="text-lg font-bold text-gray-900 dark:text-white">{triageStats.thisWeek}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{td("triage_this_week")}</div>
+              </div>
+              <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-2">
+                <div className="text-lg font-bold text-green-700 dark:text-green-300">{triageStats.perfect}</div>
+                <div className="text-xs text-green-600 dark:text-green-400">5/5 {td("triage_perfect")}</div>
+              </div>
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2">
+                <div className="text-lg font-bold text-blue-700 dark:text-blue-300">{triageStats.strong}</div>
+                <div className="text-xs text-blue-600 dark:text-blue-400">4/5 {td("triage_strong")}</div>
+              </div>
+              <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950/30 p-2">
+                <div className="text-lg font-bold text-yellow-700 dark:text-yellow-300">{triageStats.consider}</div>
+                <div className="text-xs text-yellow-600 dark:text-yellow-400">3/5 {td("triage_consider")}</div>
+              </div>
+            </div>
+            {triageStats.highPriority > 0 && (
+              <p className="mt-3 text-sm text-green-700 dark:text-green-400 font-medium">
+                {td("triage_action", { count: triageStats.highPriority })}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

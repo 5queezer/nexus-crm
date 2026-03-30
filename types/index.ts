@@ -16,6 +16,41 @@ export interface Contact {
   createdAt: string;
 }
 
+export type CompanySize = "micro" | "small" | "mid" | "large" | "enterprise";
+export type IncomingSource = "linkedin" | "email" | "referral" | "outbound";
+export type TriageScore = 1 | 2 | 3 | 4 | 5;
+
+export const COMPANY_SIZE_OPTIONS: { value: CompanySize; label: string }[] = [
+  { value: "micro", label: "< 50" },
+  { value: "small", label: "50–500" },
+  { value: "mid", label: "500–5k" },
+  { value: "large", label: "5k+" },
+  { value: "enterprise", label: "Enterprise" },
+];
+
+export const INCOMING_SOURCE_OPTIONS: IncomingSource[] = [
+  "linkedin",
+  "email",
+  "referral",
+  "outbound",
+];
+
+export const TRIAGE_COLORS: Record<number, string> = {
+  5: "bg-green-100 text-green-800 dark:bg-green-500/25 dark:text-green-300",
+  4: "bg-blue-100 text-blue-800 dark:bg-blue-500/25 dark:text-blue-300",
+  3: "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/25 dark:text-yellow-300",
+  2: "bg-gray-100 text-gray-600 dark:bg-gray-500/25 dark:text-gray-400",
+  1: "bg-red-100 text-red-800 dark:bg-red-500/25 dark:text-red-300",
+};
+
+export const TRIAGE_LABELS: Record<number, string> = {
+  5: "Perfect fit",
+  4: "Strong",
+  3: "Consider",
+  2: "Weak",
+  1: "Pass",
+};
+
 export interface Application {
   id: string;
   company: string;
@@ -33,6 +68,13 @@ export interface Application {
   rating: number | null;
   jobUrl: string | null;
   resumeId: string | null;
+  companySize: CompanySize | null;
+  salaryBandMentioned: boolean;
+  triageQuality: TriageScore | null;
+  triageReason: string | null;
+  incomingSource: IncomingSource | null;
+  autoRejected: boolean;
+  autoRejectReason: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
