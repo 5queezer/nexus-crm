@@ -35,20 +35,12 @@ export const INCOMING_SOURCE_OPTIONS: IncomingSource[] = [
   "outbound",
 ];
 
-export const TRIAGE_COLORS: Record<number, string> = {
+export const TRIAGE_COLORS: Record<TriageScore, string> = {
   5: "bg-green-100 text-green-800 dark:bg-green-500/25 dark:text-green-300",
   4: "bg-blue-100 text-blue-800 dark:bg-blue-500/25 dark:text-blue-300",
   3: "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/25 dark:text-yellow-300",
   2: "bg-gray-100 text-gray-600 dark:bg-gray-500/25 dark:text-gray-400",
   1: "bg-red-100 text-red-800 dark:bg-red-500/25 dark:text-red-300",
-};
-
-export const TRIAGE_LABELS: Record<number, string> = {
-  5: "Perfect fit",
-  4: "Strong",
-  3: "Consider",
-  2: "Weak",
-  1: "Pass",
 };
 
 export interface Application {

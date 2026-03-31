@@ -3,7 +3,7 @@
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { Application, ApplicationStatus, Contact, CompanySize, IncomingSource, STATUS_COLORS, STATUS_ORDER, SOURCE_PRESETS } from "@/types";
+import { Application, ApplicationStatus, Contact, CompanySize, IncomingSource, STATUS_COLORS, STATUS_ORDER, SOURCE_PRESETS, TRIAGE_COLORS } from "@/types";
 import { TriagePanel } from "./triage-panel";
 
 interface ApplicationModalProps {
@@ -601,11 +601,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
               <span className="flex items-center gap-2">
                 {triageOpen ? t("triage_toggle_hide") : t("triage_toggle_show")}
                 {form.triageQuality && (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
-                    form.triageQuality >= 4 ? "bg-green-100 text-green-800 dark:bg-green-500/25 dark:text-green-300" :
-                    form.triageQuality === 3 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-500/25 dark:text-yellow-300" :
-                    "bg-red-100 text-red-800 dark:bg-red-500/25 dark:text-red-300"
-                  }`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${TRIAGE_COLORS[form.triageQuality as keyof typeof TRIAGE_COLORS] || ""}`}>
                     {form.triageQuality}/5
                   </span>
                 )}

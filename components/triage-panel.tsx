@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import {
   CompanySize,
@@ -37,6 +37,14 @@ interface TriagePanelProps {
   jobDescription?: string;
 }
 
+const DEFAULT_ANSWERS: TriageAnswers = {
+  specificReasons: "unclear",
+  remoteFirst: "unclear",
+  companySizeSmall: "unclear",
+  salaryMentioned: "unclear",
+  roleFit: "unclear",
+};
+
 function computeScore(answers: TriageAnswers): TriageScore {
   let score = 0;
   if (answers.specificReasons === "yes") score += 2;
@@ -49,13 +57,15 @@ function computeScore(answers: TriageAnswers): TriageScore {
   if (answers.roleFit === "yes") score += 2.5;
   else if (answers.roleFit === "unclear") score += 1;
 
-  // Map 0-10 to 1-5
+  // Thresholds chosen so all-yes ≈ 10 → 5/5, mixed → 3/5, all-no → 1/5
   if (score >= 8) return 5;
   if (score >= 6) return 4;
   if (score >= 4) return 3;
   if (score >= 2) return 2;
   return 1;
 }
+
+const AUTO_REJECT_SIZES: CompanySize[] = ["large", "enterprise"];
 
 function checkAutoReject(
   companySize: CompanySize | "",
@@ -64,7 +74,7 @@ function checkAutoReject(
   const reasons: string[] = [];
   const jdLower = jobDescription.toLowerCase();
 
-  if (companySize === "large" || companySize === "enterprise") {
+  if (companySize && AUTO_REJECT_SIZES.includes(companySize as CompanySize)) {
     reasons.push("Company size > 5k");
   }
   if (
@@ -121,44 +131,32 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
   const t = useTranslations("modal");
 
   const [answers, setAnswers] = useState<TriageAnswers>({
-    specificReasons: "unclear",
-    remoteFirst: "unclear",
-    companySizeSmall: "unclear",
+    ...DEFAULT_ANSWERS,
     salaryMentioned: data.salaryBandMentioned ? "yes" : "unclear",
-    roleFit: "unclear",
   });
 
-  const [suggestedScore, setSuggestedScore] = useState<TriageScore | null>(null);
-
-  const updateAnswer = useCallback(
-    (key: keyof TriageAnswers, value: TriAnswer) => {
-      const next = { ...answers, [key]: value };
-      setAnswers(next);
-      const score = computeScore(next);
-      setSuggestedScore(score);
-
-      // Auto-update salaryBandMentioned
-      if (key === "salaryMentioned") {
-        onChange({ salaryBandMentioned: value === "yes" });
-      }
-    },
-    [answers, onChange]
+  const hasAnswered = answers !== DEFAULT_ANSWERS;
+  const suggestedScore = useMemo(
+    () => hasAnswered ? computeScore(answers) : null,
+    [answers, hasAnswered]
   );
 
-  const applySuggestion = useCallback(() => {
-    if (suggestedScore === null) return;
-    onChange({ triageQuality: suggestedScore });
+  function updateAnswer(key: keyof TriageAnswers, value: TriAnswer) {
+    setAnswers((prev) => ({ ...prev, [key]: value }));
+    if (key === "salaryMentioned") {
+      onChange({ salaryBandMentioned: value === "yes" });
+    }
+  }
 
-    // Check auto-reject
+  function applySuggestion() {
+    if (suggestedScore === null) return;
     const { rejected, reason } = checkAutoReject(data.companySize || "", jobDescription);
     if (rejected && suggestedScore <= 2) {
-      onChange({
-        triageQuality: 1,
-        autoRejected: true,
-        autoRejectReason: reason,
-      });
+      onChange({ triageQuality: 1, autoRejected: true, autoRejectReason: reason });
+    } else {
+      onChange({ triageQuality: suggestedScore });
     }
-  }, [suggestedScore, data.companySize, jobDescription, onChange]);
+  }
 
   const scoreLabel = (score: number) =>
     t(`triage_score_${score}` as "triage_score_1");
@@ -179,7 +177,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
 
   return (
     <div className="space-y-4">
-      {/* Guided Questions */}
       <div className="space-y-3">
         {questions.map((q) => (
           <div key={q.key}>
@@ -202,7 +199,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         ))}
       </div>
 
-      {/* Suggested Score */}
       {suggestedScore !== null && (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50">
           <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
@@ -223,7 +219,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         </div>
       )}
 
-      {/* Manual Score Selection */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {t("triage_quality")}
@@ -251,7 +246,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         )}
       </div>
 
-      {/* Triage Reason */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {t("triage_reason")}
@@ -265,7 +259,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         />
       </div>
 
-      {/* Company Size & Incoming Source */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -275,17 +268,11 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
             value={data.companySize}
             onChange={(e) => {
               const val = e.target.value as CompanySize | "";
-              onChange({ companySize: val || "" });
-              // Check auto-reject when company size changes
-              if (val === "large" || val === "enterprise") {
-                const { rejected, reason } = checkAutoReject(val, jobDescription);
-                if (rejected) {
-                  onChange({
-                    companySize: val,
-                    autoRejected: true,
-                    autoRejectReason: reason,
-                  });
-                }
+              const { rejected, reason } = checkAutoReject(val, jobDescription);
+              if (rejected) {
+                onChange({ companySize: val || "", autoRejected: true, autoRejectReason: reason });
+              } else {
+                onChange({ companySize: val || "" });
               }
             }}
             className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -318,7 +305,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         </div>
       </div>
 
-      {/* Salary Band Mentioned */}
       <label className="flex items-center gap-2 cursor-pointer">
         <input
           type="checkbox"
@@ -331,7 +317,6 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         </span>
       </label>
 
-      {/* Auto-reject indicator */}
       {data.autoRejected && (
         <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50">
           <div className="flex items-center gap-2">
