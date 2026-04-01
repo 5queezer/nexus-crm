@@ -510,7 +510,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
           >
             {ta("triage_filter")}
           </button>
-          {(globalFilter || statusFilter || remoteOnly || triageFilter) && (
+          {(globalFilter || columnFilters.length > 0 || remoteOnly || triageFilter) && (
             <button
               onClick={() => {
                 setGlobalFilter("");

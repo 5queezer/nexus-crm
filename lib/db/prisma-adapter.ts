@@ -1,6 +1,39 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { normalizeStatus } from "@/types";
+import { normalizeStatus, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+
+const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
+const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
+
+function sanitizeTriageFields(item: Record<string, unknown>) {
+  const result: Record<string, unknown> = {};
+  if (item.companySize !== undefined) {
+    result.companySize = item.companySize && VALID_COMPANY_SIZES.includes(String(item.companySize)) ? String(item.companySize) : null;
+  }
+  if (item.salaryBandMentioned !== undefined) {
+    result.salaryBandMentioned = item.salaryBandMentioned === true || item.salaryBandMentioned === "true";
+  }
+  if (item.triageQuality !== undefined) {
+    if (item.triageQuality == null) { result.triageQuality = null; }
+    else {
+      const parsed = parseInt(String(item.triageQuality), 10);
+      result.triageQuality = Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : null;
+    }
+  }
+  if (item.triageReason !== undefined) {
+    result.triageReason = item.triageReason ? String(item.triageReason).slice(0, 1000) : null;
+  }
+  if (item.incomingSource !== undefined) {
+    result.incomingSource = item.incomingSource && VALID_INCOMING_SOURCES.includes(String(item.incomingSource)) ? String(item.incomingSource) : null;
+  }
+  if (item.autoRejected !== undefined) {
+    result.autoRejected = item.autoRejected === true || item.autoRejected === "true";
+  }
+  if (item.autoRejectReason !== undefined) {
+    result.autoRejectReason = item.autoRejectReason ? String(item.autoRejectReason).slice(0, 1000) : null;
+  }
+  return result;
+}
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -276,13 +309,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (item.salaryMax !== undefined) data.salaryMax = item.salaryMax;
           if (item.rating !== undefined) data.rating = item.rating;
           if (item.jobUrl !== undefined) data.jobUrl = item.jobUrl;
-          if (item.companySize !== undefined) data.companySize = item.companySize;
-          if (item.salaryBandMentioned !== undefined) data.salaryBandMentioned = item.salaryBandMentioned;
-          if (item.triageQuality !== undefined) data.triageQuality = item.triageQuality;
-          if (item.triageReason !== undefined) data.triageReason = item.triageReason;
-          if (item.incomingSource !== undefined) data.incomingSource = item.incomingSource;
-          if (item.autoRejected !== undefined) data.autoRejected = item.autoRejected;
-          if (item.autoRejectReason !== undefined) data.autoRejectReason = item.autoRejectReason;
+          Object.assign(data, sanitizeTriageFields(item as Record<string, unknown>));
 
           const row = await prisma.application.update({
             where: { id: nid(item.id), userId },
@@ -314,13 +341,15 @@ export class PrismaAdapter implements DatabaseAdapter {
               salaryMax: item.salaryMax ?? null,
               rating: item.rating ?? null,
               jobUrl: item.jobUrl ?? null,
-              companySize: item.companySize ?? null,
-              salaryBandMentioned: item.salaryBandMentioned ?? false,
-              triageQuality: item.triageQuality ?? null,
-              triageReason: item.triageReason ?? null,
-              incomingSource: item.incomingSource ?? null,
-              autoRejected: item.autoRejected ?? false,
-              autoRejectReason: item.autoRejectReason ?? null,
+              ...sanitizeTriageFields({
+                companySize: item.companySize ?? null,
+                salaryBandMentioned: item.salaryBandMentioned ?? false,
+                triageQuality: item.triageQuality ?? null,
+                triageReason: item.triageReason ?? null,
+                incomingSource: item.incomingSource ?? null,
+                autoRejected: item.autoRejected ?? false,
+                autoRejectReason: item.autoRejectReason ?? null,
+              }),
             },
           });
           results.push({ index: i, id: sid(row.id), operation: "created" });

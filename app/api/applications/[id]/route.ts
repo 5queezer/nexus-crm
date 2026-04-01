@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { normalizeStatus, normalizeSource } from "@/types";
+import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+
+const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
+const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
+
+function parseTriageQuality(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = parseInt(String(value), 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : null;
+}
+
+function parseBooleanField(value: unknown): boolean {
+  return value === true || value === "true";
+}
 
 export async function GET(
   _request: NextRequest,
@@ -77,19 +90,19 @@ export async function PATCH(
       resumeId: resumeId ? String(resumeId).slice(0, 255) : null,
     }),
     ...(companySize !== undefined && {
-      companySize: companySize ? String(companySize).slice(0, 20) : null,
+      companySize: companySize && VALID_COMPANY_SIZES.includes(String(companySize)) ? String(companySize) : null,
     }),
-    ...(salaryBandMentioned !== undefined && { salaryBandMentioned: !!salaryBandMentioned }),
+    ...(salaryBandMentioned !== undefined && { salaryBandMentioned: parseBooleanField(salaryBandMentioned) }),
     ...(triageQuality !== undefined && {
-      triageQuality: triageQuality != null ? Math.min(5, Math.max(1, parseInt(String(triageQuality), 10))) : null,
+      triageQuality: parseTriageQuality(triageQuality),
     }),
     ...(triageReason !== undefined && {
       triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
     }),
     ...(incomingSource !== undefined && {
-      incomingSource: incomingSource ? String(incomingSource).slice(0, 20) : null,
+      incomingSource: incomingSource && VALID_INCOMING_SOURCES.includes(String(incomingSource)) ? String(incomingSource) : null,
     }),
-    ...(autoRejected !== undefined && { autoRejected: !!autoRejected }),
+    ...(autoRejected !== undefined && { autoRejected: parseBooleanField(autoRejected) }),
     ...(autoRejectReason !== undefined && {
       autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
     }),

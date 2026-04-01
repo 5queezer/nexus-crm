@@ -126,6 +126,7 @@
     "incoming_source": "Incoming Source",
     "incoming_source_placeholder": "How did they reach you?",
     "auto_rejected": "Auto-rejected",
+    "auto_reject_override": "Override",
     "auto_reject_reason": "Auto-reject reason",
     "triage_q_specific": "Does the recruiter mention specific reasons (PR, project, stack)?",
     "triage_q_remote": "Is this remote-first?",

@@ -1,7 +1,40 @@
 import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
-import { normalizeStatus } from "@/types";
+import { normalizeStatus, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+
+const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
+const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
+
+function sanitizeTriageFields(item: Record<string, unknown>) {
+  const result: Record<string, unknown> = {};
+  if (item.companySize !== undefined) {
+    result.companySize = item.companySize && VALID_COMPANY_SIZES.includes(String(item.companySize)) ? String(item.companySize) : null;
+  }
+  if (item.salaryBandMentioned !== undefined) {
+    result.salaryBandMentioned = item.salaryBandMentioned === true || item.salaryBandMentioned === "true";
+  }
+  if (item.triageQuality !== undefined) {
+    if (item.triageQuality == null) { result.triageQuality = null; }
+    else {
+      const parsed = parseInt(String(item.triageQuality), 10);
+      result.triageQuality = Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : null;
+    }
+  }
+  if (item.triageReason !== undefined) {
+    result.triageReason = item.triageReason ? String(item.triageReason).slice(0, 1000) : null;
+  }
+  if (item.incomingSource !== undefined) {
+    result.incomingSource = item.incomingSource && VALID_INCOMING_SOURCES.includes(String(item.incomingSource)) ? String(item.incomingSource) : null;
+  }
+  if (item.autoRejected !== undefined) {
+    result.autoRejected = item.autoRejected === true || item.autoRejected === "true";
+  }
+  if (item.autoRejectReason !== undefined) {
+    result.autoRejectReason = item.autoRejectReason ? String(item.autoRejectReason).slice(0, 1000) : null;
+  }
+  return result;
+}
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -284,6 +317,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (filter.ratingGte !== undefined) {
       apps = apps.filter((a) => a.rating !== null && a.rating >= filter.ratingGte!);
     }
+    if (filter.triageQualityGte !== undefined) {
+      apps = apps.filter((a) => a.triageQuality !== null && a.triageQuality >= filter.triageQualityGte!);
+    }
     if (filter.search) {
       const term = filter.search.toLowerCase();
       apps = apps.filter(
@@ -302,6 +338,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const allowedSortFields = [
         "createdAt", "updatedAt", "company", "role", "status",
         "rating", "salaryMin", "salaryMax", "appliedAt", "lastContact",
+        "triageQuality",
       ];
       if (allowedSortFields.includes(field)) {
         apps.sort((a, b) => {
@@ -383,13 +420,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           if (item.salaryMax !== undefined) update.salaryMax = item.salaryMax;
           if (item.rating !== undefined) update.rating = item.rating;
           if (item.jobUrl !== undefined) update.jobUrl = item.jobUrl;
-          if (item.companySize !== undefined) update.companySize = item.companySize;
-          if (item.salaryBandMentioned !== undefined) update.salaryBandMentioned = item.salaryBandMentioned;
-          if (item.triageQuality !== undefined) update.triageQuality = item.triageQuality;
-          if (item.triageReason !== undefined) update.triageReason = item.triageReason;
-          if (item.incomingSource !== undefined) update.incomingSource = item.incomingSource;
-          if (item.autoRejected !== undefined) update.autoRejected = item.autoRejected;
-          if (item.autoRejectReason !== undefined) update.autoRejectReason = item.autoRejectReason;
+          Object.assign(update, sanitizeTriageFields(item as Record<string, unknown>));
 
           await ref.update(update);
           results.push({ index: i, id: item.id, operation: "updated" });
@@ -418,13 +449,15 @@ export class FirestoreAdapter implements DatabaseAdapter {
             salaryMax: item.salaryMax ?? null,
             rating: item.rating ?? null,
             jobUrl: item.jobUrl ?? null,
-            companySize: item.companySize ?? null,
-            salaryBandMentioned: item.salaryBandMentioned ?? false,
-            triageQuality: item.triageQuality ?? null,
-            triageReason: item.triageReason ?? null,
-            incomingSource: item.incomingSource ?? null,
-            autoRejected: item.autoRejected ?? false,
-            autoRejectReason: item.autoRejectReason ?? null,
+            ...sanitizeTriageFields({
+              companySize: item.companySize ?? null,
+              salaryBandMentioned: item.salaryBandMentioned ?? false,
+              triageQuality: item.triageQuality ?? null,
+              triageReason: item.triageReason ?? null,
+              incomingSource: item.incomingSource ?? null,
+              autoRejected: item.autoRejected ?? false,
+              autoRejectReason: item.autoRejectReason ?? null,
+            }),
             createdAt: now,
             updatedAt: now,
           });

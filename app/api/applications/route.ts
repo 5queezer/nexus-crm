@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { normalizeStatus, normalizeSource } from "@/types";
+import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+
+const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
+const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
+
+function parseTriageQuality(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = parseInt(String(value), 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : null;
+}
+
+function parseBooleanField(value: unknown): boolean {
+  return value === true || value === "true";
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth();
@@ -72,12 +85,12 @@ export async function POST(request: NextRequest) {
     salaryMax: parsedSalaryMax,
     rating: rating != null ? Math.min(5, Math.max(1, parseInt(String(rating), 10))) : null,
     jobUrl: jobUrl ? String(jobUrl).slice(0, 2000) : null,
-    companySize: companySize ? String(companySize).slice(0, 20) : null,
-    salaryBandMentioned: !!salaryBandMentioned,
-    triageQuality: triageQuality != null ? Math.min(5, Math.max(1, parseInt(String(triageQuality), 10))) : null,
+    companySize: companySize && VALID_COMPANY_SIZES.includes(String(companySize)) ? String(companySize) : null,
+    salaryBandMentioned: parseBooleanField(salaryBandMentioned),
+    triageQuality: parseTriageQuality(triageQuality),
     triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
-    incomingSource: incomingSource ? String(incomingSource).slice(0, 20) : null,
-    autoRejected: !!autoRejected,
+    incomingSource: incomingSource && VALID_INCOMING_SOURCES.includes(String(incomingSource)) ? String(incomingSource) : null,
+    autoRejected: parseBooleanField(autoRejected),
     autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
   });
 

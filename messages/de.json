@@ -126,6 +126,7 @@
     "incoming_source": "Eingangsquelle",
     "incoming_source_placeholder": "Wie haben sie dich erreicht?",
     "auto_rejected": "Automatisch abgelehnt",
+    "auto_reject_override": "Übersteuern",
     "auto_reject_reason": "Auto-Ablehnungsgrund",
     "triage_q_specific": "Nennt der Recruiter spezifische Gründe (PR, Projekt, Stack)?",
     "triage_q_remote": "Ist das Remote-first?",

@@ -334,7 +334,7 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
               onClick={() => onChange({ autoRejected: false, autoRejectReason: "" })}
               className="ml-auto text-xs text-red-600 dark:text-red-400 underline hover:no-underline"
             >
-              Override
+              {t("auto_reject_override")}
             </button>
           </div>
           {data.autoRejectReason && (
