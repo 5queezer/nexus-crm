@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { normalizeStatus, normalizeSource } from "@/types";
+import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+
+const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
+const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
+
+function parseTriageQuality(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = parseInt(String(value), 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : null;
+}
+
+function parseBooleanField(value: unknown): boolean {
+  return value === true || value === "true";
+}
 
 export async function GET(
   _request: NextRequest,
@@ -33,7 +46,7 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt } = body;
+  const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt, companySize, salaryBandMentioned, triageQuality, triageReason, incomingSource, autoRejected, autoRejectReason } = body;
 
   const parsedSalaryMin = salaryMin != null ? parseInt(String(salaryMin), 10) : null;
   const parsedSalaryMax = salaryMax != null ? parseInt(String(salaryMax), 10) : null;
@@ -75,6 +88,23 @@ export async function PATCH(
     }),
     ...(resumeId !== undefined && {
       resumeId: resumeId ? String(resumeId).slice(0, 255) : null,
+    }),
+    ...(companySize !== undefined && {
+      companySize: companySize && VALID_COMPANY_SIZES.includes(String(companySize)) ? String(companySize) : null,
+    }),
+    ...(salaryBandMentioned !== undefined && { salaryBandMentioned: parseBooleanField(salaryBandMentioned) }),
+    ...(triageQuality !== undefined && {
+      triageQuality: parseTriageQuality(triageQuality),
+    }),
+    ...(triageReason !== undefined && {
+      triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
+    }),
+    ...(incomingSource !== undefined && {
+      incomingSource: incomingSource && VALID_INCOMING_SOURCES.includes(String(incomingSource)) ? String(incomingSource) : null,
+    }),
+    ...(autoRejected !== undefined && { autoRejected: parseBooleanField(autoRejected) }),
+    ...(autoRejectReason !== undefined && {
+      autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
     }),
     ...(archivedAt !== undefined && {
       archivedAt: archivedAt ? new Date(archivedAt) : null,

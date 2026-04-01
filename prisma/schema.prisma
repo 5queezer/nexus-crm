@@ -26,6 +26,13 @@ model Application {
   rating          Int?      // suitability rating 1–5
   jobUrl          String?   // link to job listing / opportunity page
   resumeId        String?   // Reactive Resume resume ID
+  companySize     String?   // micro | small | mid | large | enterprise
+  salaryBandMentioned Boolean @default(false)
+  triageQuality   Int?      // 1–5 triage score
+  triageReason    String?   // short note explaining the triage rating
+  incomingSource  String?   // linkedin | email | referral | outbound
+  autoRejected    Boolean   @default(false)
+  autoRejectReason String?  // reason for auto-rejection
   archivedAt      DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
@@ -200,6 +200,20 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     offers: activeApplications.filter((a) => a.status === "offer").length,
     rejected: activeApplications.filter((a) => a.status === "rejected").length,
   };
+
+  // Triage stats — single pass over activeApplications
+  const triageStats = useMemo(() => {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const counts = { thisWeek: 0, 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unrated: 0 };
+    for (const a of activeApplications) {
+      if (new Date(a.createdAt) >= oneWeekAgo) counts.thisWeek++;
+      const q = a.triageQuality;
+      if (q != null && q >= 1 && q <= 5) counts[q as 1|2|3|4|5]++;
+      else counts.unrated++;
+    }
+    return { ...counts, highPriority: counts[5] + counts[4] };
+  }, [activeApplications]);
 
   // Overdue follow-ups banner (only active pipeline statuses, non-archived)
   const [dismissedOverdue, setDismissedOverdue] = useState<Set<string>>(() => {
@@ -461,6 +475,36 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
             <StatCard label={ts("rejected")} value={stats.rejected} color="red" onClick={() => setViewMode("table")} />
           </div>
         </div>
+
+        {/* Triage Summary Widget */}
+        {(triageStats[5] > 0 || triageStats[4] > 0 || triageStats.thisWeek > 0) && (
+          <div className="mb-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{t("triage_title")}</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div className="rounded-lg bg-gray-50 dark:bg-gray-900/50 p-2">
+                <div className="text-lg font-bold text-gray-900 dark:text-white">{triageStats.thisWeek}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{t("triage_this_week")}</div>
+              </div>
+              <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-2">
+                <div className="text-lg font-bold text-green-700 dark:text-green-300">{triageStats[5]}</div>
+                <div className="text-xs text-green-600 dark:text-green-400">5/5 {t("triage_perfect")}</div>
+              </div>
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2">
+                <div className="text-lg font-bold text-blue-700 dark:text-blue-300">{triageStats[4]}</div>
+                <div className="text-xs text-blue-600 dark:text-blue-400">4/5 {t("triage_strong")}</div>
+              </div>
+              <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950/30 p-2">
+                <div className="text-lg font-bold text-yellow-700 dark:text-yellow-300">{triageStats[3]}</div>
+                <div className="text-xs text-yellow-600 dark:text-yellow-400">3/5 {t("triage_consider")}</div>
+              </div>
+            </div>
+            {triageStats.highPriority > 0 && (
+              <p className="mt-3 text-sm text-green-700 dark:text-green-400 font-medium">
+                {t("triage_action", { count: triageStats.highPriority })}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

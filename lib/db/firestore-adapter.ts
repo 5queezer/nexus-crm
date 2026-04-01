@@ -2,6 +2,7 @@ import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
+import { sanitizeTriageFields } from "./sanitize";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -68,6 +69,13 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     rating: data.rating ?? null,
     jobUrl: data.jobUrl ?? null,
     resumeId: data.resumeId ?? null,
+    companySize: data.companySize ?? null,
+    salaryBandMentioned: data.salaryBandMentioned ?? false,
+    triageQuality: data.triageQuality ?? null,
+    triageReason: data.triageReason ?? null,
+    incomingSource: data.incomingSource ?? null,
+    autoRejected: data.autoRejected ?? false,
+    autoRejectReason: data.autoRejectReason ?? null,
     archivedAt: toDate(data.archivedAt) ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
     updatedAt: toDate(data.updatedAt) ?? new Date(),
@@ -189,6 +197,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       salaryMax: data.salaryMax ?? null,
       rating: data.rating ?? null,
       jobUrl: data.jobUrl ?? null,
+      companySize: data.companySize ?? null,
+      salaryBandMentioned: data.salaryBandMentioned ?? false,
+      triageQuality: data.triageQuality ?? null,
+      triageReason: data.triageReason ?? null,
+      incomingSource: data.incomingSource ?? null,
+      autoRejected: data.autoRejected ?? false,
+      autoRejectReason: data.autoRejectReason ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -219,6 +234,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
     if (data.rating !== undefined) update.rating = data.rating;
     if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl;
+    if (data.companySize !== undefined) update.companySize = data.companySize;
+    if (data.salaryBandMentioned !== undefined) update.salaryBandMentioned = data.salaryBandMentioned;
+    if (data.triageQuality !== undefined) update.triageQuality = data.triageQuality;
+    if (data.triageReason !== undefined) update.triageReason = data.triageReason;
+    if (data.incomingSource !== undefined) update.incomingSource = data.incomingSource;
+    if (data.autoRejected !== undefined) update.autoRejected = data.autoRejected;
+    if (data.autoRejectReason !== undefined) update.autoRejectReason = data.autoRejectReason;
 
     await ref.update(update);
     return (await this.getApplication(id, userId))!;
@@ -263,6 +285,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (filter.ratingGte !== undefined) {
       apps = apps.filter((a) => a.rating !== null && a.rating >= filter.ratingGte!);
     }
+    if (filter.triageQualityGte !== undefined) {
+      apps = apps.filter((a) => a.triageQuality !== null && a.triageQuality >= filter.triageQualityGte!);
+    }
     if (filter.search) {
       const term = filter.search.toLowerCase();
       apps = apps.filter(
@@ -281,6 +306,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const allowedSortFields = [
         "createdAt", "updatedAt", "company", "role", "status",
         "rating", "salaryMin", "salaryMax", "appliedAt", "lastContact",
+        "triageQuality",
       ];
       if (allowedSortFields.includes(field)) {
         apps.sort((a, b) => {
@@ -362,6 +388,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           if (item.salaryMax !== undefined) update.salaryMax = item.salaryMax;
           if (item.rating !== undefined) update.rating = item.rating;
           if (item.jobUrl !== undefined) update.jobUrl = item.jobUrl;
+          Object.assign(update, sanitizeTriageFields(item as Record<string, unknown>));
 
           await ref.update(update);
           results.push({ index: i, id: item.id, operation: "updated" });
@@ -390,6 +417,15 @@ export class FirestoreAdapter implements DatabaseAdapter {
             salaryMax: item.salaryMax ?? null,
             rating: item.rating ?? null,
             jobUrl: item.jobUrl ?? null,
+            ...sanitizeTriageFields({
+              companySize: item.companySize ?? null,
+              salaryBandMentioned: item.salaryBandMentioned ?? false,
+              triageQuality: item.triageQuality ?? null,
+              triageReason: item.triageReason ?? null,
+              incomingSource: item.incomingSource ?? null,
+              autoRejected: item.autoRejected ?? false,
+              autoRejectReason: item.autoRejectReason ?? null,
+            }),
             createdAt: now,
             updatedAt: now,
           });

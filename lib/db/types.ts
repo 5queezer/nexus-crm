@@ -18,6 +18,13 @@ export interface ApplicationRecord {
   rating: number | null;
   jobUrl: string | null;
   resumeId: string | null;
+  companySize: string | null;
+  salaryBandMentioned: boolean;
+  triageQuality: number | null;
+  triageReason: string | null;
+  incomingSource: string | null;
+  autoRejected: boolean;
+  autoRejectReason: string | null;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -103,6 +110,13 @@ export interface CreateApplicationInput {
   rating: number | null;
   jobUrl: string | null;
   resumeId?: string | null;
+  companySize?: string | null;
+  salaryBandMentioned?: boolean;
+  triageQuality?: number | null;
+  triageReason?: string | null;
+  incomingSource?: string | null;
+  autoRejected?: boolean;
+  autoRejectReason?: string | null;
 }
 
 export interface UpdateApplicationInput {
@@ -121,6 +135,13 @@ export interface UpdateApplicationInput {
   rating?: number | null;
   jobUrl?: string | null;
   resumeId?: string | null;
+  companySize?: string | null;
+  salaryBandMentioned?: boolean;
+  triageQuality?: number | null;
+  triageReason?: string | null;
+  incomingSource?: string | null;
+  autoRejected?: boolean;
+  autoRejectReason?: string | null;
   archivedAt?: Date | null;
 }
 
@@ -183,6 +204,7 @@ export interface PaginatedResult<T> {
 export interface ListApplicationsFilter {
   status?: string[];
   ratingGte?: number;
+  triageQualityGte?: number;
   search?: string;
   remote?: boolean;
   sort?: string;
@@ -210,6 +232,13 @@ export interface BatchUpsertItem {
   rating?: number | null;
   jobUrl?: string | null;
   resumeId?: string | null;
+  companySize?: string | null;
+  salaryBandMentioned?: boolean;
+  triageQuality?: number | null;
+  triageReason?: string | null;
+  incomingSource?: string | null;
+  autoRejected?: boolean;
+  autoRejectReason?: string | null;
 }
 
 export interface BatchUpsertResult {

@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-table";
 import { useState, useMemo } from "react";
 import { useTranslations } from "next-intl";
-import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLORS, STATUS_ORDER } from "@/types";
+import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLORS, STATUS_ORDER, TRIAGE_COLORS } from "@/types";
 import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -146,6 +146,14 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
             </div>
           </div>
         )}
+        {app.triageQuality && (
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("triage")}</div>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${TRIAGE_COLORS[app.triageQuality] || ""}`}>
+              {app.triageQuality}/5
+            </span>
+          </div>
+        )}
       </div>
 
       {app.notes && (
@@ -227,6 +235,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
   });
   const [globalFilter, setGlobalFilter] = useState(initialGlobalFilter ?? "");
   const [remoteOnly, setRemoteOnly] = useState(false);
+  const [triageFilter, setTriageFilter] = useState(false);
 
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return "—";
@@ -322,6 +331,23 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       },
       sortingFn: (a, b) => (a.original.rating ?? 0) - (b.original.rating ?? 0),
     }),
+    columnHelper.accessor("triageQuality", {
+      header: t("triage"),
+      cell: (info) => {
+        const q = info.getValue();
+        if (!q) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+        const colorClass = TRIAGE_COLORS[q] || "";
+        return (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${colorClass}`}
+            title={info.row.original.triageReason || ""}
+          >
+            {q}/5
+          </span>
+        );
+      },
+      sortingFn: (a, b) => (a.original.triageQuality ?? 0) - (b.original.triageQuality ?? 0),
+    }),
     columnHelper.accessor("source", {
       header: t("source"),
       cell: (info) => {
@@ -411,10 +437,12 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     }),
   ];
 
-  const filteredApplications = useMemo(
-    () => remoteOnly ? applications.filter((a) => a.remote) : applications,
-    [applications, remoteOnly]
-  );
+  const filteredApplications = useMemo(() => {
+    let result = applications;
+    if (remoteOnly) result = result.filter((a) => a.remote);
+    if (triageFilter) result = result.filter((a) => a.triageQuality != null && a.triageQuality >= 4);
+    return result;
+  }, [applications, remoteOnly, triageFilter]);
 
   const table = useReactTable({
     data: filteredApplications,
@@ -472,12 +500,23 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
           >
             {ta("remote_only")}
           </button>
-          {(globalFilter || statusFilter || remoteOnly) && (
+          <button
+            onClick={() => setTriageFilter((v) => !v)}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+              triageFilter
+                ? "border-green-400 bg-green-50 text-green-700 dark:border-green-600 dark:bg-green-950/40 dark:text-green-300"
+                : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            }`}
+          >
+            {ta("triage_filter")}
+          </button>
+          {(globalFilter || columnFilters.length > 0 || remoteOnly || triageFilter) && (
             <button
               onClick={() => {
                 setGlobalFilter("");
                 setColumnFilters([]);
                 setRemoteOnly(false);
+                setTriageFilter(false);
               }}
               className="col-span-2 text-left text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 sm:text-center"
             >

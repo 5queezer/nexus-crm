@@ -3,7 +3,8 @@
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ORDER, SOURCE_PRESETS } from "@/types";
+import { Application, ApplicationStatus, Contact, CompanySize, IncomingSource, STATUS_ORDER, SOURCE_PRESETS, TRIAGE_COLORS } from "@/types";
+import { TriagePanel } from "./triage-panel";
 
 interface ApplicationModalProps {
   application: Application | null;
@@ -25,6 +26,13 @@ interface FormData {
   salaryMax: string;
   rating: number | null;
   jobUrl: string;
+  companySize: CompanySize | "";
+  salaryBandMentioned: boolean;
+  triageQuality: number | null;
+  triageReason: string;
+  incomingSource: IncomingSource | "";
+  autoRejected: boolean;
+  autoRejectReason: string;
 }
 
 interface ContactFormRow {
@@ -50,6 +58,13 @@ function serializeForm(data: FormData) {
     salaryMax: data.salaryMax ? parseInt(data.salaryMax, 10) : null,
     rating: data.rating,
     jobUrl: data.jobUrl || null,
+    companySize: data.companySize || null,
+    salaryBandMentioned: data.salaryBandMentioned,
+    triageQuality: data.triageQuality,
+    triageReason: data.triageReason || null,
+    incomingSource: data.incomingSource || null,
+    autoRejected: data.autoRejected,
+    autoRejectReason: data.autoRejectReason || null,
   };
 }
 
@@ -144,9 +159,17 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     salaryMax: application?.salaryMax != null ? String(application.salaryMax) : "",
     rating: application?.rating ?? null,
     jobUrl: application?.jobUrl || "",
+    companySize: (application?.companySize as CompanySize) || "",
+    salaryBandMentioned: application?.salaryBandMentioned ?? false,
+    triageQuality: application?.triageQuality ?? null,
+    triageReason: application?.triageReason || "",
+    incomingSource: (application?.incomingSource as IncomingSource) || "",
+    autoRejected: application?.autoRejected ?? false,
+    autoRejectReason: application?.autoRejectReason || "",
   });
 
   const [jdOpen, setJdOpen] = useState(false);
+  const [triageOpen, setTriageOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
@@ -564,6 +587,42 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                     🤖 Analyze
                   </a>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Triage — collapsible */}
+          <div className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setTriageOpen((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                {triageOpen ? t("triage_toggle_hide") : t("triage_toggle_show")}
+                {form.triageQuality && (
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${TRIAGE_COLORS[form.triageQuality as keyof typeof TRIAGE_COLORS] || ""}`}>
+                    {form.triageQuality}/5
+                  </span>
+                )}
+              </span>
+              <span className="text-gray-400">{triageOpen ? "▲" : "▼"}</span>
+            </button>
+            {triageOpen && (
+              <div className="p-3">
+                <TriagePanel
+                  data={{
+                    companySize: form.companySize,
+                    salaryBandMentioned: form.salaryBandMentioned,
+                    triageQuality: form.triageQuality as (1 | 2 | 3 | 4 | 5 | null),
+                    triageReason: form.triageReason,
+                    incomingSource: form.incomingSource,
+                    autoRejected: form.autoRejected,
+                    autoRejectReason: form.autoRejectReason,
+                  }}
+                  onChange={(partial) => setForm((prev) => ({ ...prev, ...partial }))}
+                  jobDescription={form.jobDescription}
+                />
               </div>
             )}
           </div>

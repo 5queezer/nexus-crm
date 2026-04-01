@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { normalizeStatus } from "@/types";
+import { sanitizeTriageFields } from "./sanitize";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -186,6 +187,9 @@ export class PrismaAdapter implements DatabaseAdapter {
     if (filter.ratingGte !== undefined) {
       where.rating = { gte: filter.ratingGte };
     }
+    if (filter.triageQualityGte !== undefined) {
+      where.triageQuality = { gte: filter.triageQualityGte };
+    }
     if (filter.remote !== undefined) {
       where.remote = filter.remote;
     }
@@ -207,6 +211,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       const allowedSortFields = [
         "createdAt", "updatedAt", "company", "role", "status",
         "rating", "salaryMin", "salaryMax", "appliedAt", "lastContact",
+        "triageQuality",
       ];
       if (allowedSortFields.includes(field)) {
         orderBy = { [field]: desc ? "desc" : "asc" };
@@ -272,6 +277,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (item.salaryMax !== undefined) data.salaryMax = item.salaryMax;
           if (item.rating !== undefined) data.rating = item.rating;
           if (item.jobUrl !== undefined) data.jobUrl = item.jobUrl;
+          Object.assign(data, sanitizeTriageFields(item as Record<string, unknown>));
 
           const row = await prisma.application.update({
             where: { id: nid(item.id), userId },
@@ -303,6 +309,15 @@ export class PrismaAdapter implements DatabaseAdapter {
               salaryMax: item.salaryMax ?? null,
               rating: item.rating ?? null,
               jobUrl: item.jobUrl ?? null,
+              ...sanitizeTriageFields({
+                companySize: item.companySize ?? null,
+                salaryBandMentioned: item.salaryBandMentioned ?? false,
+                triageQuality: item.triageQuality ?? null,
+                triageReason: item.triageReason ?? null,
+                incomingSource: item.incomingSource ?? null,
+                autoRejected: item.autoRejected ?? false,
+                autoRejectReason: item.autoRejectReason ?? null,
+              }),
             },
           });
           results.push({ index: i, id: sid(row.id), operation: "created" });
