@@ -3,7 +3,7 @@
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { Application, ApplicationStatus, Contact, CompanySize, IncomingSource, STATUS_COLORS, STATUS_ORDER, SOURCE_PRESETS, TRIAGE_COLORS } from "@/types";
+import { Application, ApplicationStatus, Contact, CompanySize, IncomingSource, STATUS_ORDER, SOURCE_PRESETS, TRIAGE_COLORS } from "@/types";
 import { TriagePanel } from "./triage-panel";
 
 interface ApplicationModalProps {

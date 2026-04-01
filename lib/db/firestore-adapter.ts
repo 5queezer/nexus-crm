@@ -233,6 +233,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
     if (data.rating !== undefined) update.rating = data.rating;
     if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl;
+    if (data.companySize !== undefined) update.companySize = data.companySize;
+    if (data.salaryBandMentioned !== undefined) update.salaryBandMentioned = data.salaryBandMentioned;
+    if (data.triageQuality !== undefined) update.triageQuality = data.triageQuality;
+    if (data.triageReason !== undefined) update.triageReason = data.triageReason;
+    if (data.incomingSource !== undefined) update.incomingSource = data.incomingSource;
+    if (data.autoRejected !== undefined) update.autoRejected = data.autoRejected;
+    if (data.autoRejectReason !== undefined) update.autoRejectReason = data.autoRejectReason;
 
     await ref.update(update);
     return (await this.getApplication(id, userId))!;
@@ -376,6 +383,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
           if (item.salaryMax !== undefined) update.salaryMax = item.salaryMax;
           if (item.rating !== undefined) update.rating = item.rating;
           if (item.jobUrl !== undefined) update.jobUrl = item.jobUrl;
+          if (item.companySize !== undefined) update.companySize = item.companySize;
+          if (item.salaryBandMentioned !== undefined) update.salaryBandMentioned = item.salaryBandMentioned;
+          if (item.triageQuality !== undefined) update.triageQuality = item.triageQuality;
+          if (item.triageReason !== undefined) update.triageReason = item.triageReason;
+          if (item.incomingSource !== undefined) update.incomingSource = item.incomingSource;
+          if (item.autoRejected !== undefined) update.autoRejected = item.autoRejected;
+          if (item.autoRejectReason !== undefined) update.autoRejectReason = item.autoRejectReason;
 
           await ref.update(update);
           results.push({ index: i, id: item.id, operation: "updated" });
@@ -404,6 +418,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
             salaryMax: item.salaryMax ?? null,
             rating: item.rating ?? null,
             jobUrl: item.jobUrl ?? null,
+            companySize: item.companySize ?? null,
+            salaryBandMentioned: item.salaryBandMentioned ?? false,
+            triageQuality: item.triageQuality ?? null,
+            triageReason: item.triageReason ?? null,
+            incomingSource: item.incomingSource ?? null,
+            autoRejected: item.autoRejected ?? false,
+            autoRejectReason: item.autoRejectReason ?? null,
             createdAt: now,
             updatedAt: now,
           });

@@ -135,7 +135,9 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
     salaryMentioned: data.salaryBandMentioned ? "yes" : "unclear",
   });
 
-  const hasAnswered = answers !== DEFAULT_ANSWERS;
+  const hasAnswered = (Object.keys(DEFAULT_ANSWERS) as (keyof TriageAnswers)[]).some(
+    (key) => answers[key] !== DEFAULT_ANSWERS[key]
+  );
   const suggestedScore = useMemo(
     () => hasAnswered ? computeScore(answers) : null,
     [answers, hasAnswered]
@@ -309,7 +311,11 @@ export function TriagePanel({ data, onChange, jobDescription = "" }: TriagePanel
         <input
           type="checkbox"
           checked={data.salaryBandMentioned}
-          onChange={(e) => onChange({ salaryBandMentioned: e.target.checked })}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            onChange({ salaryBandMentioned: checked });
+            setAnswers((prev) => ({ ...prev, salaryMentioned: checked ? "yes" : "no" }));
+          }}
           className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
         />
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
