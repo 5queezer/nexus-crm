@@ -95,6 +95,14 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/types", () => ({
   normalizeStatus: (s: string) => s,
+  COMPANY_SIZE_OPTIONS: [
+    { value: "micro", label: "< 50" },
+    { value: "small", label: "50–500" },
+    { value: "mid", label: "500–5k" },
+    { value: "large", label: "5k+" },
+    { value: "enterprise", label: "Enterprise" },
+  ],
+  INCOMING_SOURCE_OPTIONS: ["linkedin", "email", "referral", "outbound"],
 }));
 
 // ── Import adapter after mocks ──────────────────────────────────────────────

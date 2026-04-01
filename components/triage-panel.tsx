@@ -78,7 +78,7 @@ function checkAutoReject(
     reasons.push("Company size > 5k");
   }
   if (
-    jdLower.includes("java") &&
+    /\bjava\b/i.test(jobDescription) &&
     !jdLower.includes("javascript") &&
     !jdLower.includes("typescript")
   ) {
