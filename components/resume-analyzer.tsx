@@ -6,7 +6,6 @@ import {
   analyzeResume,
   type AnalysisResult,
   type SkillCategory,
-  type ExtractedKeyword,
 } from "@/lib/resume-analysis";
 
 interface ResumeAnalyzerProps {
@@ -391,7 +390,7 @@ function KeywordBadge({
   keyword,
   categoryLabel,
 }: {
-  keyword: ExtractedKeyword;
+  keyword: AnalysisResult["keywords"][number];
   categoryLabel: (cat: SkillCategory) => string;
 }) {
   const catColors: Record<SkillCategory, string> = {
