@@ -26,23 +26,25 @@ export async function PATCH(
     );
   }
 
-  const users = await getDb().listUsers();
-  const target = users.find((user) => user.id === id);
+  const db = getDb();
 
+  const target = await db.getUser(id);
   if (!target) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const adminCount = users.filter((user) => user.isAdmin).length;
-  if (target.isAdmin && !body.isAdmin && adminCount <= 1) {
-    return NextResponse.json(
-      { error: "At least one admin user is required" },
-      { status: 400 }
-    );
+  let updated;
+  try {
+    updated = await db.updateUserAdmin(id, body.isAdmin);
+  } catch (error) {
+    if (error instanceof Error && error.message === "AT_LEAST_ONE_ADMIN_REQUIRED") {
+      return NextResponse.json(
+        { error: "At least one admin user is required" },
+        { status: 400 }
+      );
+    }
+    throw error;
   }
-
-  const db = getDb();
-  const updated = await db.updateUserAdmin(id, body.isAdmin);
 
   // Write audit log
   const action = body.isAdmin ? "grant_admin" : "revoke_admin";

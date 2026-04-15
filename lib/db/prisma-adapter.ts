@@ -503,10 +503,32 @@ export class PrismaAdapter implements DatabaseAdapter {
   }
 
   async updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord> {
-    return prisma.user.update({
-      where: { id },
-      data: { isAdmin },
-      select: { id: true, name: true, email: true, isAdmin: true },
+    return prisma.$transaction(async (tx) => {
+      // If we are trying to demote an admin, ensure at least one admin remains
+      if (!isAdmin) {
+        const target = await tx.user.findUnique({
+          where: { id },
+          select: { isAdmin: true },
+        });
+
+        if (target?.isAdmin) {
+          const adminCount = await tx.user.count({
+            where: { isAdmin: true },
+          });
+
+          if (adminCount <= 1) {
+            throw new Error("AT_LEAST_ONE_ADMIN_REQUIRED");
+          }
+        }
+      }
+
+      return tx.user.update({
+        where: { id },
+        data: { isAdmin },
+        select: { id: true, name: true, email: true, isAdmin: true },
+      });
+    }, {
+      isolationLevel: "Serializable",
     });
   }
 
