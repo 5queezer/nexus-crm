@@ -61,3 +61,27 @@ export function fileExists(filename: string): Promise<boolean> {
     return Promise.resolve(existsSync(path.join(getLocalDir(), filename)));
   }
 }
+
+export function isGcsBacked(): boolean {
+  return useGCS;
+}
+
+/**
+ * Generate a short-lived V4 signed URL for direct download from GCS. Only
+ * supported when a GCS bucket is configured; callers must check isGcsBacked().
+ */
+export async function getSignedDownloadUrl(
+  filename: string,
+  expiresInSeconds = 300,
+): Promise<string> {
+  if (!useGCS) {
+    throw new Error("Signed URLs require a GCS bucket");
+  }
+  const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
+  const [url] = await file.getSignedUrl({
+    version: "v4",
+    action: "read",
+    expires: Date.now() + expiresInSeconds * 1000,
+  });
+  return url;
+}
