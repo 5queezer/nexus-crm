@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
+import { downloadDocumentContent } from "@/lib/documents/download";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 import type { UpsertCvProfileInput } from "@/lib/db/types";
 
@@ -496,6 +497,13 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
       };
     }
+  );
+
+  server.tool(
+    "download_document_content",
+    "Download the binary content of a document. For files <=1MB the content is returned inline as base64. For larger files, a short-lived signed URL is returned instead when object storage is available (falls back to inline base64 otherwise).",
+    { id: z.string().describe("Document ID") },
+    async ({ id }) => downloadDocumentContent(id, auth.readScopeUserId),
   );
 
   server.tool(

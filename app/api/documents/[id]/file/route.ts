@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { safeCompare } from "@/lib/token";
-import { downloadFile, fileExists } from "@/lib/storage";
+import { downloadFile } from "@/lib/storage";
+import { loadOwnedDocument } from "@/lib/documents/fetch";
 
 export async function GET(
   request: NextRequest,
@@ -10,7 +10,7 @@ export async function GET(
 ) {
   // Allow access via session/Bearer auth OR via PUBLIC_READ_TOKEN query param
   // (used for shared document links).
-  let readScopeUserId: string | null | undefined;
+  let readScopeUserId: string | null;
 
   const auth = await requireAuth();
   if (auth) {
@@ -26,21 +26,19 @@ export async function GET(
   }
 
   const { id } = await params;
-  const document = await getDb().getDocument(id, readScopeUserId ?? null);
-  if (!document) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const result = await loadOwnedDocument(id, readScopeUserId);
+  if (!result.ok) {
+    const message = result.reason === "not_found" ? "Not found" : "File not found on disk";
+    return NextResponse.json({ error: message }, { status: 404 });
   }
 
-  if (!(await fileExists(document.filename))) {
-    return NextResponse.json({ error: "File not found on disk" }, { status: 404 });
-  }
-
-  const buffer = await downloadFile(document.filename);
+  const { doc } = result;
+  const buffer = await downloadFile(doc.filename);
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
-      "Content-Type": document.mimeType,
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(document.originalName)}"`,
+      "Content-Type": doc.mimeType,
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(doc.originalName)}"`,
       "Content-Length": String(buffer.length),
       "Cache-Control": "private, no-cache",
       "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
