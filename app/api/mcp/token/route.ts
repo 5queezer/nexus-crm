@@ -29,8 +29,27 @@ export async function POST(req: NextRequest) {
   }
 
   const grantType = params.get("grant_type");
-  const clientId = params.get("client_id");
-  const clientSecret = params.get("client_secret") ?? undefined;
+
+  // RFC 6749 §2.3.1: clients MAY use HTTP Basic auth (`client_secret_basic`)
+  // OR include credentials in the request body (`client_secret_post`).
+  // ChatGPT and several other connectors default to Basic; accept both.
+  let clientId = params.get("client_id");
+  let clientSecret = params.get("client_secret") ?? undefined;
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.toLowerCase().startsWith("basic ")) {
+    try {
+      const decoded = Buffer.from(authHeader.slice(6).trim(), "base64").toString("utf8");
+      const sep = decoded.indexOf(":");
+      if (sep !== -1) {
+        const headerId = decodeURIComponent(decoded.slice(0, sep));
+        const headerSecret = decodeURIComponent(decoded.slice(sep + 1));
+        clientId = clientId ?? headerId;
+        clientSecret = clientSecret ?? headerSecret;
+      }
+    } catch {
+      // Malformed Basic header — fall through to invalid_client below
+    }
+  }
 
   if (!clientId) {
     return NextResponse.json(
