@@ -720,9 +720,17 @@ async function handleMcpRequest(req: NextRequest): Promise<Response> {
   // Authenticate
   const auth = await authenticateFromRequest(req);
   if (!auth) {
+    // RFC 9728 §5.1: include WWW-Authenticate with resource_metadata so MCP
+    // clients (ChatGPT, Cursor, etc.) can discover the OAuth flow. Without
+    // this, some clients refuse to attempt authorization.
+    const baseUrl = process.env.BETTER_AUTH_URL?.replace(/\/+$/, "")
+      ?? `${req.nextUrl.protocol}//${req.nextUrl.host}`;
     return new Response(JSON.stringify({ error: "Unauthorized – provide Bearer token" }), {
       status: 401,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer realm="${baseUrl}/api/mcp", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
+      },
     });
   }
 
