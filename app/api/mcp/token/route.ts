@@ -7,26 +7,45 @@ import { exchangeAuthCode, exchangeRefreshToken, verifyClient } from "@/lib/mcp-
  */
 export async function POST(req: NextRequest) {
   const contentType = req.headers.get("content-type") ?? "";
+  const rawAuth = req.headers.get("authorization");
   let params: URLSearchParams;
+  let rawBody = "";
 
-  if (contentType.includes("application/x-www-form-urlencoded")) {
-    const text = await req.text();
-    params = new URLSearchParams(text);
-  } else if (contentType.includes("application/json")) {
-    const json = await req.json();
-    // Convert JSON object to URLSearchParams safely (only string values)
-    params = new URLSearchParams();
-    for (const [key, value] of Object.entries(json)) {
-      if (typeof value === "string") {
-        params.set(key, value);
+  if (contentType.includes("application/json")) {
+    rawBody = await req.text();
+    try {
+      const json = JSON.parse(rawBody);
+      params = new URLSearchParams();
+      for (const [key, value] of Object.entries(json)) {
+        if (typeof value === "string") {
+          params.set(key, value);
+        }
       }
+    } catch {
+      params = new URLSearchParams();
     }
   } else {
-    return NextResponse.json(
-      { error: "invalid_request", error_description: "Unsupported content type" },
-      { status: 400 }
-    );
+    // Default to form-urlencoded — RFC 6749 §4.1.3 mandates it. Some clients
+    // omit or send odd charsets, so don't reject on Content-Type alone.
+    rawBody = await req.text();
+    params = new URLSearchParams(rawBody);
   }
+
+  console.log(
+    "[mcp/token] req:",
+    JSON.stringify({
+      contentType,
+      hasAuthHeader: !!rawAuth,
+      authScheme: rawAuth?.split(" ")[0] ?? null,
+      bodyKeys: [...params.keys()],
+      grant_type: params.get("grant_type"),
+      client_id: params.get("client_id"),
+      redirect_uri: params.get("redirect_uri"),
+      has_code: !!params.get("code"),
+      has_code_verifier: !!params.get("code_verifier"),
+      bodyLen: rawBody.length,
+    })
+  );
 
   const grantType = params.get("grant_type");
 
@@ -61,6 +80,7 @@ export async function POST(req: NextRequest) {
   // Verify client
   const { valid } = await verifyClient(clientId, clientSecret);
   if (!valid) {
+    console.warn("[mcp/token] verifyClient failed:", JSON.stringify({ clientId, hasSecret: !!clientSecret }));
     return NextResponse.json(
       { error: "invalid_client", error_description: "Invalid client credentials" },
       { status: 401 }
@@ -87,6 +107,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (!tokens) {
+      console.warn(
+        "[mcp/token] exchangeAuthCode rejected:",
+        JSON.stringify({ clientId, redirectUri, codeLen: code.length, verifierLen: codeVerifier.length })
+      );
       return NextResponse.json(
         { error: "invalid_grant", error_description: "Invalid or expired authorization code" },
         { status: 400 }
