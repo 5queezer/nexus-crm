@@ -701,8 +701,11 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             if (embedding) {
               const ranked = await db.semanticSearchCvExperience(auth.userId, embedding);
               const count = args.autoSelectCount ?? 5;
-              experienceIds = ranked.slice(0, count).map((r) => r.experienceId);
-              autoSelected = true;
+              const top = ranked.slice(0, count).map((r) => r.experienceId);
+              if (top.length > 0) {
+                experienceIds = top;
+                autoSelected = true;
+              }
             }
           }
           // Fall back to all experience entries in order

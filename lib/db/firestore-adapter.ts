@@ -947,12 +947,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
     });
   }
 
-  async semanticSearchApplications(): Promise<[]> {
-    return [];
+  async semanticSearchApplications(): Promise<never[]> {
+    throw new Error("Semantic search requires PostgreSQL with pgvector. Switch DB_PROVIDER to 'prisma'.");
   }
 
-  async semanticSearchCvExperience(): Promise<[]> {
-    return [];
+  async semanticSearchCvExperience(): Promise<never[]> {
+    throw new Error("Semantic search requires PostgreSQL with pgvector. Switch DB_PROVIDER to 'prisma'.");
   }
 
   async upsertApplicationEmbedding(): Promise<void> {}
