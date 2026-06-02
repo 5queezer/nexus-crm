@@ -904,14 +904,23 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         .optional()
         .default(true)
         .describe("Reindex CV experience embeddings (default: true)"),
+      page: z
+        .number()
+        .min(1)
+        .optional()
+        .default(1)
+        .describe("Page of applications to process (200 per page, default: 1). Increment until total < 200."),
     },
-    async ({ include_applications, include_cv_experience }) => {
+    async ({ include_applications, include_cv_experience, page }) => {
       const db = getDb();
       const summary: Record<string, unknown> = {};
+      const PAGE_SIZE = 200;
 
       if (include_applications) {
         const apps = await db.listApplicationsFiltered(auth.readScopeUserId, {
-          limit: 200,
+          limit: PAGE_SIZE,
+          offset: ((page ?? 1) - 1) * PAGE_SIZE,
+          sort: "createdAt",
           fields: ["id", "company", "role", "notes", "jobDescription"],
         });
         let indexed = 0;
@@ -931,7 +940,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             skipped++;
           }
         }
-        summary.applications = { indexed, skipped, total: apps.length };
+        summary.applications = { indexed, skipped, total: apps.length, page: page ?? 1, hasMore: apps.length === PAGE_SIZE };
       }
 
       if (include_cv_experience) {

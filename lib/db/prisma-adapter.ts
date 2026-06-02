@@ -245,6 +245,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         where,
         orderBy,
         take: filter.limit ?? undefined,
+        skip: filter.offset ?? undefined,
         include: { contacts: true },
       });
       return pickFields(rows.map(mapApp), filter.fields);
@@ -254,6 +255,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       where,
       orderBy,
       take: filter.limit ?? undefined,
+      skip: filter.offset ?? undefined,
     });
     // Map without contacts — give mapApp an empty contacts array to satisfy the type
     const mapped = rows.map((row) => mapApp({ ...row, contacts: [] }));
@@ -648,7 +650,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       update: payload,
     });
     const profile = mapCvProfile(row);
-    this._indexExperienceEmbeddings(userId, profile.experience).catch(() => {});
+    await this._indexExperienceEmbeddings(userId, profile.experience).catch(() => {});
     return profile;
   }
 

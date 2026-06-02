@@ -210,6 +210,7 @@ export interface ListApplicationsFilter {
   sort?: string;
   fields?: string[];
   limit?: number;
+  offset?: number;
   includeContacts?: boolean;
   page?: number;
   pageSize?: number;
