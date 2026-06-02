@@ -302,7 +302,9 @@ export class PrismaAdapter implements DatabaseAdapter {
           const row = await prisma.application.update({
             where: { id: nid(item.id), userId },
             data,
+            include: { contacts: true },
           });
+          this._indexApplicationEmbedding(row.id, mapApp(row)).catch(() => {});
           results.push({ index: i, id: sid(row.id), operation: "updated" });
           succeeded++;
         } else {
@@ -340,6 +342,7 @@ export class PrismaAdapter implements DatabaseAdapter {
               }),
             },
           });
+          this._indexApplicationEmbedding(row.id, mapApp({ ...row, contacts: [] })).catch(() => {});
           results.push({ index: i, id: sid(row.id), operation: "created" });
           succeeded++;
         }
@@ -653,6 +656,21 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     experience: CvProfileRecord["experience"]
   ): Promise<void> {
+    const currentIds = experience.map((e) => e.id);
+
+    // Delete stale rows for experience entries that were removed or renamed
+    if (currentIds.length > 0) {
+      await prisma.$executeRaw`
+        DELETE FROM cv_experience_embeddings
+        WHERE user_id = ${userId}
+          AND experience_id NOT IN (${Prisma.join(currentIds)})
+      `;
+    } else {
+      await prisma.$executeRaw`
+        DELETE FROM cv_experience_embeddings WHERE user_id = ${userId}
+      `;
+    }
+
     const entries: Array<{ experienceId: string; embedding: number[] }> = [];
     for (const exp of experience) {
       const text = experienceEmbeddingText(exp);
