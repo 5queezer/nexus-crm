@@ -2,6 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { normalizeStatus } from "@/types";
 import { sanitizeTriageFields } from "./sanitize";
+import {
+  getEmbedding,
+  applicationEmbeddingText,
+  experienceEmbeddingText,
+} from "@/lib/embeddings";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -28,6 +33,8 @@ import type {
   UpsertCvProfileInput,
   CvPatchRecord,
   UpsertCvPatchInput,
+  SemanticApplicationResult,
+  SemanticExperienceResult,
 } from "./types";
 
 // ── Helpers: convert Prisma int IDs ↔ string IDs ────────────────────────────
@@ -156,7 +163,9 @@ export class PrismaAdapter implements DatabaseAdapter {
       data: { userId, ...data, status: normalizeStatus(data.status) },
       include: { contacts: true },
     });
-    return mapApp(row);
+    const mapped = mapApp(row);
+    this._indexApplicationEmbedding(row.id, mapped).catch(() => {});
+    return mapped;
   }
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
@@ -168,7 +177,18 @@ export class PrismaAdapter implements DatabaseAdapter {
       },
       include: { contacts: true },
     });
-    return mapApp(row);
+    const mapped = mapApp(row);
+    this._indexApplicationEmbedding(row.id, mapped).catch(() => {});
+    return mapped;
+  }
+
+  private async _indexApplicationEmbedding(
+    numericId: number,
+    app: ApplicationRecord
+  ): Promise<void> {
+    const text = applicationEmbeddingText(app);
+    const embedding = await getEmbedding(text);
+    if (embedding) await this.upsertApplicationEmbedding(numericId, embedding);
   }
 
   async deleteApplication(id: string, userId: string): Promise<void> {
@@ -624,7 +644,22 @@ export class PrismaAdapter implements DatabaseAdapter {
       create: { userId, ...payload },
       update: payload,
     });
-    return mapCvProfile(row);
+    const profile = mapCvProfile(row);
+    this._indexExperienceEmbeddings(userId, profile.experience).catch(() => {});
+    return profile;
+  }
+
+  private async _indexExperienceEmbeddings(
+    userId: string,
+    experience: CvProfileRecord["experience"]
+  ): Promise<void> {
+    const entries: Array<{ experienceId: string; embedding: number[] }> = [];
+    for (const exp of experience) {
+      const text = experienceEmbeddingText(exp);
+      const embedding = await getEmbedding(text);
+      if (embedding) entries.push({ experienceId: exp.id, embedding });
+    }
+    if (entries.length) await this.upsertCvExperienceEmbeddings(userId, entries);
   }
 
   async getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null> {
@@ -670,5 +705,95 @@ export class PrismaAdapter implements DatabaseAdapter {
       where: { id: nid(patchId) },
       data: { documentId: documentId ? nid(documentId) : null },
     });
+  }
+
+  // ── Vector / semantic search ─────────────────────────────────────────────
+
+  async upsertApplicationEmbedding(
+    applicationId: number,
+    embedding: number[]
+  ): Promise<void> {
+    const vec = `[${embedding.join(",")}]`;
+    await prisma.$executeRaw`
+      INSERT INTO application_embeddings (application_id, embedding, updated_at)
+      VALUES (${applicationId}, ${vec}::vector, NOW())
+      ON CONFLICT (application_id)
+      DO UPDATE SET embedding = ${vec}::vector, updated_at = NOW()
+    `;
+  }
+
+  async upsertCvExperienceEmbeddings(
+    userId: string,
+    entries: Array<{ experienceId: string; embedding: number[] }>
+  ): Promise<void> {
+    for (const { experienceId, embedding } of entries) {
+      const vec = `[${embedding.join(",")}]`;
+      await prisma.$executeRaw`
+        INSERT INTO cv_experience_embeddings (user_id, experience_id, embedding, updated_at)
+        VALUES (${userId}, ${experienceId}, ${vec}::vector, NOW())
+        ON CONFLICT (user_id, experience_id)
+        DO UPDATE SET embedding = ${vec}::vector, updated_at = NOW()
+      `;
+    }
+  }
+
+  async semanticSearchApplications(
+    userId: string | null,
+    embedding: number[],
+    limit: number
+  ): Promise<SemanticApplicationResult[]> {
+    const vec = `[${embedding.join(",")}]`;
+    type Row = { id: number; company: string; role: string; status: string; similarity: number };
+
+    let rows: Row[];
+    if (userId === null) {
+      rows = await prisma.$queryRaw<Row[]>`
+        SELECT a.id, a.company, a.role, a.status,
+               1 - (e.embedding <=> ${vec}::vector) AS similarity
+        FROM application_embeddings e
+        JOIN "Application" a ON a.id = e.application_id
+        ORDER BY e.embedding <=> ${vec}::vector
+        LIMIT ${limit}
+      `;
+    } else {
+      rows = await prisma.$queryRaw<Row[]>`
+        SELECT a.id, a.company, a.role, a.status,
+               1 - (e.embedding <=> ${vec}::vector) AS similarity
+        FROM application_embeddings e
+        JOIN "Application" a ON a.id = e.application_id
+        WHERE a."userId" = ${userId}
+        ORDER BY e.embedding <=> ${vec}::vector
+        LIMIT ${limit}
+      `;
+    }
+
+    return rows.map((r) => ({
+      id: sid(r.id),
+      company: r.company,
+      role: r.role,
+      status: normalizeStatus(r.status),
+      similarity: Number(r.similarity),
+    }));
+  }
+
+  async semanticSearchCvExperience(
+    userId: string,
+    embedding: number[]
+  ): Promise<SemanticExperienceResult[]> {
+    const vec = `[${embedding.join(",")}]`;
+    type Row = { experience_id: string; similarity: number };
+
+    const rows = await prisma.$queryRaw<Row[]>`
+      SELECT experience_id,
+             1 - (embedding <=> ${vec}::vector) AS similarity
+      FROM cv_experience_embeddings
+      WHERE user_id = ${userId}
+      ORDER BY embedding <=> ${vec}::vector
+    `;
+
+    return rows.map((r) => ({
+      experienceId: r.experience_id,
+      similarity: Number(r.similarity),
+    }));
   }
 }

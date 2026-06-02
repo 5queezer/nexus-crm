@@ -23,6 +23,8 @@ import type {
   UpsertCvProfileInput,
   CvPatchRecord,
   UpsertCvPatchInput,
+  SemanticApplicationResult,
+  SemanticExperienceResult,
 } from "./types";
 
 export interface DatabaseAdapter {
@@ -91,4 +93,24 @@ export interface DatabaseAdapter {
   getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null>;
   upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord>;
   setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void>;
+
+  // ── Vector / semantic search ─────────────────────────────────────────────
+  /** Find applications semantically similar to the given embedding. */
+  semanticSearchApplications(
+    userId: string | null,
+    embedding: number[],
+    limit: number
+  ): Promise<SemanticApplicationResult[]>;
+  /** Rank CV experience entries by semantic similarity to the given embedding. */
+  semanticSearchCvExperience(
+    userId: string,
+    embedding: number[]
+  ): Promise<SemanticExperienceResult[]>;
+  /** Upsert an embedding row for a single application. */
+  upsertApplicationEmbedding(applicationId: number, embedding: number[]): Promise<void>;
+  /** Upsert embedding rows for a batch of CV experience entries. */
+  upsertCvExperienceEmbeddings(
+    userId: string,
+    entries: Array<{ experienceId: string; embedding: number[] }>
+  ): Promise<void>;
 }

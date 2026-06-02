@@ -9,6 +9,7 @@ import { normalizeStatus } from "@/types";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
+import { getEmbedding, applicationEmbeddingText } from "@/lib/embeddings";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 import type { UpsertCvProfileInput } from "@/lib/db/types";
 
@@ -636,11 +637,30 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "generate_tailored_cv",
-    "Generate a tailored CV PDF for a specific application. Selects experience entries and skill categories from the master CV profile, renders a PDF, and stores it as a document linked to the application. Requires a CV profile to exist first (use upsert_cv_profile).",
+    "Generate a tailored CV PDF for a specific application. " +
+    "If experienceIds is omitted and the application has a jobDescription (or you provide jobDescriptionOverride), " +
+    "experience entries are auto-selected via semantic similarity. " +
+    "Requires a CV profile to exist first (use upsert_cv_profile).",
     {
       applicationId: z.string().describe("Application ID to generate CV for"),
-      profileOverride: z.string().optional().describe("Custom professional summary for this application (omit to use master)"),
-      experienceIds: z.array(z.string()).describe("Ordered list of experience entry IDs to include"),
+      profileOverride: z.string().optional().describe("Custom professional summary (omit to use master)"),
+      experienceIds: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Ordered experience entry IDs to include. Omit to auto-select via semantic search against the job description."
+        ),
+      autoSelectCount: z
+        .number()
+        .min(1)
+        .max(20)
+        .optional()
+        .default(5)
+        .describe("How many experience entries to auto-select when experienceIds is omitted (default: 5)"),
+      jobDescriptionOverride: z
+        .string()
+        .optional()
+        .describe("Job description text used for semantic auto-selection (falls back to the application's stored jobDescription)"),
       skillCategories: z.array(z.string()).describe("Ordered list of skill category names to include"),
       includeProjects: z.boolean().optional().default(false).describe("Include projects section?"),
       includeEducation: z.boolean().optional().default(true).describe("Include education section?"),
@@ -649,7 +669,6 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       try {
         const db = getDb();
 
-        // Verify application ownership
         const app = await db.getApplication(args.applicationId, auth.readScopeUserId);
         if (!app) {
           return {
@@ -658,7 +677,6 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           };
         }
 
-        // Get CV profile
         const profile = await db.getCvProfile(auth.userId);
         if (!profile) {
           return {
@@ -667,10 +685,35 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           };
         }
 
-        // Upsert the patch
+        // Auto-select experience entries if not provided
+        let experienceIds = args.experienceIds;
+        let autoSelected = false;
+
+        if (!experienceIds || experienceIds.length === 0) {
+          const jd = args.jobDescriptionOverride ?? app.jobDescription;
+          if (jd) {
+            const queryText = applicationEmbeddingText({
+              company: app.company,
+              role: app.role,
+              jobDescription: jd,
+            });
+            const embedding = await getEmbedding(queryText);
+            if (embedding) {
+              const ranked = await db.semanticSearchCvExperience(auth.userId, embedding);
+              const count = args.autoSelectCount ?? 5;
+              experienceIds = ranked.slice(0, count).map((r) => r.experienceId);
+              autoSelected = true;
+            }
+          }
+          // Fall back to all experience entries in order
+          if (!experienceIds || experienceIds.length === 0) {
+            experienceIds = profile.experience.map((e) => e.id);
+          }
+        }
+
         const patch = await db.upsertCvPatch(args.applicationId, {
           profileOverride: args.profileOverride,
-          experienceIds: args.experienceIds,
+          experienceIds,
           skillCategories: args.skillCategories,
           includeProjects: args.includeProjects,
           includeEducation: args.includeEducation,
@@ -694,17 +737,147 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           applicationId: args.applicationId,
           company: app.company,
           role: app.role,
+          experienceIds,
+          autoSelected,
         };
-        if (warnings.length > 0) {
-          result.warnings = warnings;
-        }
+        if (warnings.length > 0) result.warnings = warnings;
 
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       } catch (err) {
         return {
-          content: [{ type: "text", text: `Failed to generate CV: ${err instanceof Error ? err.message : "unknown error"}` }],
+          content: [
+            {
+              type: "text",
+              text: `Failed to generate CV: ${err instanceof Error ? err.message : "unknown error"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Semantic / vector search tools ────────────────────────────────────────
+
+  server.tool(
+    "semantic_search_applications",
+    "Find job applications semantically similar to a natural-language query. " +
+    "Returns ranked results with similarity scores. Requires OPENAI_API_KEY to be configured.",
+    {
+      query: z.string().describe("Natural-language description of the roles/companies/context to find"),
+      limit: z
+        .number()
+        .min(1)
+        .max(50)
+        .optional()
+        .default(10)
+        .describe("Maximum number of results to return (default: 10)"),
+    },
+    async ({ query, limit }) => {
+      const embedding = await getEmbedding(query);
+      if (!embedding) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Semantic search is unavailable: OPENAI_API_KEY is not configured or the embedding request failed.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      try {
+        const results = await getDb().semanticSearchApplications(
+          auth.readScopeUserId,
+          embedding,
+          limit ?? 10
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Semantic search failed: ${err instanceof Error ? err.message : "unknown error"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "rank_cv_experience_for_job",
+    "Rank your CV experience entries by semantic relevance to a job description. " +
+    "Returns experience IDs sorted from most to least relevant — pass the top N to generate_tailored_cv. " +
+    "Requires OPENAI_API_KEY to be configured.",
+    {
+      jobDescription: z
+        .string()
+        .describe("Job description or any text describing the target role"),
+      limit: z
+        .number()
+        .min(1)
+        .max(50)
+        .optional()
+        .describe("Return only the top N entries (omit for all)"),
+    },
+    async ({ jobDescription, limit }) => {
+      const embedding = await getEmbedding(jobDescription);
+      if (!embedding) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Semantic ranking is unavailable: OPENAI_API_KEY is not configured or the embedding request failed.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      try {
+        const profile = await getDb().getCvProfile(auth.userId);
+        if (!profile) {
+          return {
+            content: [{ type: "text", text: "No CV profile found. Use upsert_cv_profile first." }],
+            isError: true,
+          };
+        }
+
+        let ranked = await getDb().semanticSearchCvExperience(auth.userId, embedding);
+        if (limit) ranked = ranked.slice(0, limit);
+
+        // Enrich with experience details for readability
+        const expMap = new Map(profile.experience.map((e) => [e.id, e]));
+        const enriched = ranked.map((r) => {
+          const exp = expMap.get(r.experienceId);
+          return {
+            experienceId: r.experienceId,
+            similarity: r.similarity,
+            company: exp?.company ?? "(unknown)",
+            title: exp?.title ?? "(unknown)",
+            date: exp?.date ?? "",
+          };
+        });
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(enriched, null, 2) }],
+        };
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Ranking failed: ${err instanceof Error ? err.message : "unknown error"}`,
+            },
+          ],
           isError: true,
         };
       }

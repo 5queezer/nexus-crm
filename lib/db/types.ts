@@ -348,3 +348,18 @@ export interface UpsertCvPatchInput {
   includeProjects?: boolean;
   includeEducation?: boolean;
 }
+
+// ── Semantic / vector search results ────────────────────────────────────────
+
+export interface SemanticApplicationResult {
+  id: string;
+  company: string;
+  role: string;
+  status: string;
+  similarity: number;
+}
+
+export interface SemanticExperienceResult {
+  experienceId: string;
+  similarity: number;
+}
