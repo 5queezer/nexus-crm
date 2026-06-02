@@ -8,9 +8,11 @@ CREATE TABLE IF NOT EXISTS application_embeddings (
   updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- HNSW builds incrementally and does not require pre-existing data,
+-- making it safe to create on empty tables and immediately effective after backfill.
 CREATE INDEX IF NOT EXISTS application_embeddings_vec_idx
-  ON application_embeddings USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 10);
+  ON application_embeddings USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
 
 -- Per-experience-entry embeddings (experience is stored as JSON in CvProfile)
 CREATE TABLE IF NOT EXISTS cv_experience_embeddings (
@@ -23,5 +25,5 @@ CREATE TABLE IF NOT EXISTS cv_experience_embeddings (
 );
 
 CREATE INDEX IF NOT EXISTS cv_experience_embeddings_vec_idx
-  ON cv_experience_embeddings USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 10);
+  ON cv_experience_embeddings USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
