@@ -9,7 +9,7 @@ import { normalizeStatus } from "@/types";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
-import { getEmbedding, applicationEmbeddingText } from "@/lib/embeddings";
+import { getEmbedding, applicationEmbeddingText, experienceEmbeddingText } from "@/lib/embeddings";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 import type { UpsertCvProfileInput } from "@/lib/db/types";
 
@@ -884,6 +884,82 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           isError: true,
         };
       }
+    }
+  );
+
+  server.tool(
+    "reindex_embeddings",
+    "Backfill semantic search embeddings for all existing applications and CV experience entries. " +
+    "Run this once after enabling OPENAI_API_KEY on an existing installation to make pre-migration " +
+    "data available in semantic_search_applications and rank_cv_experience_for_job. " +
+    "Processes up to 200 applications per call; call again if more remain.",
+    {
+      include_applications: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Reindex application embeddings (default: true)"),
+      include_cv_experience: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Reindex CV experience embeddings (default: true)"),
+    },
+    async ({ include_applications, include_cv_experience }) => {
+      const db = getDb();
+      const summary: Record<string, unknown> = {};
+
+      if (include_applications) {
+        const apps = await db.listApplicationsFiltered(auth.readScopeUserId, {
+          limit: 200,
+          fields: ["id", "company", "role", "notes", "jobDescription"],
+        });
+        let indexed = 0;
+        let skipped = 0;
+        for (const app of apps) {
+          const text = applicationEmbeddingText({
+            company: app.company ?? "",
+            role: app.role ?? "",
+            notes: app.notes,
+            jobDescription: app.jobDescription,
+          });
+          const embedding = await getEmbedding(text);
+          if (embedding) {
+            await db.upsertApplicationEmbedding(parseInt(app.id as string, 10), embedding);
+            indexed++;
+          } else {
+            skipped++;
+          }
+        }
+        summary.applications = { indexed, skipped, total: apps.length };
+      }
+
+      if (include_cv_experience) {
+        const profile = await db.getCvProfile(auth.userId);
+        if (!profile) {
+          summary.cv_experience = { skipped: "No CV profile found" };
+        } else {
+          let indexed = 0;
+          let skipped = 0;
+          const entries: Array<{ experienceId: string; embedding: number[] }> = [];
+          for (const exp of profile.experience) {
+            const text = experienceEmbeddingText(exp);
+            const embedding = await getEmbedding(text);
+            if (embedding) {
+              entries.push({ experienceId: exp.id, embedding });
+              indexed++;
+            } else {
+              skipped++;
+            }
+          }
+          if (entries.length) await db.upsertCvExperienceEmbeddings(auth.userId, entries);
+          summary.cv_experience = { indexed, skipped, total: profile.experience.length };
+        }
+      }
+
+      return {
+        content: [{ type: "text", text: JSON.stringify({ message: "Reindex complete", ...summary }, null, 2) }],
+      };
     }
   );
 
