@@ -946,4 +946,16 @@ export class FirestoreAdapter implements DatabaseAdapter {
       data: { documentId: documentId ? parseInt(documentId, 10) : null },
     });
   }
+
+  async semanticSearchApplications(): Promise<[]> {
+    return [];
+  }
+
+  async semanticSearchCvExperience(): Promise<[]> {
+    return [];
+  }
+
+  async upsertApplicationEmbedding(): Promise<void> {}
+
+  async upsertCvExperienceEmbeddings(): Promise<void> {}
 }
