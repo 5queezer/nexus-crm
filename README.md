@@ -485,6 +485,8 @@ Nexus CRM exposes a [Model Context Protocol](https://modelcontextprotocol.io) se
 | `delete_contact` | Delete a contact |
 | `list_documents` | List all documents |
 | `get_document` | Get document by ID |
+| `upload_document_content` | Upload a document from base64 content |
+| `download_document_content` | Download document content as base64 or signed URL |
 | `update_document_links` | Update document-application links |
 | `delete_document` | Delete a document |
 
