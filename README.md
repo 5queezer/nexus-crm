@@ -543,7 +543,7 @@ The compose file mounts `./data` for the Prisma directory and `./uploads` for fi
 
 The active GitHub Actions deploy workflow is `.github/workflows/deploy-hetzner.yml`. The live `nexus.vasudev.xyz` deployment is managed by Coolify on the Hetzner VPS, so the workflow builds a Docker image on the VPS and updates the Coolify-generated Docker Compose application.
 
-Automatic deploys on push to `main` are disabled unless repository variable `HETZNER_AUTO_DEPLOY` is set to `true`. This prevents noisy failed deploys when the GitHub SSH deploy key is missing or stale. Manual runs through `workflow_dispatch` are still available.
+Automatic deploys on push to `main` are enabled when repository variable `HETZNER_AUTO_DEPLOY` is set to `true`. Manual runs through `workflow_dispatch` are also available.
 
 Required GitHub secrets:
 
@@ -554,9 +554,9 @@ Required GitHub secrets:
 
 Optional repository variables:
 
-- `HETZNER_AUTO_DEPLOY` (`true` enables deploys on push to `main`; default is disabled)
+- `HETZNER_AUTO_DEPLOY` (`true` enables deploys on push to `main`)
 - `HETZNER_COOLIFY_APP_DIR` (defaults to `/data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu`)
-- `HETZNER_COOLIFY_SERVICE` (defaults to `tj4r2ezipwho1zvjhg78a5wu-064500973574`)
+- `HETZNER_COOLIFY_SERVICE` (optional override; by default the workflow reads the current service name from Coolify's compose file)
 - `HETZNER_COOLIFY_IMAGE` (defaults to `tj4r2ezipwho1zvjhg78a5wu`)
 - `HETZNER_DEPLOY_REPO_URL` (defaults to `https://github.com/5queezer/nexus-crm.git`)
 
