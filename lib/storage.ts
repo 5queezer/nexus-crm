@@ -3,7 +3,24 @@ import { writeFile, readFile, unlink, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 
-const useGCS = !!process.env.GCS_BUCKET;
+let warnedAboutMissingGcsCredentials = false;
+
+function shouldUseGcs(): boolean {
+  if (!process.env.GCS_BUCKET) return false;
+
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (credentialsPath && !existsSync(credentialsPath)) {
+    if (!warnedAboutMissingGcsCredentials) {
+      console.warn(
+        `[storage] GOOGLE_APPLICATION_CREDENTIALS points to missing file ${credentialsPath}; using local upload storage instead.`,
+      );
+      warnedAboutMissingGcsCredentials = true;
+    }
+    return false;
+  }
+
+  return true;
+}
 
 let storage: Storage;
 function getStorage() {
@@ -20,7 +37,7 @@ export async function uploadFile(
   buffer: Buffer,
   contentType: string,
 ): Promise<void> {
-  if (useGCS) {
+  if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     await file.save(buffer, { contentType });
   } else {
@@ -31,7 +48,7 @@ export async function uploadFile(
 }
 
 export async function downloadFile(filename: string): Promise<Buffer> {
-  if (useGCS) {
+  if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     const [contents] = await file.download();
     return Buffer.from(contents);
@@ -41,7 +58,7 @@ export async function downloadFile(filename: string): Promise<Buffer> {
 }
 
 export async function deleteFile(filename: string): Promise<void> {
-  if (useGCS) {
+  if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     await file.delete({ ignoreNotFound: true });
   } else {
@@ -54,7 +71,7 @@ export async function deleteFile(filename: string): Promise<void> {
 }
 
 export function fileExists(filename: string): Promise<boolean> {
-  if (useGCS) {
+  if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     return file.exists().then(([exists]) => exists);
   } else {
@@ -63,7 +80,7 @@ export function fileExists(filename: string): Promise<boolean> {
 }
 
 export function isGcsBacked(): boolean {
-  return useGCS;
+  return shouldUseGcs();
 }
 
 /**
@@ -74,7 +91,7 @@ export async function getSignedDownloadUrl(
   filename: string,
   expiresInSeconds = 300,
 ): Promise<string> {
-  if (!useGCS) {
+  if (!shouldUseGcs()) {
     throw new Error("Signed URLs require a GCS bucket");
   }
   const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
