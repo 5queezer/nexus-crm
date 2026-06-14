@@ -9,6 +9,7 @@ import { normalizeStatus } from "@/types";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
+import { uploadDocumentContent } from "@/lib/documents/upload";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
 import type { UpsertCvProfileInput } from "@/lib/db/types";
 
@@ -497,6 +498,20 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
       };
     }
+  );
+
+  server.tool(
+    "upload_document_content",
+    "Upload a document from base64 content. Supports PDF, JPEG, PNG, and WEBP files up to 10MB. Optionally links the uploaded document to applications owned by the authenticated user.",
+    {
+      filename: z.string().min(1).max(255).describe("Original filename to display, e.g. resume.pdf"),
+      mimeType: z
+        .enum(["application/pdf", "image/jpeg", "image/png", "image/webp"])
+        .describe("MIME type of the uploaded file"),
+      contentBase64: z.string().min(1).describe("Raw file bytes encoded as standard base64"),
+      applicationIds: z.array(z.string()).optional().describe("Application IDs to link"),
+    },
+    async (args) => uploadDocumentContent(args, auth.userId),
   );
 
   server.tool(
