@@ -541,7 +541,9 @@ The compose file mounts `./data` for the Prisma directory and `./uploads` for fi
 
 ### Hetzner VPS (CI/CD)
 
-The active GitHub Actions deploy workflow is `.github/workflows/deploy-hetzner.yml`. On push to `main`, it SSHes into the Hetzner VPS, fast-forwards the server checkout, and runs `./deploy.sh`.
+The active GitHub Actions deploy workflow is `.github/workflows/deploy-hetzner.yml`. The live `nexus.vasudev.xyz` deployment is managed by Coolify on the Hetzner VPS, so the workflow builds a Docker image on the VPS and updates the Coolify-generated Docker Compose application.
+
+Automatic deploys on push to `main` are disabled unless repository variable `HETZNER_AUTO_DEPLOY` is set to `true`. This prevents noisy failed deploys when the GitHub SSH deploy key is missing or stale. Manual runs through `workflow_dispatch` are still available.
 
 Required GitHub secrets:
 
@@ -552,15 +554,21 @@ Required GitHub secrets:
 
 Optional repository variables:
 
-- `HETZNER_DEPLOY_PATH` (defaults to `/root/job-tracker`)
-- `HETZNER_SERVICE_NAME` (defaults to `job-tracker`)
+- `HETZNER_AUTO_DEPLOY` (`true` enables deploys on push to `main`; default is disabled)
+- `HETZNER_COOLIFY_APP_DIR` (defaults to `/data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu`)
+- `HETZNER_COOLIFY_SERVICE` (defaults to `tj4r2ezipwho1zvjhg78a5wu-064500973574`)
+- `HETZNER_COOLIFY_IMAGE` (defaults to `tj4r2ezipwho1zvjhg78a5wu`)
+- `HETZNER_DEPLOY_REPO_URL` (defaults to `https://github.com/5queezer/nexus-crm.git`)
 
 The old Cloud Run workflow in `.github/workflows/deploy-gcp.yml` is commented out so it cannot run on pushes to `main`.
 
 ### Manual / VPS
 
 ```bash
-./deploy.sh   # installs deps, applies migrations, builds, copies standalone output, restarts systemd service
+docker build -t tj4r2ezipwho1zvjhg78a5wu:<sha> .
+cd /data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu
+# Update docker-compose.yaml image tag, then:
+docker compose -f docker-compose.yaml up -d tj4r2ezipwho1zvjhg78a5wu-064500973574
 ```
 
 The standalone output (via `next.config.ts` `output: "standalone"`) produces a self-contained `server.js` in `.next/standalone/`.
