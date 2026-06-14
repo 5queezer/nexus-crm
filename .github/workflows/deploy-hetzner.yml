@@ -11,7 +11,7 @@ concurrency:
 
 env:
   COOLIFY_APP_DIR: ${{ vars.HETZNER_COOLIFY_APP_DIR || '/data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu' }}
-  COOLIFY_SERVICE: ${{ vars.HETZNER_COOLIFY_SERVICE || 'tj4r2ezipwho1zvjhg78a5wu-064500973574' }}
+  COOLIFY_SERVICE: ${{ vars.HETZNER_COOLIFY_SERVICE || '' }}
   COOLIFY_IMAGE: ${{ vars.HETZNER_COOLIFY_IMAGE || 'tj4r2ezipwho1zvjhg78a5wu' }}
   DEPLOY_REPO_URL: ${{ vars.HETZNER_DEPLOY_REPO_URL || 'https://github.com/5queezer/nexus-crm.git' }}
   AUTO_DEPLOY: ${{ vars.HETZNER_AUTO_DEPLOY || 'false' }}
@@ -53,6 +53,38 @@ jobs:
             docker build -t "$image_tag" .
 
             cd "$COOLIFY_APP_DIR"
+            COOLIFY_SERVICE=$(python3 - <<'PY'
+            import os
+            import sys
+            from pathlib import Path
+
+            configured = os.environ.get("COOLIFY_SERVICE", "").strip()
+            services = []
+            for line in Path("docker-compose.yaml").read_text().splitlines():
+                stripped = line.strip()
+                indent = len(line) - len(line.lstrip())
+                if indent == 4 and stripped.endswith(":"):
+                    services.append(stripped[:-1])
+
+            if configured and configured in services:
+                print(configured)
+            elif services:
+                if configured:
+                    print(
+                        f"Configured Coolify service '{configured}' was not found; "
+                        f"using '{services[0]}' from docker-compose.yaml.",
+                        file=sys.stderr,
+                    )
+                print(services[0])
+            PY
+            )
+
+            if [ -z "${COOLIFY_SERVICE:-}" ]; then
+              echo "Could not determine Coolify compose service name." >&2
+              exit 1
+            fi
+
+            export COOLIFY_SERVICE
             cp docker-compose.yaml "docker-compose.yaml.before-${DEPLOY_SHA}-$(date +%Y%m%d%H%M%S)"
 
             python3 - <<'PY'
