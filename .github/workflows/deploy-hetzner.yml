@@ -1,0 +1,42 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEPLOY_PATH: ${{ vars.HETZNER_DEPLOY_PATH || '/root/job-tracker' }}
+  SERVICE_NAME: ${{ vars.HETZNER_SERVICE_NAME || 'job-tracker' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Deploy on Hetzner VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        with:
+          host: ${{ secrets.HETZNER_HOST || secrets.SSH_HOST }}
+          username: ${{ secrets.HETZNER_USER || secrets.SSH_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY || secrets.SSH_KEY }}
+          port: ${{ secrets.HETZNER_PORT || '22' }}
+          envs: DEPLOY_PATH,SERVICE_NAME
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "$DEPLOY_PATH"
+            git fetch --prune origin main
+            git checkout main
+            git pull --ff-only origin main
+            DEPLOY_PATH="$DEPLOY_PATH" SERVICE_NAME="$SERVICE_NAME" ./deploy.sh

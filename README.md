@@ -63,10 +63,10 @@ A lead and opportunity management suite for tracking your sales pipeline. Manage
 | **Validation** | [Zod 4](https://zod.dev) — runtime schema validation |
 | **AI Integration** | [@modelcontextprotocol/sdk](https://modelcontextprotocol.io) — MCP server |
 | **File Storage** | Google Cloud Storage or local filesystem |
-| **Hosting** | [Google Cloud Run](https://cloud.google.com/run) — container hosting |
+| **Hosting** | Hetzner VPS with systemd |
 | **Database Hosting** | [Neon](https://neon.tech) — serverless PostgreSQL |
 | **Testing** | [Vitest 4](https://vitest.dev) |
-| **CI/CD** | GitHub Actions — lint, build, test, deploy to Cloud Run |
+| **CI/CD** | GitHub Actions — lint, build, test, deploy to Hetzner |
 
 ---
 
@@ -226,7 +226,8 @@ In development mode, if no Google OAuth session exists, a fake admin user (`dev@
 ├── docker-compose.yml            # Self-hosted deployment
 └── .github/workflows/
     ├── ci.yml                    # Lint + build + test
-    └── deploy-gcp.yml            # Cloud Run CI/CD
+    ├── deploy-hetzner.yml        # Hetzner VPS CI/CD
+    └── deploy-gcp.yml            # Disabled Cloud Run reference
 ```
 
 ### Database Adapter Layer
@@ -538,27 +539,28 @@ docker compose up -d
 
 The compose file mounts `./data` for the Prisma directory and `./uploads` for file storage.
 
-### GCP Cloud Run (CI/CD)
+### Hetzner VPS (CI/CD)
 
-The repo includes a GitHub Actions workflow (`.github/workflows/deploy-gcp.yml`) that on push to `main`:
+The active GitHub Actions deploy workflow is `.github/workflows/deploy-hetzner.yml`. On push to `main`, it SSHes into the Hetzner VPS, fast-forwards the server checkout, and runs `./deploy.sh`.
 
-1. Pushes schema updates (`prisma db push`)
-2. Builds a Docker image
-3. Pushes to Artifact Registry (`europe-west1`)
-4. Deploys to Cloud Run with secrets from Secret Manager
+Required GitHub secrets:
 
-Uses Workload Identity Federation — no service account keys. Requires these GitHub secrets:
+- `HETZNER_HOST` (or existing `SSH_HOST`)
+- `HETZNER_USER` (or existing `SSH_USER`)
+- `HETZNER_SSH_KEY` (or existing `SSH_KEY`)
+- `HETZNER_PORT` (optional; defaults to `22`)
 
-- `GCP_WORKLOAD_IDENTITY_PROVIDER`
-- `GCP_SERVICE_ACCOUNT`
+Optional repository variables:
 
-Cloud Run configuration: 512Mi memory, 1 CPU, 0–2 instances, port 8080.
+- `HETZNER_DEPLOY_PATH` (defaults to `/root/job-tracker`)
+- `HETZNER_SERVICE_NAME` (defaults to `job-tracker`)
+
+The old Cloud Run workflow in `.github/workflows/deploy-gcp.yml` is commented out so it cannot run on pushes to `main`.
 
 ### Manual / VPS
 
 ```bash
-npm run build
-./deploy.sh   # builds, copies standalone output, restarts systemd service
+./deploy.sh   # installs deps, applies migrations, builds, copies standalone output, restarts systemd service
 ```
 
 The standalone output (via `next.config.ts` `output: "standalone"`) produces a self-contained `server.js` in `.next/standalone/`.
