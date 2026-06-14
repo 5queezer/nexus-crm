@@ -556,7 +556,7 @@ Optional repository variables:
 
 - `HETZNER_AUTO_DEPLOY` (`true` enables deploys on push to `main`)
 - `HETZNER_COOLIFY_APP_DIR` (defaults to `/data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu`)
-- `HETZNER_COOLIFY_SERVICE` (optional override; by default the workflow reads the current service name from Coolify's compose file)
+- `HETZNER_COOLIFY_SERVICE` (optional override; if empty or stale, the workflow reads the current service name from Coolify's compose file)
 - `HETZNER_COOLIFY_IMAGE` (defaults to `tj4r2ezipwho1zvjhg78a5wu`)
 - `HETZNER_DEPLOY_REPO_URL` (defaults to `https://github.com/5queezer/nexus-crm.git`)
 

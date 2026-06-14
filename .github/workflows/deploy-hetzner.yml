@@ -53,19 +53,31 @@ jobs:
             docker build -t "$image_tag" .
 
             cd "$COOLIFY_APP_DIR"
-            if [ -z "${COOLIFY_SERVICE:-}" ]; then
-              COOLIFY_SERVICE=$(python3 - <<'PY'
+            COOLIFY_SERVICE=$(python3 - <<'PY'
+            import os
+            import sys
             from pathlib import Path
 
+            configured = os.environ.get("COOLIFY_SERVICE", "").strip()
+            services = []
             for line in Path("docker-compose.yaml").read_text().splitlines():
                 stripped = line.strip()
                 indent = len(line) - len(line.lstrip())
                 if indent == 4 and stripped.endswith(":"):
-                    print(stripped[:-1])
-                    break
+                    services.append(stripped[:-1])
+
+            if configured and configured in services:
+                print(configured)
+            elif services:
+                if configured:
+                    print(
+                        f"Configured Coolify service '{configured}' was not found; "
+                        f"using '{services[0]}' from docker-compose.yaml.",
+                        file=sys.stderr,
+                    )
+                print(services[0])
             PY
-              )
-            fi
+            )
 
             if [ -z "${COOLIFY_SERVICE:-}" ]; then
               echo "Could not determine Coolify compose service name." >&2
