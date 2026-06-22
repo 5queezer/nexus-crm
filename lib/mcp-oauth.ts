@@ -45,6 +45,9 @@ export async function registerClient(body: {
   token_endpoint_auth_method?: string;
 }) {
   const clientId = `mcp_${randomBytes(16).toString("hex")}`;
+  const tokenEndpointAuth = body.token_endpoint_auth_method ?? "client_secret_post";
+  // Keep a generated secret hash for older production databases where the
+  // column is still NOT NULL. Public PKCE clients do not receive or need it.
   const clientSecret = randomBytes(32).toString("hex");
 
   const client = await prisma.mcpOAuthClient.create({
@@ -55,13 +58,13 @@ export async function registerClient(body: {
       redirectUris: body.redirect_uris,
       grantTypes: body.grant_types ?? ["authorization_code", "refresh_token"],
       responseTypes: body.response_types ?? ["code"],
-      tokenEndpointAuth: body.token_endpoint_auth_method ?? "client_secret_post",
+      tokenEndpointAuth,
     },
   });
 
   return {
     client_id: client.clientId,
-    client_secret: clientSecret,
+    ...(tokenEndpointAuth === "none" ? {} : { client_secret: clientSecret }),
     client_name: client.clientName,
     redirect_uris: client.redirectUris,
     grant_types: client.grantTypes,
@@ -70,6 +73,31 @@ export async function registerClient(body: {
     client_id_issued_at: Math.floor(client.createdAt.getTime() / 1000),
     client_secret_expires_at: 0, // never expires
   };
+}
+
+export function isLoopbackRedirectUri(uri: string): boolean {
+  try {
+    const parsed = new URL(uri);
+    return (
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isRedirectUriAllowed(registeredUris: string[], requestedUri: string): boolean {
+  if (registeredUris.includes(requestedUri)) return true;
+
+  if (!isLoopbackRedirectUri(requestedUri)) return false;
+
+  const requested = new URL(requestedUri);
+  return registeredUris.some((registeredUri) => {
+    if (!isLoopbackRedirectUri(registeredUri)) return false;
+    const registered = new URL(registeredUri);
+    return registered.hostname === requested.hostname && registered.pathname === requested.pathname;
+  });
 }
 
 // ── Authorization Code ───────────────────────────────────────────────────────
@@ -251,8 +279,10 @@ export async function verifyClient(
 
   if (!client) return { valid: false, redirectUris: [] };
 
-  // If client has a secret registered, it MUST be provided and match
-  if (client.clientSecretHash) {
+  // Public PKCE clients registered with token_endpoint_auth_method=none do not
+  // have a client secret. Older registrations may still have a stale hash from
+  // before that distinction was respected; do not require it for public clients.
+  if (client.tokenEndpointAuth !== "none" && client.clientSecretHash) {
     if (!clientSecret || sha256(clientSecret) !== client.clientSecretHash) {
       return { valid: false, redirectUris: [] };
     }

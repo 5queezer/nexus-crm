@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createAuthCode, getPublicBaseUrl } from "@/lib/mcp-oauth";
+import { createAuthCode, getPublicBaseUrl, isLoopbackRedirectUri, isRedirectUriAllowed } from "@/lib/mcp-oauth";
 
 const COOKIE_NAME = "mcp_oauth_pending";
 const COOKIE_MAX_AGE = 600; // 10 minutes
@@ -97,7 +97,11 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!client.redirectUris.includes(redirectUri)) {
+  const isPublicLoopbackClient =
+    client.clientId.startsWith("mcp_") &&
+    client.tokenEndpointAuth === "none" &&
+    isLoopbackRedirectUri(redirectUri);
+  if (!isRedirectUriAllowed(client.redirectUris, redirectUri) && !isPublicLoopbackClient) {
     return NextResponse.json(
       { error: "invalid_request", error_description: "redirect_uri not registered for this client" },
       { status: 400 }

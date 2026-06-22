@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
 
     const result = await registerClient(body);
     return NextResponse.json(result, { status: 201 });
-  } catch (err) {
-    console.error("[mcp/register] failed:", err);
+  } catch (error) {
+    console.error("MCP client registration failed", error);
     return NextResponse.json(
       { error: "server_error", error_description: "Failed to register client" },
       { status: 500 }
