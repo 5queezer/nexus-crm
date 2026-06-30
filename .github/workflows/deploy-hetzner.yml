@@ -38,6 +38,7 @@ jobs:
           username: ${{ secrets.HETZNER_USER || secrets.SSH_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY || secrets.SSH_KEY }}
           port: ${{ secrets.HETZNER_PORT || '22' }}
+          command_timeout: 30m
           envs: COOLIFY_APP_DIR,COOLIFY_SERVICE,COOLIFY_IMAGE,DEPLOY_REPO_URL,DEPLOY_SHA
           script: |
             set -euo pipefail

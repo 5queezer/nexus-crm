@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
 
 const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
 const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
     company: String(company).slice(0, 255),
     role: String(role).slice(0, 255),
     status: normalizeStatus(status || "applied"),
-    appliedAt: appliedAt ? new Date(appliedAt) : null,
+    appliedAt: resolveCreatedAtForCreate(appliedAt),
     lastContact: lastContact ? new Date(lastContact) : null,
     followUpAt: followUpAt ? new Date(followUpAt) : null,
     notes: notes ? String(notes).slice(0, 10000) : null,

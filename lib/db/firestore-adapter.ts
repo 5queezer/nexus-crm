@@ -3,6 +3,7 @@ import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
 import { sanitizeTriageFields } from "./sanitize";
+import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -187,7 +188,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       company: data.company,
       role: data.role,
       status: normalizeStatus(data.status),
-      appliedAt: toTimestamp(data.appliedAt),
+      appliedAt: toTimestamp(resolveCreatedAtForCreate(data.appliedAt)),
       lastContact: toTimestamp(data.lastContact),
       followUpAt: toTimestamp(data.followUpAt),
       notes: data.notes,
@@ -406,7 +407,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
             company: item.company,
             role: item.role,
             status: normalizeStatus(item.status || "applied"),
-            appliedAt: toTimestamp(item.appliedAt ?? null),
+            appliedAt: toTimestamp(resolveCreatedAtForCreate(item.appliedAt)),
             lastContact: toTimestamp(item.lastContact ?? null),
             followUpAt: toTimestamp(item.followUpAt ?? null),
             notes: item.notes ?? null,
