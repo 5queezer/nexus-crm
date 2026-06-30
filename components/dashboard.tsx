@@ -81,6 +81,7 @@ type ViewMode = "table" | "kanban";
 export function Dashboard({ user, shareUrl, initialStatus, initialSource, initialSearch }: DashboardProps) {
   const queryClient = useQueryClient();
   const t = useTranslations("dashboard");
+  const tapp = useTranslations("app");
   const tn = useTranslations("nav");
   const ts = useTranslations("stats");
   const ta = useTranslations("actions");
@@ -423,7 +424,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   // Show onboarding for new users
   if (!isLoading && !onboardingComplete && applications.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
+      <div className="nexus-shell">
         <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
         <OnboardingWizard onComplete={() => {
           setOnboardingComplete(true);
@@ -434,17 +435,17 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-x-hidden">
+    <div className="nexus-shell">
       <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
           <div className="mb-6 space-y-2">
             {overdueFollowUps.map((app) => (
               <div
                 key={app.id}
-                className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/50 rounded-xl flex items-center gap-2 text-red-700 dark:text-red-400 text-sm"
+                className="flex items-center gap-3 rounded-2xl border border-red-200/80 bg-red-50/90 p-3 text-sm text-red-700 shadow-sm backdrop-blur dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
               >
                 <span className="text-base">⚠</span>
                 <button
@@ -465,8 +466,43 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           </div>
         )}
 
+        <section className="mb-6 overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035] sm:p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {showArchived ? ta("archive") : t("applications")}
+              </div>
+              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-slate-950 dark:text-[#f7f8f8] sm:text-4xl">
+                {customTitle || "Nexus CRM"}
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+                {tapp("hero_description")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setIsCommandPaletteOpen(true)}
+                className="nexus-button-ghost min-h-10"
+                type="button"
+              >
+                ⌘K
+                <span className="text-slate-400">{tapp("command")}</span>
+              </button>
+              <button
+                onClick={handleNewApplication}
+                className="nexus-button-primary min-h-10"
+                type="button"
+              >
+                <span>+</span>
+                {ta("new_application")}
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6 sm:gap-4 sm:mb-8">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:grid-cols-5 sm:gap-4">
           <StatCard label={ts("total")} value={stats.total} color="blue" onClick={() => setViewMode("table")} />
           <StatCard label={ts("inbound")} value={stats.inbound} color="teal" onClick={() => setViewMode("table")} />
           <StatCard label={ts("active")} value={stats.active} color="yellow" onClick={() => setViewMode("table")} />

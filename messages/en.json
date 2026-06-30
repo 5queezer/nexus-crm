@@ -1,7 +1,10 @@
 {
   "app": {
     "title": "Nexus CRM",
-    "subtitle": "Your pipeline at a glance"
+    "subtitle": "Your pipeline at a glance",
+    "eyebrow": "Opportunity OS",
+    "hero_description": "A focused command center for opportunities, follow-ups, documents and interview momentum.",
+    "command": "Command"
   },
   "nav": {
     "logout": "Sign out",
@@ -190,7 +193,20 @@
     "headline": "Your Sales Pipeline",
     "subtitle": "Manage leads, deals, and client relationships.",
     "button": "Sign in with Google",
-    "error": "Login failed. Please try again."
+    "error": "Login failed. Please try again.",
+    "hero_badge": "Live opportunity command center",
+    "hero_eyebrow": "Nexus CRM",
+    "hero_title": "Pipeline clarity for every application.",
+    "hero_subtitle": "Track opportunities, follow-ups, documents, scoring and outreach from one calm, keyboard-first workspace.",
+    "sample_inbound": "Inbound",
+    "sample_role_1": "Senior Product Engineer",
+    "sample_today": "Today",
+    "sample_interview": "Interview",
+    "sample_role_2": "Founding Full Stack",
+    "sample_thursday": "Thu",
+    "sample_follow_up": "Follow-up",
+    "sample_role_3": "AI Workflow Lead",
+    "sample_overdue": "Overdue"
   },
   "share": {
     "title": "Client Portfolio of Christian Pojoni",

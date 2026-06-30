@@ -1,7 +1,10 @@
 {
   "app": {
     "title": "Nexus CRM",
-    "subtitle": "Deine Pipeline im \u00dcberblick"
+    "subtitle": "Deine Pipeline im \u00dcberblick",
+    "eyebrow": "Opportunity OS",
+    "hero_description": "Ein fokussiertes Kontrollzentrum f\u00fcr Opportunities, Follow-ups, Dokumente und Interview-Fortschritt.",
+    "command": "Befehl"
   },
   "nav": {
     "logout": "Abmelden",
@@ -190,7 +193,20 @@
     "headline": "Deine Vertriebs-Pipeline",
     "subtitle": "Leads, Deals und Kundenbeziehungen verwalten.",
     "button": "Mit Google anmelden",
-    "error": "Login fehlgeschlagen. Bitte versuche es erneut."
+    "error": "Login fehlgeschlagen. Bitte versuche es erneut.",
+    "hero_badge": "Live Opportunity-Kommandozentrale",
+    "hero_eyebrow": "Nexus CRM",
+    "hero_title": "Klarheit f\u00fcr jede Opportunity.",
+    "hero_subtitle": "Verfolge Opportunities, Follow-ups, Dokumente, Bewertungen und Outreach in einem ruhigen, tastaturfreundlichen Workspace.",
+    "sample_inbound": "Inbound",
+    "sample_role_1": "Senior Product Engineer",
+    "sample_today": "Heute",
+    "sample_interview": "Interview",
+    "sample_role_2": "Founding Full Stack",
+    "sample_thursday": "Do",
+    "sample_follow_up": "Follow-up",
+    "sample_role_3": "AI Workflow Lead",
+    "sample_overdue": "\u00dcberf\u00e4llig"
   },
   "share": {
     "title": "Kundenportfolio von Christian Pojoni",
