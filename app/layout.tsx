@@ -33,7 +33,7 @@ export default async function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className={`${geist.className} bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors`}>
+      <body className={`${geist.className} min-h-screen bg-slate-50 text-slate-950 antialiased transition-colors dark:bg-[#08090a] dark:text-slate-100`}>
         <NextIntlClientProvider messages={messages} locale={locale}>
           <Providers>{children}</Providers>
         </NextIntlClientProvider>

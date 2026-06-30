@@ -69,10 +69,10 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
     <div
       onClick={() => onEdit(app)}
       className={`
-        bg-white dark:bg-gray-800 border rounded-lg p-3 cursor-pointer transition-all group
+        group cursor-pointer rounded-2xl border bg-white/85 p-3 shadow-sm backdrop-blur transition-all dark:bg-white/[0.035]
         ${isDragging
-          ? "border-blue-400 shadow-xl opacity-90 rotate-1 scale-105"
-          : "border-gray-200 dark:border-gray-700 hover:shadow-md hover:border-blue-300 dark:hover:border-blue-500"
+          ? "rotate-1 scale-105 border-indigo-400 shadow-xl opacity-95 dark:border-[#7170ff]"
+          : "border-slate-200/80 hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-white/[0.08] dark:hover:border-[#7170ff]/60"
         }
       `}
     >
@@ -80,7 +80,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
         <div className="min-w-0">
           <div className="flex items-center gap-1">
             <span
-              className="font-semibold text-gray-900 dark:text-white text-sm group-hover:text-blue-700 dark:group-hover:text-blue-400 truncate"
+              className="truncate text-sm font-semibold text-slate-950 transition group-hover:text-indigo-700 dark:text-[#f7f8f8] dark:group-hover:text-[#828fff]"
               title={app.company}
             >
               {app.company}
@@ -92,7 +92,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
                 title={app.jobUrl}
-                className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                className="shrink-0 text-slate-400 transition hover:text-indigo-600 dark:hover:text-[#828fff]"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -100,14 +100,14 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
               </a>
             )}
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-300 mt-0.5 truncate" title={app.role}>{app.role}</div>
+          <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400" title={app.role}>{app.role}</div>
         </div>
         <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[app.status]}`}>
           {ts(app.status)}
         </span>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400 dark:text-gray-400">
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
         {app.remote && (
           <span className="font-semibold text-emerald-700 dark:text-emerald-400">Remote</span>
         )}
@@ -175,24 +175,24 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({ id: status });
 
   return (
-    <div className="flex flex-col w-full">
-      <div className="flex items-center gap-2 mb-3">
+    <div className="flex w-full flex-col rounded-2xl border border-slate-200/80 bg-white/55 p-3 shadow-sm backdrop-blur dark:border-white/[0.08] dark:bg-white/[0.025]">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}>
           {ts(status)}
         </span>
-        <span className="text-xs text-gray-400 dark:text-gray-400 font-medium">{apps.length}</span>
+        <span className="nexus-chip">{apps.length}</span>
       </div>
 
       <div
         ref={setNodeRef}
         className={`
-          flex flex-col gap-2 flex-1 min-h-[80px] max-h-[calc(100vh-220px)]
-          overflow-y-auto rounded-lg p-1 transition-colors
-          ${isOver ? "bg-blue-50 dark:bg-blue-950/30 ring-2 ring-blue-300 dark:ring-blue-600 ring-inset" : ""}
+          flex flex-col gap-2 flex-1 min-h-[120px] max-h-[calc(100vh-260px)]
+          overflow-y-auto rounded-xl p-1 transition-colors
+          ${isOver ? "bg-indigo-50 ring-2 ring-indigo-300 ring-inset dark:bg-indigo-500/10 dark:ring-[#7170ff]" : ""}
         `}
       >
         {apps.length === 0 && !isOver ? (
-          <div className="text-xs text-gray-300 dark:text-gray-500 italic py-6 text-center border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50/50 dark:bg-gray-800/30">
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-8 text-center text-xs italic text-slate-400 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-slate-500">
             {tk("empty")}
           </div>
         ) : (
@@ -288,14 +288,14 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
 
   return (
     <>
-      <div className="flex items-center justify-end gap-2 mb-3">
-        <label className="text-xs text-gray-400 dark:text-gray-500 font-medium">
+      <div className="mb-4 flex items-center justify-end gap-2">
+        <label className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
           {tk("sort_label")}
         </label>
         <select
           value={sortKey}
           onChange={(e) => handleSortChange(e.target.value as KanbanSortKey)}
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+          className="nexus-input w-auto"
         >
           {KANBAN_SORT_OPTIONS.map((key) => (
             <option key={key} value={key}>
@@ -339,12 +339,12 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <div className="overflow-x-auto pb-4 -mx-1 px-1">
+          <div className="-mx-1 overflow-x-auto px-1 pb-4">
             <div className="flex flex-nowrap gap-4">
               {STATUS_ORDER.map((status) => (
                 <div
                   key={status}
-                  className="flex-1 min-w-[220px] flex flex-col"
+                  className="flex min-w-[240px] flex-1 flex-col"
                 >
                   <KanbanColumn
                     status={status}
