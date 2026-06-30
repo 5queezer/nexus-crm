@@ -3,7 +3,7 @@
   "info": {
     "title": "Nexus CRM API",
     "version": "1.0.0",
-    "description": "REST API for the Nexus CRM application.\n\n## Authentication\n\nTwo auth methods are supported:\n\n- **BearerAuth** – `Authorization: Bearer <token>`. Per-user API token generated in the dashboard. Scoped to the token owner's data (admin tokens get cross-tenant read access).\n- **CookieAuth** – Session cookie set by the Better Auth `/api/auth` flow (Google OAuth).\n\nToken management (POST/DELETE `/api/token`) requires a session cookie. The file download endpoint also accepts a `PUBLIC_READ_TOKEN` query parameter for share links."
+    "description": "REST API for the Nexus CRM application.\n\n## Authentication\n\nTwo auth methods are supported:\n\n- **BearerAuth** \u2013 `Authorization: Bearer <token>`. Per-user API token generated in the dashboard. Scoped to the token owner's data (admin tokens get cross-tenant read access).\n- **CookieAuth** \u2013 Session cookie set by the Better Auth `/api/auth` flow (Google OAuth).\n\nToken management (POST/DELETE `/api/token`) requires a session cookie. File downloads require CookieAuth or BearerAuth; unauthenticated sharing uses per-link `/s/{code}` URLs scoped to the link owner."
   },
   "servers": [
     {
@@ -657,20 +657,11 @@
       "get": {
         "operationId": "downloadDocumentFile",
         "summary": "Download document file",
-        "description": "Streams the raw file with the original filename as the download name.\n\nAccess is permitted via any of:\n- Session cookie (`CookieAuth`)\n- `?token=<PUBLIC_READ_TOKEN>` query parameter (share links / readonly embeds)\n\nThe public token is obtained from `GET /api/config/public-token`.",
+        "description": "Streams the raw file with the original filename as the download name. Access requires a session cookie or per-user Bearer token scoped to the document owner. Public read tokens are disabled; unauthenticated document sharing is handled via per-link `/s/{code}` URLs.",
         "tags": ["Documents"],
         "security": [
-          { "CookieAuth": [] },
-          {}
-        ],
-        "parameters": [
-          {
-            "name": "token",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Public read token (`PUBLIC_READ_TOKEN`). Allows unauthenticated file access for share links."
-          }
+          { "BearerAuth": [] },
+          { "CookieAuth": [] }
         ],
         "responses": {
           "200": {
@@ -852,26 +843,25 @@
     "/api/config/public-token": {
       "get": {
         "operationId": "getPublicToken",
-        "summary": "Get public read token",
-        "description": "Returns the `PUBLIC_READ_TOKEN` so authenticated clients can construct shareable file download URLs without the token being exposed in the JavaScript bundle. **Requires a session** (cookie auth only).",
+        "summary": "Public read token disabled",
+        "description": "Deprecated endpoint. Global PUBLIC_READ_TOKEN based access is disabled to prevent cross-account data exposure. Use per-link share URLs (`/s/{code}`) instead.",
         "tags": ["Config"],
         "security": [
           { "BearerAuth": [] },
           { "CookieAuth": [] }
         ],
         "responses": {
-          "200": {
-            "description": "The public read token.",
+          "410": {
+            "description": "Public read tokens are disabled.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["token"],
+                  "required": ["error"],
                   "properties": {
-                    "token": {
+                    "error": {
                       "type": "string",
-                      "description": "Value of the `PUBLIC_READ_TOKEN` env var. Pass as `?token=<value>` to `GET /api/documents/{id}/file`.",
-                      "example": "pub_abc123"
+                      "example": "Public read tokens are disabled. Use per-link share URLs instead."
                     }
                   }
                 }

@@ -27,9 +27,11 @@ Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) byp
 - At least one admin user must always exist (last-admin protection)
 
 ### Share token (read-only public)
-- Query param: `/share?token=$SHARE_TOKEN`
-- Read-only view of all applications and documents
-- Token set via environment variable — never hardcoded
+- Share URL: `/s/{code}` (per-user ShareLink code)
+- `/share?code={code}` is scoped to the ShareLink creator
+- Global `PUBLIC_READ_TOKEN` based sharing is disabled
+- Read-only view of the link creator's non-archived applications
+- Codes are stored server-side in `ShareLink` records
 
 ---
 
@@ -59,7 +61,7 @@ Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) byp
 | POST | /api/documents | session or token | Upload (multipart/form-data, field: file; PDF/JPEG/PNG/WEBP up to 10MB) |
 | PATCH | /api/documents/:id | session or token | Update: rename (`{ "originalName": "new.pdf" }`) or update links (`{ "applicationIds": [...] }`) |
 | DELETE | /api/documents/:id | session or token | Delete |
-| GET | /api/documents/:id/file | session, token, or share token | Download file |
+| GET | /api/documents/:id/file | session or token | Download file |
 
 ### Token management
 | Method | Path | Auth | Description |
@@ -103,7 +105,7 @@ Content-Type: application/json
 ```
 
 ## Security notes
-- PUBLIC_READ_TOKEN is a server-side env var only
+- Global PUBLIC_READ_TOKEN based sharing is disabled; use per-link `/s/{code}` URLs
 - NEXT_PUBLIC_* env vars do NOT contain any tokens
 - Rate limiting applies to API routes
 - All document uploads are type-checked and limited to 10MB

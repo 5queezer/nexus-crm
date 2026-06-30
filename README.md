@@ -313,7 +313,7 @@ Key relationships:
 | `DB_PROVIDER` | Database backend (`prisma` or `firestore`) | `prisma` |
 | `GCS_BUCKET` | Google Cloud Storage bucket name (omit for local filesystem) | — |
 | `UPLOAD_DIR` | Local upload directory path | `./uploads` |
-| `PUBLIC_READ_TOKEN` | Token for the read-only client portal | — |
+| `PUBLIC_READ_TOKEN` | Deprecated; global public-token sharing is disabled, use per-user `/s/{code}` links | — |
 | `RR_API_URL` | Reactive Resume API URL | — |
 | `RR_API_KEY` | Reactive Resume API key | — |
 | `RR_BASE_RESUME_ID` | Base resume to duplicate for tailoring | — |

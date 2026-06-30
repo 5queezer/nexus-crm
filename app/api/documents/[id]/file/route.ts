@@ -1,32 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/session";
-import { safeCompare } from "@/lib/token";
 import { downloadFile } from "@/lib/storage";
 import { loadOwnedDocument } from "@/lib/documents/fetch";
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Allow access via session/Bearer auth OR via PUBLIC_READ_TOKEN query param
-  // (used for shared document links).
-  let readScopeUserId: string | null;
-
   const auth = await requireAuth();
-  if (auth) {
-    readScopeUserId = auth.readScopeUserId;
-  } else {
-    const token = request.nextUrl.searchParams.get("token");
-    const expectedToken = process.env.PUBLIC_READ_TOKEN;
-    if (!token || !expectedToken || !safeCompare(token, expectedToken)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    // Valid public token — allow access to any document (null = no user scope)
-    readScopeUserId = null;
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
-  const result = await loadOwnedDocument(id, readScopeUserId);
+  const result = await loadOwnedDocument(id, auth.readScopeUserId);
   if (!result.ok) {
     const message = result.reason === "not_found" ? "Not found" : "File not found on disk";
     return NextResponse.json({ error: message }, { status: 404 });

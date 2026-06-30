@@ -17,20 +17,16 @@ export async function GET(
   }
 
   if (link.targetType === "share_page") {
-    const token = process.env.PUBLIC_READ_TOKEN;
-    if (!token) {
-      return NOT_FOUND;
-    }
     const lang = request.nextUrl.searchParams.get("lang");
     const langParam = lang === "en" ? "&lang=en" : "";
     const base = process.env.BETTER_AUTH_URL || request.url;
-    const url = new URL(`/share?token=${token}${langParam}`, base);
+    const url = new URL(`/share?code=${encodeURIComponent(code)}${langParam}`, base);
     return NextResponse.redirect(url);
   }
 
   if (link.targetType === "document" && link.targetId) {
-    const doc = await db.getDocument(link.targetId, null);
-    if (!doc || !(await fileExists(doc.filename))) {
+    const doc = await db.getDocument(link.targetId, link.userId);
+    if (!doc || doc.userId !== link.userId || !(await fileExists(doc.filename))) {
       return NOT_FOUND;
     }
 

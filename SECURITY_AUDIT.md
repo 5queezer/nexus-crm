@@ -11,7 +11,7 @@
 |---|----------|---------|--------|
 | 1 | CRITICAL | Timing-unsafe PUBLIC_READ_TOKEN comparison | **Fixed** |
 | 2 | CRITICAL | Public token grants access to ALL document files | **Fixed** |
-| 3 | CRITICAL | Share page exposes all users' applications | Noted |
+| 3 | CRITICAL | Share page exposes all users' applications | **Fixed 2026-06-30** |
 | 4 | HIGH | Incomplete rate limiting (documents, users, token, config) | **Fixed** |
 | 5 | HIGH | IP-based rate limiting spoofable via X-Forwarded-For | Noted |
 | 6 | HIGH | In-memory rate limiting doesn't scale across instances | Noted |
@@ -46,19 +46,23 @@ When using the `PUBLIC_READ_TOKEN` query parameter, `readScopeUserId` remained
 attacker with the public share token could enumerate document IDs (sequential
 integers) and download every uploaded file (resumes, PDFs, images).
 
-**Fix:** Removed PUBLIC_READ_TOKEN acceptance from the document file endpoint.
-Document downloads now always require proper authentication.
+**Fix:** `app/api/documents/[id]/file/route.ts` now rejects unauthenticated requests
+regardless of any `token` query parameter. Authenticated session/Bearer requests
+must resolve the document through `loadOwnedDocument(id, auth.readScopeUserId)`.
+Public document sharing remains available only through per-link `/s/[code]`
+routes, which verify the `ShareLink.userId` against the resolved document owner.
 
-### 3. [CRITICAL] Share page exposes all users' applications — Noted
+### 3. [CRITICAL] Share page exposes all users' applications — FIXED 2026-06-30
 
 **Location:** `app/share/page.tsx:233`
 
 `listApplications(null)` returns applications across ALL users. In a multi-user
 deployment, anyone with the share link sees every user's job applications.
 
-**Recommendation:** Either scope the share page to a specific user (pass
-userId in the token or add a `SHARE_USER_ID` env var), or document that this
-feature is single-tenant only.
+**Fix:** `app/share/page.tsx` now requires a per-user `ShareLink` code and calls
+`listApplications(link.userId)` instead of `listApplications(null)`. `/s/[code]`
+redirects to `/share?code=...` without embedding the global public token. This
+keeps each shared portfolio scoped to the link creator.
 
 ### 4. [HIGH] Incomplete rate limiting — FIXED
 
