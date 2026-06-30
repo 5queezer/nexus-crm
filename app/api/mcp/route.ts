@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { hashApiToken } from "@/lib/token";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
+import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
@@ -134,7 +135,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         company: args.company.slice(0, 255),
         role: args.role.slice(0, 255),
         status: normalizeStatus(args.status || "applied"),
-        appliedAt: args.appliedAt ? new Date(args.appliedAt) : null,
+        appliedAt: resolveCreatedAtForCreate(args.appliedAt),
         lastContact: null,
         followUpAt: null,
         notes: args.notes?.slice(0, 10000) ?? null,
