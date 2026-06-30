@@ -60,7 +60,9 @@ export async function getSession() {
  * (comma-separated list), only those emails are permitted for session auth.
  * The first allowed user is bootstrapped as admin if no admin exists yet.
  */
-export async function requireAuth(): Promise<SessionAuthResult | null> {
+export async function requireAuth(options: { allowDevBypass?: boolean } = {}): Promise<SessionAuthResult | null> {
+  const { allowDevBypass = true } = options;
+
   // 1. Check Bearer token
   const headerList = await headers();
   const authHeader = headerList.get("authorization");
@@ -73,7 +75,7 @@ export async function requireAuth(): Promise<SessionAuthResult | null> {
   if (session) return session;
 
   // 3. Dev bypass: return a fake admin user when no session exists
-  if (process.env.NODE_ENV === "development") {
+  if (allowDevBypass && process.env.NODE_ENV === "development") {
     return {
       userId: "dev-user",
       readScopeUserId: null,

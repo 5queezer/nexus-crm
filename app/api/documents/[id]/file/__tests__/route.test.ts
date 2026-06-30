@@ -100,16 +100,25 @@ describe("GET /api/documents/[id]/file", () => {
   });
 
   it("rejects unauthenticated public-token download attempts", async () => {
+    const previousToken = process.env.PUBLIC_READ_TOKEN;
     process.env.PUBLIC_READ_TOKEN = "legacy-public-token";
     mockRequireAuth.mockResolvedValue(null);
 
-    const res = await GET(
-      makeRequest("http://localhost/api/documents/doc-1/file?token=legacy-public-token"),
-      makeParams("doc-1")
-    );
+    try {
+      const res = await GET(
+        makeRequest("http://localhost/api/documents/doc-1/file?token=legacy-public-token"),
+        makeParams("doc-1")
+      );
 
-    expect(res.status).toBe(401);
-    expect(mockLoadOwnedDocument).not.toHaveBeenCalled();
-    expect(mockDownloadFile).not.toHaveBeenCalled();
+      expect(res.status).toBe(401);
+      expect(mockLoadOwnedDocument).not.toHaveBeenCalled();
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUBLIC_READ_TOKEN;
+      } else {
+        process.env.PUBLIC_READ_TOKEN = previousToken;
+      }
+    }
   });
 });

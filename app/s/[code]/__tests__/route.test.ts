@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const { mockGetShareLinkByCode, mockGetDocument, mockFileExists, mockDownloadFile } = vi.hoisted(() => ({
@@ -31,10 +31,27 @@ function makeParams(code = "share123") {
 }
 
 describe("GET /s/[code]", () => {
+  const previousBetterAuthUrl = process.env.BETTER_AUTH_URL;
+  const previousPublicReadToken = process.env.PUBLIC_READ_TOKEN;
+
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.BETTER_AUTH_URL = "https://nexus.example.com";
     process.env.PUBLIC_READ_TOKEN = "legacy-public-token";
+  });
+
+  afterEach(() => {
+    if (previousBetterAuthUrl === undefined) {
+      delete process.env.BETTER_AUTH_URL;
+    } else {
+      process.env.BETTER_AUTH_URL = previousBetterAuthUrl;
+    }
+
+    if (previousPublicReadToken === undefined) {
+      delete process.env.PUBLIC_READ_TOKEN;
+    } else {
+      process.env.PUBLIC_READ_TOKEN = previousPublicReadToken;
+    }
   });
 
   it("redirects share-page links using the per-link code, not the global public token", async () => {

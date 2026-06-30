@@ -6,7 +6,7 @@ import { requireAuth } from "@/lib/session";
  * Share access must use per-user ShareLink codes (/s/[code]).
  */
 export async function GET() {
-  const session = await requireAuth();
+  const session = await requireAuth({ allowDevBypass: false });
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

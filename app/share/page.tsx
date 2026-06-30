@@ -213,12 +213,18 @@ function ReadonlyApplicationCard({
   );
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 interface SharePageProps {
-  searchParams: Promise<{ code?: string; lang?: string }>;
+  searchParams: Promise<{ code?: string | string[]; lang?: string | string[] }>;
 }
 
 export default async function SharePage({ searchParams }: SharePageProps) {
-  const { code, lang: langParam } = await searchParams;
+  const params = await searchParams;
+  const code = firstParam(params.code);
+  const langParam = firstParam(params.lang);
 
   if (!code) {
     notFound();
