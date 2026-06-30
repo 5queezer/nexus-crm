@@ -19,10 +19,6 @@ vi.mock("@/lib/storage", () => ({
   downloadFile: mockDownloadFile,
 }));
 
-vi.mock("@/lib/token", () => ({
-  safeCompare: (a: string, b: string) => a === b,
-}));
-
 import { GET } from "../route";
 
 const fixtureDoc = {
@@ -103,10 +99,26 @@ describe("GET /api/documents/[id]/file", () => {
     expect(mockLoadOwnedDocument).toHaveBeenCalledWith("doc-1", "user-2");
   });
 
-  it("returns 401 when unauthenticated and no public token is provided", async () => {
+  it("rejects unauthenticated public-token download attempts", async () => {
+    const previousToken = process.env.PUBLIC_READ_TOKEN;
+    process.env.PUBLIC_READ_TOKEN = "legacy-public-token";
     mockRequireAuth.mockResolvedValue(null);
-    const res = await GET(makeRequest(), makeParams("doc-1"));
-    expect(res.status).toBe(401);
-    expect(mockLoadOwnedDocument).not.toHaveBeenCalled();
+
+    try {
+      const res = await GET(
+        makeRequest("http://localhost/api/documents/doc-1/file?token=legacy-public-token"),
+        makeParams("doc-1")
+      );
+
+      expect(res.status).toBe(401);
+      expect(mockLoadOwnedDocument).not.toHaveBeenCalled();
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUBLIC_READ_TOKEN;
+      } else {
+        process.env.PUBLIC_READ_TOKEN = previousToken;
+      }
+    }
   });
 });

@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { safeCompare } from "@/lib/token";
 import { ApplicationStatus, STATUS_COLORS } from "@/types";
 import type { ApplicationRecord } from "@/lib/db/types";
 import { format, isPast, isToday } from "date-fns";
@@ -132,15 +131,15 @@ function StatCard({
 
 function LangToggle({
   current,
-  token,
+  code,
 }: {
   current: Lang;
-  token: string;
+  code: string;
 }) {
   const other: Lang = current === "de" ? "en" : "de";
   return (
     <a
-      href={`/share?token=${token}&lang=${other}`}
+      href={`/share?code=${encodeURIComponent(code)}&lang=${other}`}
       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 transition-colors"
       title={other === "en" ? "Switch to English" : "Auf Deutsch wechseln"}
     >
@@ -214,15 +213,26 @@ function ReadonlyApplicationCard({
   );
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 interface SharePageProps {
-  searchParams: Promise<{ token?: string; lang?: string }>;
+  searchParams: Promise<{ code?: string | string[]; lang?: string | string[] }>;
 }
 
 export default async function SharePage({ searchParams }: SharePageProps) {
-  const { token, lang: langParam } = await searchParams;
-  const expectedToken = process.env.PUBLIC_READ_TOKEN;
+  const params = await searchParams;
+  const code = firstParam(params.code);
+  const langParam = firstParam(params.lang);
 
-  if (!expectedToken || !token || !safeCompare(token, expectedToken)) {
+  if (!code) {
+    notFound();
+  }
+
+  const db = getDb();
+  const link = await db.getShareLinkByCode(code);
+  if (!link || link.targetType !== "share_page") {
     notFound();
   }
 
@@ -230,13 +240,10 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   const t = TRANSLATIONS[lang];
   const dateLocale = lang === "de" ? de : enUS;
 
-  const db = getDb();
-  const allApplications = await db.listApplications(null);
+  const allApplications = await db.listApplications(link.userId);
   const applications = allApplications.filter((a) => !a.archivedAt);
 
-  const ownerUser = applications[0]?.userId
-    ? await db.getUser(applications[0].userId)
-    : null;
+  const ownerUser = await db.getUser(link.userId);
   const ownerName = ownerUser?.name ?? null;
 
   const stats = {
@@ -271,7 +278,7 @@ export default async function SharePage({ searchParams }: SharePageProps) {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              <LangToggle current={lang} token={token} />
+              <LangToggle current={lang} code={code} />
               <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
                 {t.readOnly}
