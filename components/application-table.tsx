@@ -93,7 +93,7 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
   }
 
   return (
-    <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <article className="rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-sm backdrop-blur dark:border-white/[0.08] dark:bg-white/[0.035]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex items-center gap-1.5 text-base font-semibold text-gray-900 dark:text-white">
@@ -461,16 +461,19 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
   const statusFilter = columnFilters.find((f) => f.id === "status")?.value as string | undefined;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="border-b border-gray-100 bg-white/95 p-4 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
-        <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:flex-wrap">
-          <input
-            type="text"
-            value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            placeholder={ta("search")}
-            className="col-span-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-52"
-          />
+    <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035]">
+      <div className="border-b border-slate-200/80 bg-white/70 p-4 backdrop-blur dark:border-white/[0.08] dark:bg-black/20">
+        <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="relative col-span-2 sm:w-72">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
+            <input
+              type="text"
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              placeholder={ta("search")}
+              className="nexus-input pl-8"
+            />
+          </div>
           <select
             value={statusFilter || ""}
             onChange={(e) => {
@@ -481,7 +484,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                   : other;
               });
             }}
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 sm:w-auto"
+            className="nexus-input sm:w-auto"
           >
             <option value="">{ta("all_statuses")}</option>
             {STATUS_ORDER.map((value) => (
@@ -492,20 +495,20 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
           </select>
           <button
             onClick={() => setRemoteOnly((v) => !v)}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
               remoteOnly
-                ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
-                : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                ? "border-emerald-400/60 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300"
+                : "border-slate-200 bg-white/70 text-slate-600 hover:bg-slate-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-slate-300 dark:hover:bg-white/[0.06]"
             }`}
           >
             {ta("remote_only")}
           </button>
           <button
             onClick={() => setTriageFilter((v) => !v)}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
               triageFilter
-                ? "border-green-400 bg-green-50 text-green-700 dark:border-green-600 dark:bg-green-950/40 dark:text-green-300"
-                : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                ? "border-indigo-400/60 bg-indigo-50 text-indigo-700 dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-300"
+                : "border-slate-200 bg-white/70 text-slate-600 hover:bg-slate-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-slate-300 dark:hover:bg-white/[0.06]"
             }`}
           >
             {ta("triage_filter")}
@@ -518,7 +521,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                 setRemoteOnly(false);
                 setTriageFilter(false);
               }}
-              className="col-span-2 text-left text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 sm:text-center"
+              className="col-span-2 text-left text-sm font-medium text-slate-500 underline underline-offset-4 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 sm:text-center"
             >
               {ta("filter_reset")}
             </button>
@@ -528,7 +531,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
 
       <div className="p-2 pt-3 sm:p-3 sm:pt-4 md:hidden">
         {table.getRowModel().rows.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 px-4 py-10 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
+          <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400 dark:border-white/[0.08] dark:text-slate-500">
             {t("empty")}
           </div>
         ) : (
@@ -547,22 +550,22 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         )}
       </div>
 
-      <div className="hidden overflow-x-auto md:block relative [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-600 [&::-webkit-scrollbar-track]:bg-transparent">
+      <div className="hidden overflow-x-auto md:block relative [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-track]:bg-transparent">
         <table className="w-full border-collapse">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+              <tr key={headerGroup.id} className="border-b border-slate-200/80 bg-slate-50/80 dark:border-white/[0.08] dark:bg-white/[0.025]">
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
-                    className={`text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider px-4 py-3 whitespace-nowrap ${
+                    className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap dark:text-slate-400 ${
                       header.id === "actions"
-                        ? "sticky right-0 bg-gray-50 dark:bg-gray-900/80 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]"
+                        ? "sticky right-0 bg-slate-50/95 shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.35)] dark:bg-[#0f1011]/95"
                         : ""
                     } ${
                       header.column.getCanSort()
-                        ? "cursor-pointer select-none hover:text-gray-700 dark:hover:text-white"
+                        ? "cursor-pointer select-none hover:text-slate-800 dark:hover:text-white"
                         : ""
                     }`}
                   >
@@ -593,16 +596,16 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                   <tr
                     key={row.id}
                     data-row-index={rowIndex}
-                    className={`border-b border-gray-50 dark:border-gray-700/50 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-colors ${rowColor} ${
-                      isSelected ? "bg-blue-100/60 dark:bg-blue-900/30" : ""
-                    } ${isFocused ? "ring-2 ring-inset ring-blue-400 dark:ring-blue-500" : ""}`}
+                    className={`border-b border-slate-100/80 transition-colors hover:bg-indigo-50/40 dark:border-white/[0.06] dark:hover:bg-white/[0.035] ${rowColor} ${
+                      isSelected ? "bg-indigo-100/60 dark:bg-indigo-500/15" : ""
+                    } ${isFocused ? "ring-2 ring-inset ring-indigo-400 dark:ring-[#7170ff]" : ""}`}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
                         className={`px-4 py-3 ${
                           cell.column.id === "actions"
-                            ? "sticky right-0 bg-white dark:bg-gray-800 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]"
+                            ? "sticky right-0 bg-white/95 shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.35)] dark:bg-[#0f1011]/95"
                             : ""
                         }`}
                       >
@@ -617,8 +620,8 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </table>
       </div>
 
-      <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <div className="text-xs text-gray-400 dark:text-gray-500">
+      <div className="flex flex-col items-center justify-between gap-2 border-t border-slate-200/80 px-4 py-3 dark:border-white/[0.08] sm:flex-row">
+        <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
           {t("count", { filtered: table.getFilteredRowModel().rows.length, total: applications.length })}
         </div>
         {table.getPageCount() > 1 && (

@@ -151,7 +151,7 @@ export function JobUrlField({ value, onChange, label, placeholder, editLabel, sa
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
         {label}
       </label>
       {!isEditing && value ? (
@@ -161,14 +161,14 @@ export function JobUrlField({ value, onChange, label, placeholder, editLabel, sa
             target="_blank"
             rel="noopener noreferrer"
             title={value}
-            className="min-w-0 flex-1 truncate rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:underline bg-white dark:bg-gray-700"
+            className="min-w-0 flex-1 truncate rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-50 hover:underline dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#828fff] dark:hover:bg-white/[0.06]"
           >
             {value}
           </a>
           <button
             type="button"
             onClick={() => setIsEditing(true)}
-            className="shrink-0 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="nexus-button-ghost shrink-0"
           >
             {editLabel}
           </button>
@@ -180,14 +180,14 @@ export function JobUrlField({ value, onChange, label, placeholder, editLabel, sa
             name="jobUrl"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="nexus-input"
             placeholder={placeholder}
           />
           {value && (
             <button
               type="button"
               onClick={() => setIsEditing(false)}
-              className="shrink-0 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="nexus-button-ghost shrink-0"
             >
               {saveLabel}
             </button>
@@ -379,23 +379,26 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-lg max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 backdrop-blur-md sm:items-center sm:p-4">
+      <div className="w-full max-w-3xl max-h-[95vh] overflow-y-auto rounded-t-[1.75rem] border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0f1011]/95 sm:max-h-[90vh] sm:rounded-[1.75rem]">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-800 rounded-t-2xl z-10">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white pr-2">
-            {isEditing ? t("title_edit") : t("title_new")}
-          </h2>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0f1011]/90 sm:px-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Nexus CRM</p>
+            <h2 className="pr-2 text-base font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8] sm:text-lg">
+              {isEditing ? t("title_edit") : t("title_new")}
+            </h2>
+          </div>
           <button
             onClick={onClose}
-            className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-xl leading-none"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-xl leading-none text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 dark:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-slate-200"
           >
             ×
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5 p-4 sm:p-6">
           {error && (
             <div className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-400 rounded-lg text-sm">
               {error}
@@ -404,7 +407,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                 {t("company")} <span className="text-red-500">{t("required")}</span>
               </label>
               <input
@@ -413,13 +416,13 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 value={form.company}
                 onChange={handleChange}
                 required
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
                 placeholder={t("company_placeholder")}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                 {t("role")} <span className="text-red-500">{t("required")}</span>
               </label>
               <input
@@ -428,21 +431,21 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 value={form.role}
                 onChange={handleChange}
                 required
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
                 placeholder={t("role_placeholder")}
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               {t("status")}
             </label>
             <select
               name="status"
               value={form.status}
               onChange={handleChange}
-              className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="nexus-input"
             >
               {STATUS_ORDER.map((value) => (
                 <option key={value} value={value}>
@@ -453,7 +456,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               {t("source")}
             </label>
             <div className="flex gap-2">
@@ -463,7 +466,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 value={form.source}
                 onChange={handleChange}
                 list="source-presets"
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
                 placeholder={t("source_placeholder")}
               />
               <datalist id="source-presets">
@@ -497,7 +500,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
 
           {/* Salary range */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               {t("salary_range")}
             </label>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -509,7 +512,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 min={0}
                 step={1000}
                 placeholder={t("salary_min_placeholder")}
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
               />
               <span className="hidden sm:block text-gray-400 text-sm shrink-0">–</span>
               <input
@@ -520,14 +523,14 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 min={0}
                 step={1000}
                 placeholder={t("salary_max_placeholder")}
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
               />
             </div>
           </div>
 
           {/* Suitability rating */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               {t("rating")}
             </label>
             <div className="flex items-center gap-1">
@@ -558,7 +561,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                 {t("applied_at")}
               </label>
               <input
@@ -567,12 +570,12 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 value={form.appliedAt}
                 onChange={handleChange}
                 lang={locale}
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
                 {t("last_contact")}
               </label>
               <input
@@ -581,13 +584,13 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
                 value={form.lastContact}
                 onChange={handleChange}
                 lang={locale}
-                className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="nexus-input"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               🔔 {t("follow_up")}
             </label>
             <input
@@ -596,12 +599,12 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
               value={form.followUpAt}
               onChange={handleChange}
               lang={locale}
-              className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="nexus-input"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
               {t("notes")}
             </label>
             <textarea
@@ -609,7 +612,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
               value={form.notes}
               onChange={handleChange}
               rows={3}
-              className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              className="nexus-input resize-none"
               placeholder={t("notes_placeholder")}
             />
           </div>
@@ -800,18 +803,18 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
           {isEditing && <ResumeSection applicationId={application!.id} resumeId={application!.resumeId} />}
 
           {/* Actions */}
-          <div className="flex gap-3 pt-2">
+          <div className="sticky bottom-0 -mx-4 -mb-4 flex gap-3 border-t border-slate-200/80 bg-white/90 p-4 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0f1011]/90 sm:-mx-6 sm:-mb-6 sm:p-6">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="nexus-button-ghost flex-1"
             >
               {ta("cancel")}
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="nexus-button-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isPending ? (
                 <span className="flex items-center justify-center gap-2">
