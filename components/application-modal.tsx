@@ -4,7 +4,6 @@ import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Application, ApplicationStatus, Contact, CompanySize, IncomingSource, STATUS_ORDER, SOURCE_PRESETS, TRIAGE_COLORS } from "@/types";
-import { toDateInputValue } from "@/lib/applications/defaults";
 import { TriagePanel } from "./triage-panel";
 
 interface ApplicationModalProps {
@@ -137,67 +136,6 @@ function contactToRow(c: Contact): ContactFormRow {
   };
 }
 
-interface JobUrlFieldProps {
-  value: string;
-  onChange: (value: string) => void;
-  label: string;
-  placeholder: string;
-  editLabel: string;
-  saveLabel: string;
-}
-
-export function JobUrlField({ value, onChange, label, placeholder, editLabel, saveLabel }: JobUrlFieldProps) {
-  const [isEditing, setIsEditing] = useState(!value);
-
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-        {label}
-      </label>
-      {!isEditing && value ? (
-        <div className="flex items-center gap-2">
-          <a
-            href={value}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={value}
-            className="min-w-0 flex-1 truncate rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:underline bg-white dark:bg-gray-700"
-          >
-            {value}
-          </a>
-          <button
-            type="button"
-            onClick={() => setIsEditing(true)}
-            className="shrink-0 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-          >
-            {editLabel}
-          </button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="url"
-            name="jobUrl"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder={placeholder}
-          />
-          {value && (
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className="shrink-0 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              {saveLabel}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ApplicationModal({ application, onClose }: ApplicationModalProps) {
   const queryClient = useQueryClient();
   const t = useTranslations("modal");
@@ -210,7 +148,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
     company: application?.company || "",
     role: application?.role || "",
     status: (application?.status as ApplicationStatus) || "inbound",
-    appliedAt: toDateInput(application?.appliedAt) || (application ? "" : toDateInputValue()),
+    appliedAt: toDateInput(application?.appliedAt) || (application ? "" : new Date().toISOString().split("T")[0]),
     lastContact: toDateInput(application?.lastContact),
     followUpAt: toDateInput(application?.followUpAt),
     notes: application?.notes || "",
@@ -474,14 +412,19 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
             </div>
           </div>
 
-          <JobUrlField
-            value={form.jobUrl}
-            onChange={(value) => setForm((prev) => ({ ...prev, jobUrl: value }))}
-            label={t("job_url")}
-            placeholder={t("job_url_placeholder")}
-            editLabel={ta("edit")}
-            saveLabel={ta("save")}
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              {t("job_url")}
+            </label>
+            <input
+              type="url"
+              name="jobUrl"
+              value={form.jobUrl}
+              onChange={handleChange}
+              className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder={t("job_url_placeholder")}
+            />
+          </div>
 
           <div>
             <label className="flex items-center gap-2 cursor-pointer">

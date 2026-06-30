@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { normalizeStatus } from "@/types";
 import { sanitizeTriageFields } from "./sanitize";
-import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -154,12 +153,7 @@ export class PrismaAdapter implements DatabaseAdapter {
 
   async createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord> {
     const row = await prisma.application.create({
-      data: {
-        userId,
-        ...data,
-        status: normalizeStatus(data.status),
-        appliedAt: resolveCreatedAtForCreate(data.appliedAt),
-      },
+      data: { userId, ...data, status: normalizeStatus(data.status) },
       include: { contacts: true },
     });
     return mapApp(row);
@@ -304,7 +298,7 @@ export class PrismaAdapter implements DatabaseAdapter {
               company: item.company,
               role: item.role,
               status: normalizeStatus(item.status || "applied"),
-              appliedAt: resolveCreatedAtForCreate(item.appliedAt),
+              appliedAt: item.appliedAt ?? null,
               lastContact: item.lastContact ?? null,
               followUpAt: item.followUpAt ?? null,
               notes: item.notes ?? null,
