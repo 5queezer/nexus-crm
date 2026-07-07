@@ -278,7 +278,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         ]
       : []),
     columnHelper.accessor("company", {
-      header: `${t("company")} / ${t("role")}`,
+      header: t("company_role"),
       cell: (info) => (
         <div className="min-w-0 max-w-[15rem]">
           <div className="flex items-center gap-1.5">

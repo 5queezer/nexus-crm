@@ -56,6 +56,7 @@
   "table": {
     "company": "Kunde",
     "role": "Projekt",
+    "company_role": "Kunde / Projekt",
     "status": "Status",
     "applied_at": "Erstellt",
     "last_contact": "Letzter Kontakt",
