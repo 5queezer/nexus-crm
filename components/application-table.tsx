@@ -278,40 +278,44 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         ]
       : []),
     columnHelper.accessor("company", {
-      header: t("company"),
+      header: t("company_role"),
       cell: (info) => (
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => onEdit(info.row.original)}
-            className="font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
-          >
-            {info.getValue()}
-          </button>
-          {info.row.original.jobUrl && (
-            <a
-              href={info.row.original.jobUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title={info.row.original.jobUrl}
-              className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+        <div className="min-w-0 max-w-[15rem]">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => onEdit(info.row.original)}
+              className="truncate font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
+              title={info.getValue() || undefined}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          )}
-          {info.row.original.remote && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
-              Remote
-            </span>
+              {info.getValue() || "—"}
+            </button>
+            {info.row.original.jobUrl && (
+              <a
+                href={info.row.original.jobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={info.row.original.jobUrl}
+                className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            )}
+            {info.row.original.remote && (
+              <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                Remote
+              </span>
+            )}
+          </div>
+          {info.row.original.role && (
+            <div className="truncate text-xs text-gray-500 dark:text-gray-400" title={info.row.original.role}>
+              {info.row.original.role}
+            </div>
           )}
         </div>
       ),
-    }),
-    columnHelper.accessor("role", {
-      header: t("role"),
-      cell: (info) => <span className="text-gray-700 dark:text-gray-300">{info.getValue()}</span>,
     }),
     columnHelper.accessor("status", {
       header: t("status"),
@@ -353,8 +357,11 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       cell: (info) => {
         const val = info.getValue();
         return val ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300 whitespace-nowrap">
-            {val}
+          <span
+            className="inline-flex max-w-[9rem] items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300"
+            title={val}
+          >
+            <span className="truncate">{val}</span>
           </span>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">—</span>
@@ -368,67 +375,32 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         <span className="text-gray-500 dark:text-gray-300 text-sm">{formatDate(info.getValue())}</span>
       ),
     }),
-    columnHelper.accessor("lastContact", {
-      header: t("last_contact"),
-      cell: (info) => (
-        <span className="text-gray-500 dark:text-gray-300 text-sm">{formatDate(info.getValue())}</span>
-      ),
-    }),
     columnHelper.accessor("followUpAt", {
       header: t("follow_up"),
       cell: (info) => <FollowUpCell date={info.getValue()} />,
-    }),
-    columnHelper.accessor("notes", {
-      header: t("notes"),
-      cell: (info) => (
-        <span
-          className="text-gray-500 dark:text-gray-300 text-sm max-w-[200px] truncate block"
-          title={info.getValue() || ""}
-        >
-          {info.getValue() || "—"}
-        </span>
-      ),
-    }),
-    columnHelper.accessor("salaryMin", {
-      header: t("salary"),
-      cell: (info) => {
-        const min = info.row.original.salaryMin;
-        const max = info.row.original.salaryMax;
-        if (!min && !max) return <span className="text-gray-400 dark:text-gray-500">—</span>;
-        const fmt = (n: number) => n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-        if (min && max) return <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">€{fmt(min)}–{fmt(max)}</span>;
-        if (min) return <span className="text-sm text-gray-700 dark:text-gray-300">€{fmt(min)}+</span>;
-        return <span className="text-sm text-gray-700 dark:text-gray-300">≤€{fmt(max!)}</span>;
-      },
-      sortingFn: (a, b) => (a.original.salaryMin ?? 0) - (b.original.salaryMin ?? 0),
-    }),
-    columnHelper.display({
-      id: "contacts",
-      header: t("contacts"),
-      cell: ({ row }) => <ContactPills contacts={row.original.contacts} />,
     }),
     columnHelper.display({
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center">
           <button
             onClick={() => onEdit(row.original)}
-            className="flex items-center min-h-[44px] px-2 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+            className="flex items-center min-h-[44px] px-1.5 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
           >
             {ta("edit")}
           </button>
           {onArchive && (
             <button
               onClick={() => onArchive(row.original.id, !showArchived)}
-              className="flex items-center min-h-[44px] px-2 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 text-sm font-medium transition-colors"
+              className="flex items-center min-h-[44px] px-1.5 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 text-sm font-medium transition-colors"
             >
               {showArchived ? ta("unarchive") : ta("archive")}
             </button>
           )}
           <button
             onClick={() => onDelete(row.original.id)}
-            className="flex items-center min-h-[44px] px-2 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
+            className="flex items-center min-h-[44px] px-1.5 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
           >
             {ta("delete")}
           </button>
@@ -448,6 +420,20 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     data: filteredApplications,
     columns,
     state: { sorting, columnFilters, globalFilter },
+    // Search across the full record, not just visible columns
+    globalFilterFn: (row, _columnId, filterValue) => {
+      const q = String(filterValue).toLowerCase().trim();
+      if (!q) return true;
+      const a = row.original;
+      const haystack = [
+        a.company,
+        a.role,
+        a.source,
+        a.notes,
+        ...(a.contacts?.map((c) => c.name) ?? []),
+      ];
+      return haystack.some((v) => v?.toLowerCase().includes(q));
+    },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
@@ -529,7 +515,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         </div>
       </div>
 
-      <div className="p-2 pt-3 sm:p-3 sm:pt-4 md:hidden">
+      <div className="p-2 pt-3 sm:p-3 sm:pt-4 lg:hidden">
         {table.getRowModel().rows.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-400 dark:border-white/[0.08] dark:text-slate-500">
             {t("empty")}
@@ -550,7 +536,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
         )}
       </div>
 
-      <div className="hidden overflow-x-auto md:block relative [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-track]:bg-transparent">
+      <div className="hidden overflow-x-auto lg:block relative [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-track]:bg-transparent">
         <table className="w-full border-collapse">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -559,7 +545,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                   <th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
-                    className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap dark:text-slate-400 ${
+                    className={`px-3 py-3 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap dark:text-slate-400 ${
                       header.id === "actions"
                         ? "sticky right-0 bg-slate-50/95 shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.35)] dark:bg-[#0f1011]/95"
                         : ""
@@ -603,7 +589,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={`px-4 py-3 ${
+                        className={`px-3 py-3 ${
                           cell.column.id === "actions"
                             ? "sticky right-0 bg-white/95 shadow-[-8px_0_16px_-12px_rgba(15,23,42,0.35)] dark:bg-[#0f1011]/95"
                             : ""

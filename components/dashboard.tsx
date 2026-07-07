@@ -466,81 +466,53 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           </div>
         )}
 
-        <section className="mb-6 overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035] sm:p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-slate-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                {showArchived ? ta("archive") : t("applications")}
-              </div>
-              <h1 className="text-3xl font-semibold tracking-[-0.05em] text-slate-950 dark:text-[#f7f8f8] sm:text-4xl">
-                {customTitle || "Nexus CRM"}
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-                {tapp("hero_description")}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setIsCommandPaletteOpen(true)}
-                className="nexus-button-ghost min-h-10"
-                type="button"
-              >
-                ⌘K
-                <span className="text-slate-400">{tapp("command")}</span>
-              </button>
-              <button
-                onClick={handleNewApplication}
-                className="nexus-button-primary min-h-10"
-                type="button"
-              >
-                <span>+</span>
-                {ta("new_application")}
-              </button>
-            </div>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-[#f7f8f8] sm:text-3xl">
+              {customTitle || "Nexus CRM"}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{tapp("subtitle")}</p>
           </div>
-        </section>
-
-        {/* Stats */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:grid-cols-5 sm:gap-4">
-          <StatCard label={ts("total")} value={stats.total} color="blue" onClick={() => setViewMode("table")} />
-          <StatCard label={ts("inbound")} value={stats.inbound} color="teal" onClick={() => setViewMode("table")} />
-          <StatCard label={ts("active")} value={stats.active} color="yellow" onClick={() => setViewMode("table")} />
-          <StatCard label={ts("offers")} value={stats.offers} color="green" onClick={() => setViewMode("table")} />
-          <div className="col-span-2 sm:col-span-1">
-            <StatCard label={ts("rejected")} value={stats.rejected} color="red" onClick={() => setViewMode("table")} />
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="nexus-button-ghost min-h-10"
+              type="button"
+            >
+              ⌘K
+              <span className="text-slate-400">{tapp("command")}</span>
+            </button>
+            <button
+              onClick={handleNewApplication}
+              className="nexus-button-primary min-h-10"
+              type="button"
+            >
+              <span>+</span>
+              {ta("new_application")}
+            </button>
           </div>
         </div>
 
-        {/* Triage Summary Widget */}
-        {(triageStats[5] > 0 || triageStats[4] > 0 || triageStats.thisWeek > 0) && (
-          <div className="mb-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{t("triage_title")}</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-900/50 p-2">
-                <div className="text-lg font-bold text-gray-900 dark:text-white">{triageStats.thisWeek}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{t("triage_this_week")}</div>
-              </div>
-              <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-2">
-                <div className="text-lg font-bold text-green-700 dark:text-green-300">{triageStats[5]}</div>
-                <div className="text-xs text-green-600 dark:text-green-400">5/5 {t("triage_perfect")}</div>
-              </div>
-              <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2">
-                <div className="text-lg font-bold text-blue-700 dark:text-blue-300">{triageStats[4]}</div>
-                <div className="text-xs text-blue-600 dark:text-blue-400">4/5 {t("triage_strong")}</div>
-              </div>
-              <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950/30 p-2">
-                <div className="text-lg font-bold text-yellow-700 dark:text-yellow-300">{triageStats[3]}</div>
-                <div className="text-xs text-yellow-600 dark:text-yellow-400">3/5 {t("triage_consider")}</div>
-              </div>
-            </div>
-            {triageStats.highPriority > 0 && (
-              <p className="mt-3 text-sm text-green-700 dark:text-green-400 font-medium">
-                {t("triage_action", { count: triageStats.highPriority })}
-              </p>
-            )}
+        {/* Combined pipeline + triage overview */}
+        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035] sm:px-5">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <StatItem label={ts("total")} value={stats.total} className="text-blue-600 dark:text-blue-300" />
+            <StatItem label={ts("inbound")} value={stats.inbound} className="text-teal-600 dark:text-teal-300" />
+            <StatItem label={ts("active")} value={stats.active} className="text-amber-600 dark:text-amber-300" />
+            <StatItem label={ts("offers")} value={stats.offers} className="text-emerald-600 dark:text-emerald-300" />
+            <StatItem label={ts("rejected")} value={stats.rejected} className="text-red-500 dark:text-red-300" />
+            <div className="hidden w-px self-stretch bg-slate-200 dark:bg-white/[0.08] sm:block" aria-hidden="true" />
+            <StatItem label={t("triage_this_week")} value={triageStats.thisWeek} className="text-slate-900 dark:text-white" />
+            <StatItem label={`5/5 ${t("triage_perfect")}`} value={triageStats[5]} className="text-green-600 dark:text-green-300" />
+            <StatItem label={`4/5 ${t("triage_strong")}`} value={triageStats[4]} className="text-blue-600 dark:text-blue-300" />
+            <StatItem label={`3/5 ${t("triage_consider")}`} value={triageStats[3]} className="text-yellow-600 dark:text-yellow-300" />
           </div>
-        )}
+          {triageStats.highPriority > 0 && (
+            <p className="mt-2 text-sm font-medium text-green-700 dark:text-green-400">
+              {t("triage_action", { count: triageStats.highPriority })}
+            </p>
+          )}
+        </section>
 
         {/* Toolbar */}
         <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -573,10 +545,10 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
               </button>
             </div>
 
-            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <button
                 onClick={() => setShowArchived((v) => !v)}
-                className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+                className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:flex-none ${
                   showArchived
                     ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
                     : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -595,18 +567,10 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
               <button
                 onClick={() => exportToCsv(visibleApplications)}
                 title={ta("export_csv")}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 sm:w-auto"
+                className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 sm:flex-none"
               >
                 <span>↓</span>
                 {ta("export_csv")}
-              </button>
-
-              <button
-                onClick={handleNewApplication}
-                className="col-span-2 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 sm:w-auto"
-              >
-                <span>+</span>
-                {ta("new_application")}
               </button>
             </div>
           </div>
@@ -723,11 +687,11 @@ function ArchiveOldDropdown({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative w-full sm:w-auto">
+    <div ref={ref} className="relative flex-1 sm:flex-none">
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={isPending}
-        className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:w-auto ${
+        className={`flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
           open
             ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
             : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -795,37 +759,11 @@ function ArchiveOldDropdown({
   );
 }
 
-function StatCard({
-  label,
-  value,
-  color,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  color: "blue" | "teal" | "yellow" | "green" | "gray" | "red";
-  onClick?: () => void;
-}) {
-  const colors = {
-    blue: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-    teal: "bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
-    yellow: "bg-yellow-50 text-yellow-700 dark:bg-amber-500/15 dark:text-amber-300",
-    green: "bg-green-50 text-green-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-    gray: "bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-200",
-    red: "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300",
-  };
-
-  const className = `${colors[color]} rounded-xl p-4 text-center h-full${onClick ? " cursor-pointer hover:opacity-80 transition-opacity" : ""}`;
-
-  return onClick ? (
-    <button type="button" onClick={onClick} className={className}>
-      <div className="text-2xl sm:text-3xl font-bold">{value}</div>
-      <div className="text-sm font-medium mt-1">{label}</div>
-    </button>
-  ) : (
-    <div className={className}>
-      <div className="text-2xl sm:text-3xl font-bold">{value}</div>
-      <div className="text-sm font-medium mt-1">{label}</div>
+function StatItem({ label, value, className }: { label: string; value: number; className?: string }) {
+  return (
+    <div className="min-w-[4.5rem]">
+      <div className={`text-xl font-semibold leading-6 ${className ?? ""}`}>{value}</div>
+      <div className="mt-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
     </div>
   );
 }
