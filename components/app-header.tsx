@@ -68,13 +68,13 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
               <div className="truncate text-sm font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8] sm:text-base">
                 {title || tapp("title")}
               </div>
-              <div className="hidden text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 sm:block">
+              <div className="hidden truncate text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 sm:block">
                 {tapp("eyebrow")}
               </div>
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-1 rounded-2xl border border-slate-200/80 bg-slate-100/80 p-1 dark:border-white/[0.08] dark:bg-white/[0.035] md:flex">
+          <nav className="hidden shrink-0 items-center gap-1 rounded-2xl border border-slate-200/80 bg-slate-100/80 p-1 dark:border-white/[0.08] dark:bg-white/[0.035] lg:flex">
             {activeLinks.map((link) => {
               const Icon = link.icon;
               const active = pathname === link.href;
@@ -82,34 +82,41 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`flex min-h-9 items-center gap-2 rounded-xl px-3 text-sm font-medium transition ${
+                  title={link.label}
+                  aria-label={link.label}
+                  className={`flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-sm font-medium transition ${
                     active
                       ? "bg-white text-slate-950 shadow-sm dark:bg-white/[0.08] dark:text-white"
                       : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
-                  {link.label}
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="hidden xl:inline">{link.label}</span>
                 </Link>
               );
             })}
           </nav>
 
-          <div className="hidden items-center gap-2 md:flex">
+          <div className="hidden shrink-0 items-center gap-2 lg:flex">
             {shareUrl && (
               <a
                 href={shareUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="nexus-button-ghost min-h-10 px-3 py-2"
+                title={tn("share")}
+                aria-label={tn("share")}
+                className="nexus-button-ghost min-h-10 whitespace-nowrap px-3 py-2"
               >
-                {tn("share")}
+                <span className="hidden xl:inline">{tn("share")}</span>
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
             )}
             <ThemeSwitcher />
             <LanguageSwitcher />
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/70 px-2 py-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
+            <div
+              className="flex items-center rounded-2xl border border-slate-200 bg-white/70 px-1.5 py-1 dark:border-white/[0.08] dark:bg-white/[0.04]"
+              title={user.name || user.email}
+            >
               {user.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={user.image} alt={user.name || user.email} className="h-8 w-8 rounded-full" />
@@ -118,16 +125,14 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
                   {userInitial}
                 </div>
               )}
-              <span className="max-w-[11rem] truncate text-sm font-medium text-slate-600 dark:text-slate-300">
-                {user.name || user.email}
-              </span>
             </div>
             <button onClick={handleLogout} className="nexus-button-ghost min-h-10 px-3 py-2" title={tn("logout")}>
               <LogOut className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 md:hidden">
+          <div className="flex shrink-0 items-center gap-2 lg:hidden">
+            <ThemeSwitcher />
             <LanguageSwitcher />
             <button
               onClick={() => setMobileMenuOpen((v) => !v)}
@@ -141,7 +146,7 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
       </div>
 
       {mobileMenuOpen && (
-        <div className="border-t border-slate-200/80 bg-white/95 px-4 py-3 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#08090a]/95 md:hidden">
+        <div className="border-t border-slate-200/80 bg-white/95 px-4 py-3 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#08090a]/95 lg:hidden">
           <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-slate-300">
             {user.name || user.email}
           </div>
