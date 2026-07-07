@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { format, isPast, isToday } from "date-fns";
 import type { Locale } from "date-fns";
 import { de, enUS } from "date-fns/locale";
@@ -26,7 +27,7 @@ export interface SharedApplication {
   notes: string | null;
 }
 
-type Lang = "de" | "en";
+export type Lang = "de" | "en";
 
 // Aggregate tiles double as filters; legend chips filter single stages.
 type Filter = "all" | "active" | ApplicationStatus;
@@ -318,13 +319,13 @@ export function SharePortal({
                 <Lock className="h-3.5 w-3.5" aria-hidden />
                 <span className="hidden sm:inline">{t.readOnly}</span>
               </span>
-              <a
+              <Link
                 href={`/share?code=${encodeURIComponent(code)}&lang=${otherLang}`}
                 className="nexus-button-ghost min-h-9 px-3 py-1.5"
                 title={t.langToggleTitle}
               >
                 {t.langToggle}
-              </a>
+              </Link>
             </div>
           </div>
         </div>

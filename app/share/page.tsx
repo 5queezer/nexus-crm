@@ -3,9 +3,11 @@ import { getDb } from "@/lib/db";
 import { normalizeStatus } from "@/types";
 import { format } from "date-fns";
 import { de, enUS } from "date-fns/locale";
-import { SharePortal, type SharedApplication } from "@/components/share-portal";
-
-type Lang = "de" | "en";
+import {
+  SharePortal,
+  type SharedApplication,
+  type Lang,
+} from "@/components/share-portal";
 
 function resolveLang(raw: string | undefined): Lang {
   return raw === "en" ? "en" : "de";
@@ -40,7 +42,10 @@ export default async function SharePage({ searchParams }: SharePageProps) {
     notFound();
   }
 
-  const allApplications = await db.listApplications(link.userId);
+  const [allApplications, ownerUser] = await Promise.all([
+    db.listApplications(link.userId),
+    db.getUser(link.userId),
+  ]);
 
   // Expose only the fields the public portal renders — nothing else leaves the server.
   const applications: SharedApplication[] = allApplications
@@ -56,7 +61,6 @@ export default async function SharePage({ searchParams }: SharePageProps) {
       notes: a.notes,
     }));
 
-  const ownerUser = await db.getUser(link.userId);
   const generatedAt = format(new Date(), "dd.MM.yyyy HH:mm", {
     locale: lang === "de" ? de : enUS,
   });
