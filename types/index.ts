@@ -144,9 +144,38 @@ const SOURCE_ALIASES: Record<string, string> = {
   "mail": "email",
 };
 
+// Strips metadata that callers sometimes pack into the source field
+// (leading date stamps, "label:" prefixes, trailing ";"-separated notes)
+// so only the actual source name remains.
+// e.g. "2026-07-07 MCP scan: Himalayas; canonical source pending" → "Himalayas"
+function stripSourceMetadata(value: string): string {
+  let result = value.trim();
+
+  // Leave URLs untouched — ":" and ";" can be part of the address
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(result)) {
+    return result;
+  }
+
+  // Drop trailing ";"-separated notes ("…; canonical source pending")
+  result = result.split(";")[0].trim();
+
+  // Drop leading date stamps: ISO (2026-07-07) or European (07.07.2026)
+  result = result
+    .replace(/^[[(]?\d{4}-\d{2}-\d{2}[\])]?\s*[-–:,]?\s*/, "")
+    .replace(/^[[(]?\d{1,2}\.\d{1,2}\.\d{2,4}[\])]?\s*[-–:,]?\s*/, "");
+
+  // Drop a leading "label:" prefix ("MCP scan: Himalayas" → "Himalayas")
+  const colonIdx = result.indexOf(":");
+  if (colonIdx > 0 && colonIdx < result.length - 1) {
+    result = result.slice(colonIdx + 1);
+  }
+
+  return result.trim();
+}
+
 export function normalizeSource(source: string | null | undefined): string | null {
   if (!source) return null;
-  const trimmed = source.trim();
+  const trimmed = stripSourceMetadata(source);
   if (!trimmed) return null;
   const lower = trimmed.toLowerCase();
 

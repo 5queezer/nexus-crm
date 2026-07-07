@@ -5,7 +5,7 @@ import { z } from "zod/v3";
 import { getDb } from "@/lib/db";
 import { hashApiToken } from "@/lib/token";
 import { prisma } from "@/lib/prisma";
-import { normalizeStatus } from "@/types";
+import { normalizeStatus, normalizeSource } from "@/types";
 import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
@@ -123,7 +123,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         .string()
         .optional()
         .describe("Job description text"),
-      source: z.string().optional().describe("Source (linkedin, referral, etc.)"),
+      source: z.string().optional().describe("Source name only (linkedin, referral, etc.) — no dates or notes; metadata is stripped"),
       remote: z.boolean().optional().describe("Remote position?"),
       salaryMin: z.number().optional().describe("Minimum salary"),
       salaryMax: z.number().optional().describe("Maximum salary"),
@@ -140,7 +140,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         followUpAt: null,
         notes: args.notes?.slice(0, 10000) ?? null,
         jobDescription: args.jobDescription?.slice(0, 50000) ?? null,
-        source: args.source?.slice(0, 100) ?? null,
+        source: normalizeSource(args.source)?.slice(0, 100) ?? null,
         remote: args.remote ?? false,
         salaryMin: args.salaryMin ?? null,
         salaryMax: args.salaryMax ?? null,
@@ -170,7 +170,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       followUpAt: z.string().nullable().optional().describe("Follow-up date"),
       notes: z.string().nullable().optional().describe("Free-text notes"),
       jobDescription: z.string().nullable().optional().describe("Job description"),
-      source: z.string().nullable().optional().describe("Source"),
+      source: z.string().nullable().optional().describe("Source name only — no dates or notes; metadata is stripped"),
       remote: z.boolean().optional().describe("Remote position?"),
       salaryMin: z.number().nullable().optional().describe("Minimum salary"),
       salaryMax: z.number().nullable().optional().describe("Maximum salary"),
@@ -192,7 +192,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       if (data.notes !== undefined) update.notes = data.notes?.slice(0, 10000) ?? null;
       if (data.jobDescription !== undefined)
         update.jobDescription = data.jobDescription?.slice(0, 50000) ?? null;
-      if (data.source !== undefined) update.source = data.source?.slice(0, 100) ?? null;
+      if (data.source !== undefined) update.source = normalizeSource(data.source)?.slice(0, 100) ?? null;
       if (data.remote !== undefined) update.remote = data.remote;
       if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
       if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
@@ -252,7 +252,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             followUpAt: z.string().nullable().optional().describe("Follow-up date"),
             notes: z.string().nullable().optional().describe("Free-text notes"),
             jobDescription: z.string().nullable().optional().describe("Job description"),
-            source: z.string().nullable().optional().describe("Source"),
+            source: z.string().nullable().optional().describe("Source name only — no dates or notes; metadata is stripped"),
             remote: z.boolean().optional().describe("Remote position?"),
             salaryMin: z.number().nullable().optional().describe("Minimum salary"),
             salaryMax: z.number().nullable().optional().describe("Maximum salary"),
@@ -277,7 +277,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           followUpAt: item.followUpAt !== undefined ? (item.followUpAt ? new Date(item.followUpAt) : null) : undefined,
           notes: item.notes !== undefined ? (item.notes?.slice(0, 10000) ?? null) : undefined,
           jobDescription: item.jobDescription !== undefined ? (item.jobDescription?.slice(0, 50000) ?? null) : undefined,
-          source: item.source !== undefined ? (item.source?.slice(0, 100) ?? null) : undefined,
+          source: item.source !== undefined ? (normalizeSource(item.source)?.slice(0, 100) ?? null) : undefined,
           remote: item.remote,
           salaryMin: item.salaryMin,
           salaryMax: item.salaryMax,

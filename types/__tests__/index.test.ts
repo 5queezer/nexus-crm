@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeStatus,
+  normalizeSource,
   STATUS_ORDER,
   STATUS_COLORS,
   STATUS_ROW_COLORS,
@@ -80,6 +81,60 @@ describe("STATUS_ROW_COLORS", () => {
     for (const status of STATUS_ORDER) {
       expect(STATUS_ROW_COLORS[status]).toBeDefined();
     }
+  });
+});
+
+describe("normalizeSource", () => {
+  it("returns presets unchanged", () => {
+    expect(normalizeSource("linkedin")).toBe("linkedin");
+    expect(normalizeSource("referral")).toBe("referral");
+  });
+
+  it("maps aliases to presets", () => {
+    expect(normalizeSource("Webseite")).toBe("website");
+    expect(normalizeSource("Empfehlung")).toBe("referral");
+  });
+
+  it("strips a leading ISO date stamp", () => {
+    expect(normalizeSource("2026-07-07 Himalayas")).toBe("Himalayas");
+    expect(normalizeSource("2026-07-07 LinkedIn")).toBe("linkedin");
+  });
+
+  it("strips a leading European date stamp", () => {
+    expect(normalizeSource("07.07.2026 Himalayas")).toBe("Himalayas");
+  });
+
+  it("strips a leading label prefix", () => {
+    expect(normalizeSource("MCP scan: Himalayas")).toBe("Himalayas");
+  });
+
+  it("strips trailing semicolon-separated notes", () => {
+    expect(normalizeSource("Himalayas; canonical source pending")).toBe("Himalayas");
+  });
+
+  it("strips combined date, label, and note metadata", () => {
+    expect(
+      normalizeSource("2026-07-07 MCP scan: Himalayas + web search; canonical source pending")
+    ).toBe("Himalayas + web search");
+  });
+
+  it("returns null when only metadata remains", () => {
+    expect(normalizeSource("2026-07-07")).toBe(null);
+    expect(normalizeSource("2026-07-07; pending")).toBe(null);
+  });
+
+  it("leaves URLs untouched", () => {
+    expect(normalizeSource("https://example.com/jobs;id=1")).toBe("https://example.com/jobs;id=1");
+  });
+
+  it("maps bare domains to website", () => {
+    expect(normalizeSource("example.com")).toBe("website");
+  });
+
+  it("handles null, undefined, and empty input", () => {
+    expect(normalizeSource(null)).toBe(null);
+    expect(normalizeSource(undefined)).toBe(null);
+    expect(normalizeSource("   ")).toBe(null);
   });
 });
 
