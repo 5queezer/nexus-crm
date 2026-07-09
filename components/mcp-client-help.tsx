@@ -20,16 +20,38 @@ function useBrowserOrigin() {
   return useSyncExternalStore(subscribeToOrigin, getBrowserOrigin, getServerOrigin);
 }
 
+function copyWithTextareaFallback(value: string) {
+  const ta = document.createElement("textarea");
+  ta.value = value;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
 function CodeBlock({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
+    let didCopy = false;
+
     try {
       await navigator.clipboard.writeText(value);
+      didCopy = true;
+    } catch {
+      didCopy = copyWithTextareaFallback(value);
+    }
+
+    if (didCopy) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API unavailable or permission denied.
     }
   }
 
