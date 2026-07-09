@@ -7,6 +7,7 @@ import { EmailIntegration } from "./email-integration";
 import { ScannedEmails } from "./scanned-emails";
 import { ApiToken } from "./api-token";
 import { AppHeader } from "./app-header";
+import { McpClientHelp } from "./mcp-client-help";
 
 interface SettingsClientProps {
   user: {
@@ -26,6 +27,7 @@ export function SettingsClient({ user }: SettingsClientProps) {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         <EmailIntegration />
         <ScannedEmails />
+        <McpClientHelp />
         <ApiToken />
         <AppSettingsPanel />
         {user.isAdmin && (
