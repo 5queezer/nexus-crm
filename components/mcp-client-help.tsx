@@ -1,15 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { Bot, Check, Copy, Info } from "lucide-react";
+
+function subscribeToOrigin(callback: () => void) {
+  const id = window.setTimeout(callback, 0);
+  return () => window.clearTimeout(id);
+}
+
+function getBrowserOrigin() {
+  return window.location.origin;
+}
+
+function getServerOrigin() {
+  return null;
+}
+
+function useBrowserOrigin() {
+  return useSyncExternalStore(subscribeToOrigin, getBrowserOrigin, getServerOrigin);
+}
 
 function CodeBlock({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable or permission denied.
+    }
   }
 
   return (
@@ -33,23 +54,19 @@ function CodeBlock({ value, label }: { value: string; label: string }) {
 }
 
 export function McpClientHelp() {
-  const origin = typeof window === "undefined" ? "https://nexus.vasudev.xyz" : window.location.origin;
+  const origin = useBrowserOrigin();
 
-  const mcpUrl = `${origin}/api/mcp`;
-  const oauthMetadataUrl = `${origin}/.well-known/oauth-authorization-server`;
-  const protectedResourceUrl = `${origin}/.well-known/oauth-protected-resource`;
+  const mcpUrl = origin ? `${origin}/api/mcp` : "";
+  const oauthMetadataUrl = origin ? `${origin}/.well-known/oauth-authorization-server` : "";
+  const protectedResourceUrl = origin ? `${origin}/.well-known/oauth-protected-resource` : "";
 
-  const claudeDesktopConfig = useMemo(
+  const headerBasedConfig = useMemo(
     () =>
       JSON.stringify(
         {
-          mcpServers: {
-            "nexus-crm": {
-              url: mcpUrl,
-              headers: {
-                Authorization: ["Bearer", "jt_<your-token>"].join(" "),
-              },
-            },
+          url: mcpUrl,
+          headers: {
+            Authorization: "Bearer jt_<your-token>",
           },
         },
         null,
@@ -75,38 +92,48 @@ export function McpClientHelp() {
           <div className="flex gap-2">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              Recommended: use OAuth in Claude.ai or ChatGPT. Use the API token below only for clients that support static Authorization headers.
+              Recommended: use OAuth in Claude.ai, Claude Desktop custom connectors, or ChatGPT. Use the API token below only for clients that explicitly support static Authorization headers.
             </p>
           </div>
         </div>
 
         <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white">1. Claude.ai or ChatGPT custom connector</h4>
+          <h4 className="font-semibold text-gray-900 dark:text-white">1. Claude or ChatGPT custom connector</h4>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-gray-600 dark:text-gray-400">
             <li>Open the connector / MCP server settings in Claude or ChatGPT.</li>
             <li>Add a custom connector named <strong>Nexus CRM</strong>.</li>
             <li>Paste the MCP server URL below.</li>
             <li>Choose OAuth if prompted, then sign in with your Nexus CRM account and approve the connection.</li>
           </ol>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <CodeBlock value={mcpUrl} label="MCP server URL" />
-            <CodeBlock value={oauthMetadataUrl} label="OAuth discovery URL" />
-          </div>
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            If a client asks for protected-resource metadata, use <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-900">{protectedResourceUrl}</code>.
-          </p>
+          {origin ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <CodeBlock value={mcpUrl} label="MCP server URL" />
+              <CodeBlock value={oauthMetadataUrl} label="OAuth discovery URL" />
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+              Loading setup URLs…
+            </div>
+          )}
+          {origin && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              If a client asks for protected-resource metadata, use <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-900">{protectedResourceUrl}</code>.
+            </p>
+          )}
         </div>
 
         <div>
-          <h4 className="font-semibold text-gray-900 dark:text-white">2. Claude Desktop or other header-based clients</h4>
+          <h4 className="font-semibold text-gray-900 dark:text-white">2. API-token fallback for header-based clients</h4>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-gray-600 dark:text-gray-400">
             <li>Generate an API token in the panel below and copy it immediately.</li>
-            <li>Paste this JSON into your MCP client config.</li>
-            <li>Replace <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-900">jt_&lt;your-token&gt;</code> with your generated token.</li>
+            <li>Use this only in clients that support custom HTTP headers for remote MCP servers.</li>
+            <li>Do not paste this into Claude Desktop&apos;s local server config; Claude Desktop remote MCP should use custom connectors / OAuth.</li>
           </ol>
-          <div className="mt-3">
-            <CodeBlock value={claudeDesktopConfig} label="claude_desktop_config.json" />
-          </div>
+          {origin && (
+            <div className="mt-3">
+              <CodeBlock value={headerBasedConfig} label="Generic header-based remote MCP config" />
+            </div>
+          )}
         </div>
       </div>
     </section>
