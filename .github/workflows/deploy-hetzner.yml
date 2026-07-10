@@ -10,180 +10,278 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  COOLIFY_APP_DIR: ${{ vars.HETZNER_COOLIFY_APP_DIR || '/data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu' }}
-  COOLIFY_SERVICE: ${{ vars.HETZNER_COOLIFY_SERVICE || '' }}
-  COOLIFY_IMAGE: ${{ vars.HETZNER_COOLIFY_IMAGE || 'tj4r2ezipwho1zvjhg78a5wu' }}
-  DEPLOY_REPO_URL: ${{ vars.HETZNER_DEPLOY_REPO_URL || 'https://github.com/5queezer/nexus-crm.git' }}
+  COOLIFY_APP_DIR: ${{ vars.HETZNER_COOLIFY_APP_DIR }}
+  COOLIFY_APP_DIR_DEFAULT: >-
+    /data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu
+  COOLIFY_SERVICE: ${{ vars.HETZNER_COOLIFY_SERVICE }}
+  COOLIFY_IMAGE: ${{ vars.HETZNER_COOLIFY_IMAGE }}
+  COOLIFY_IMAGE_DEFAULT: tj4r2ezipwho1zvjhg78a5wu
+  DEPLOY_PLATFORM: linux/arm64
   AUTO_DEPLOY: ${{ vars.HETZNER_AUTO_DEPLOY || 'false' }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || vars.HETZNER_AUTO_DEPLOY == 'true'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      vars.HETZNER_AUTO_DEPLOY == 'true'
 
     permissions:
       contents: read
 
     steps:
-      - name: Deploy on Hetzner VPS
-        uses: appleboy/ssh-action@v1
-        env:
-          COOLIFY_APP_DIR: ${{ env.COOLIFY_APP_DIR }}
-          COOLIFY_SERVICE: ${{ env.COOLIFY_SERVICE }}
-          COOLIFY_IMAGE: ${{ env.COOLIFY_IMAGE }}
-          DEPLOY_REPO_URL: ${{ env.DEPLOY_REPO_URL }}
-          DEPLOY_SHA: ${{ github.sha }}
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Normalize deploy env
+        run: |
+          set -euo pipefail
+          echo "COOLIFY_APP_DIR=${COOLIFY_APP_DIR:-$COOLIFY_APP_DIR_DEFAULT}" \
+            >> "$GITHUB_ENV"
+          echo "COOLIFY_IMAGE=${COOLIFY_IMAGE:-$COOLIFY_IMAGE_DEFAULT}" \
+            >> "$GITHUB_ENV"
+
+      - name: Set up QEMU for ARM64 builds
+        uses: docker/setup-qemu-action@v3
         with:
-          host: ${{ secrets.HETZNER_HOST || secrets.SSH_HOST }}
-          username: ${{ secrets.HETZNER_USER || secrets.SSH_USER }}
-          key: ${{ secrets.HETZNER_SSH_KEY || secrets.SSH_KEY }}
-          port: ${{ secrets.HETZNER_PORT || '22' }}
-          command_timeout: 30m
-          envs: COOLIFY_APP_DIR,COOLIFY_SERVICE,COOLIFY_IMAGE,DEPLOY_REPO_URL,DEPLOY_SHA
-          script: |
-            set -euo pipefail
+          platforms: arm64
 
-            workdir="/tmp/nexus-crm-deploy"
-            rm -rf "$workdir"
-            git clone --depth 1 "$DEPLOY_REPO_URL" "$workdir"
-            cd "$workdir"
-            git fetch --depth 1 origin "$DEPLOY_SHA"
-            git checkout "$DEPLOY_SHA"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            image_tag="${COOLIFY_IMAGE}:${DEPLOY_SHA}"
-            docker build -t "$image_tag" .
+      - name: Build ARM64 image in GitHub Actions
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
 
-            cd "$COOLIFY_APP_DIR"
-            COOLIFY_SERVICE=$(python3 - <<'PY'
-            import os
-            import sys
-            from pathlib import Path
+          image_tag="${COOLIFY_IMAGE}:${DEPLOY_SHA}"
+          image_archive="/tmp/nexus-crm-${DEPLOY_SHA}.tar.gz"
 
-            configured = os.environ.get("COOLIFY_SERVICE", "").strip()
-            services = []
-            for line in Path("docker-compose.yaml").read_text().splitlines():
-                stripped = line.strip()
-                indent = len(line) - len(line.lstrip())
-                if indent == 4 and stripped.endswith(":"):
-                    services.append(stripped[:-1])
+          echo "IMAGE_TAG=${image_tag}" >> "$GITHUB_ENV"
+          echo "IMAGE_ARCHIVE=${image_archive}" >> "$GITHUB_ENV"
 
-            if configured and configured in services:
-                print(configured)
-            elif services:
-                if configured:
-                    print(
-                        f"Configured Coolify service '{configured}' was not found; "
-                        f"using '{services[0]}' from docker-compose.yaml.",
-                        file=sys.stderr,
-                    )
-                print(services[0])
-            PY
-            )
+          docker buildx build \
+            --platform "${DEPLOY_PLATFORM}" \
+            --tag "${image_tag}" \
+            --load \
+            .
 
-            if [ -z "${COOLIFY_SERVICE:-}" ]; then
-              echo "Could not determine Coolify compose service name." >&2
-              exit 1
-            fi
+          docker save "${image_tag}" | gzip -1 > "${image_archive}"
+          ls -lh "${image_archive}"
 
-            export COOLIFY_SERVICE
-            cp docker-compose.yaml "docker-compose.yaml.before-${DEPLOY_SHA}-$(date +%Y%m%d%H%M%S)"
+      - name: Configure SSH
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST || secrets.SSH_HOST }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY || secrets.SSH_KEY }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT || '22' }}
+        run: |
+          set -euo pipefail
 
-            python3 - <<'PY'
-            import os
-            from pathlib import Path
+          : "${HETZNER_HOST:?Missing HETZNER_HOST/SSH_HOST secret}"
+          : "${HETZNER_SSH_KEY:?Missing HETZNER_SSH_KEY/SSH_KEY secret}"
 
-            compose_path = Path("docker-compose.yaml")
-            env_path = Path(".env")
-            service = os.environ["COOLIFY_SERVICE"]
-            image = f"{os.environ['COOLIFY_IMAGE']}:{os.environ['DEPLOY_SHA']}"
-            compose = compose_path.read_text()
-            lines = compose.splitlines()
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/hetzner_deploy_key
+          chmod 600 ~/.ssh/hetzner_deploy_key
+          ssh-keyscan \
+            -p "${HETZNER_PORT}" \
+            "${HETZNER_HOST}" \
+            >> ~/.ssh/known_hosts
 
-            in_service = False
-            service_indent = None
-            image_replaced = False
-            has_upload_mount = "nexus-crm-uploads:/app/uploads" in compose
+      - name: Copy image to Hetzner VPS
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST || secrets.SSH_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER || secrets.SSH_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT || '22' }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
 
-            out = []
-            for line in lines:
-                stripped = line.strip()
-                if stripped == f"{service}:":
-                    in_service = True
-                    service_indent = len(line) - len(line.lstrip())
-                    out.append(line)
-                    continue
+          : "${HETZNER_USER:?Missing HETZNER_USER/SSH_USER secret}"
+          remote_archive="/tmp/nexus-crm-${DEPLOY_SHA}.tar.gz"
 
-                if in_service and service_indent is not None:
-                    indent = len(line) - len(line.lstrip())
-                    if stripped and indent <= service_indent:
-                        if not has_upload_mount:
-                            out.extend([
-                                "        volumes:",
-                                "            - nexus-crm-uploads:/app/uploads",
-                            ])
-                            has_upload_mount = True
-                        in_service = False
+          scp \
+            -i ~/.ssh/hetzner_deploy_key \
+            -P "${HETZNER_PORT}" \
+            "${IMAGE_ARCHIVE}" \
+            "${HETZNER_USER}@${HETZNER_HOST}:${remote_archive}"
 
-                    if in_service and stripped.startswith("image:"):
-                        out.append(f"        image: '{image}'")
-                        image_replaced = True
-                        continue
+      - name: Load image and deploy on Hetzner VPS
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST || secrets.SSH_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER || secrets.SSH_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT || '22' }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
 
-                    if in_service and stripped == "labels:" and not has_upload_mount:
-                        out.extend([
-                            "        volumes:",
-                            "            - nexus-crm-uploads:/app/uploads",
-                        ])
-                        has_upload_mount = True
+          remote_archive="/tmp/nexus-crm-${DEPLOY_SHA}.tar.gz"
+          remote_env="COOLIFY_APP_DIR=$(printf '%q' "${COOLIFY_APP_DIR}")"
+          remote_env+=" COOLIFY_SERVICE=$(printf '%q' "${COOLIFY_SERVICE}")"
+          remote_env+=" COOLIFY_IMAGE=$(printf '%q' "${COOLIFY_IMAGE}")"
+          remote_env+=" DEPLOY_SHA=$(printf '%q' "${DEPLOY_SHA}")"
+          remote_env+=" IMAGE_ARCHIVE=$(printf '%q' "${remote_archive}")"
 
-                out.append(line)
+          ssh \
+            -i ~/.ssh/hetzner_deploy_key \
+            -p "${HETZNER_PORT}" \
+            "${HETZNER_USER}@${HETZNER_HOST}" \
+            "${remote_env} bash -s" <<'REMOTE'
+          set -euo pipefail
 
-            if in_service and not has_upload_mount:
-                out.extend([
-                    "        volumes:",
-                    "            - nexus-crm-uploads:/app/uploads",
-                ])
-                has_upload_mount = True
+          gzip -dc "${IMAGE_ARCHIVE}" | docker load
+          rm -f "${IMAGE_ARCHIVE}"
 
-            if not image_replaced:
-                raise SystemExit(f"Could not replace image for service {service}")
+          cd "${COOLIFY_APP_DIR}"
+          COOLIFY_SERVICE=$(python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
 
-            result = "\n".join(out) + "\n"
-            if "\nvolumes:\n" not in result:
-                result = result.replace(
-                    "\nnetworks:\n",
-                    "\nvolumes:\n    nexus-crm-uploads:\n        name: nexus-crm-uploads\nnetworks:\n",
-                    1,
-                )
-            elif "nexus-crm-uploads:" not in result:
-                result = result.replace(
-                    "\nnetworks:\n",
-                    "\n    nexus-crm-uploads:\n        name: nexus-crm-uploads\nnetworks:\n",
-                    1,
-                )
+          configured = os.environ.get("COOLIFY_SERVICE", "").strip()
+          services = []
+          for line in Path("docker-compose.yaml").read_text().splitlines():
+              stripped = line.strip()
+              indent = len(line) - len(line.lstrip())
+              if indent == 4 and stripped.endswith(":"):
+                  services.append(stripped[:-1])
 
-            compose_path.write_text(result)
+          if configured and configured in services:
+              print(configured)
+          elif services:
+              if configured:
+                  print(
+                      "Configured Coolify service "
+                      f"'{configured}' was not found; using "
+                      f"'{services[0]}' from docker-compose.yaml.",
+                      file=sys.stderr,
+                  )
+              print(services[0])
+          PY
+          )
 
-            if env_path.exists():
-                env_lines = env_path.read_text().splitlines()
-                replaced = False
-                for index, line in enumerate(env_lines):
-                    if line.startswith("SOURCE_COMMIT="):
-                        env_lines[index] = f"SOURCE_COMMIT={os.environ['DEPLOY_SHA']}"
-                        replaced = True
-                        break
-                if not replaced:
-                    env_lines.append(f"SOURCE_COMMIT={os.environ['DEPLOY_SHA']}")
-                env_path.write_text("\n".join(env_lines) + "\n")
-            PY
+          if [ -z "${COOLIFY_SERVICE:-}" ]; then
+            echo "Could not determine Coolify compose service name." >&2
+            exit 1
+          fi
 
-            docker compose -f docker-compose.yaml up -d "$COOLIFY_SERVICE"
-            docker ps --filter "name=$COOLIFY_SERVICE" --format "{{.Names}} {{.Image}} {{.Status}}"
+          export COOLIFY_SERVICE
+          stamp="$(date +%Y%m%d%H%M%S)"
+          backup="docker-compose.yaml.before-${DEPLOY_SHA}-${stamp}"
+          cp docker-compose.yaml "${backup}"
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          compose_path = Path("docker-compose.yaml")
+          env_path = Path(".env")
+          service = os.environ["COOLIFY_SERVICE"]
+          image = f"{os.environ['COOLIFY_IMAGE']}:{os.environ['DEPLOY_SHA']}"
+          compose = compose_path.read_text()
+          lines = compose.splitlines()
+
+          in_service = False
+          service_indent = None
+          image_replaced = False
+          has_upload_mount = "nexus-crm-uploads:/app/uploads" in compose
+
+          out = []
+          for line in lines:
+              stripped = line.strip()
+              if stripped == f"{service}:":
+                  in_service = True
+                  service_indent = len(line) - len(line.lstrip())
+                  out.append(line)
+                  continue
+
+              if in_service and service_indent is not None:
+                  indent = len(line) - len(line.lstrip())
+                  if stripped and indent <= service_indent:
+                      if not has_upload_mount:
+                          out.extend([
+                              "        volumes:",
+                              "            - nexus-crm-uploads:/app/uploads",
+                          ])
+                          has_upload_mount = True
+                      in_service = False
+
+                  if in_service and stripped.startswith("image:"):
+                      out.append(f"        image: '{image}'")
+                      image_replaced = True
+                      continue
+
+                  if (
+                      in_service
+                      and stripped == "labels:"
+                      and not has_upload_mount
+                  ):
+                      out.extend([
+                          "        volumes:",
+                          "            - nexus-crm-uploads:/app/uploads",
+                      ])
+                      has_upload_mount = True
+
+              out.append(line)
+
+          if in_service and not has_upload_mount:
+              out.extend([
+                  "        volumes:",
+                  "            - nexus-crm-uploads:/app/uploads",
+              ])
+              has_upload_mount = True
+
+          if not image_replaced:
+              raise SystemExit(f"Could not replace image for service {service}")
+
+          result = "\n".join(out) + "\n"
+          if "\nvolumes:\n" not in result:
+              result = result.replace(
+                  "\nnetworks:\n",
+                  "\nvolumes:\n"
+                  "    nexus-crm-uploads:\n"
+                  "        name: nexus-crm-uploads\n"
+                  "networks:\n",
+                  1,
+              )
+          elif "nexus-crm-uploads:" not in result:
+              result = result.replace(
+                  "\nnetworks:\n",
+                  "\n    nexus-crm-uploads:\n"
+                  "        name: nexus-crm-uploads\n"
+                  "networks:\n",
+                  1,
+              )
+
+          compose_path.write_text(result)
+
+          if env_path.exists():
+              env_lines = env_path.read_text().splitlines()
+              replaced = False
+              for index, line in enumerate(env_lines):
+                  if line.startswith("SOURCE_COMMIT="):
+                      env_lines[index] = (
+                          f"SOURCE_COMMIT={os.environ['DEPLOY_SHA']}"
+                      )
+                      replaced = True
+                      break
+              if not replaced:
+                  env_lines.append(f"SOURCE_COMMIT={os.environ['DEPLOY_SHA']}")
+              env_path.write_text("\n".join(env_lines) + "\n")
+          PY
+
+          docker compose -f docker-compose.yaml up -d "${COOLIFY_SERVICE}"
+          ps_format="{{.Names}} {{.Image}} {{.Status}}"
+          docker ps --filter "name=${COOLIFY_SERVICE}" --format "${ps_format}"
+          REMOTE
 
   auto-deploy-disabled:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && vars.HETZNER_AUTO_DEPLOY != 'true'
     steps:
       - run: |
-          echo "Hetzner auto-deploy is disabled because GitHub SSH secrets are not verified."
-          echo "Set repository variable HETZNER_AUTO_DEPLOY=true after fixing HETZNER_SSH_KEY/SSH_KEY."
+          echo "Hetzner auto-deploy is disabled because GitHub SSH"
+          echo "secrets are not verified."
+          echo "Set repository variable HETZNER_AUTO_DEPLOY=true"
+          echo "after fixing HETZNER_SSH_KEY/SSH_KEY."
