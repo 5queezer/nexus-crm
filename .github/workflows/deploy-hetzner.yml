@@ -134,6 +134,25 @@ jobs:
           rm -f "${IMAGE_ARCHIVE}"
 
           cd "${COOLIFY_APP_DIR}"
+
+          # A previous interrupted deploy may have left the generated compose
+          # file invalid. Recover the newest valid snapshot before inspecting it.
+          if ! docker compose -f docker-compose.yaml config --quiet >/dev/null 2>&1; then
+            recovered=""
+            for candidate in $(ls -1t docker-compose.yaml.before-* 2>/dev/null || true); do
+              if docker compose -f "${candidate}" config --quiet >/dev/null 2>&1; then
+                cp "${candidate}" docker-compose.yaml
+                recovered="${candidate}"
+                echo "Recovered docker-compose.yaml from ${candidate}."
+                break
+              fi
+            done
+            if [ -z "${recovered}" ]; then
+              echo "docker-compose.yaml is invalid and no valid backup exists." >&2
+              exit 1
+            fi
+          fi
+
           COOLIFY_SERVICE=$(python3 - <<'PY'
           import os
           import sys
@@ -185,8 +204,6 @@ jobs:
           in_service = False
           service_indent = None
           image_replaced = False
-          has_upload_mount = "nexus-crm-uploads:/app/uploads" in compose
-
           out = []
           for line in lines:
               stripped = line.strip()
@@ -199,12 +216,6 @@ jobs:
               if in_service and service_indent is not None:
                   indent = len(line) - len(line.lstrip())
                   if stripped and indent <= service_indent:
-                      if not has_upload_mount:
-                          out.extend([
-                              "        volumes:",
-                              "            - nexus-crm-uploads:/app/uploads",
-                          ])
-                          has_upload_mount = True
                       in_service = False
 
                   if in_service and stripped.startswith("image:"):
@@ -212,49 +223,12 @@ jobs:
                       image_replaced = True
                       continue
 
-                  if (
-                      in_service
-                      and stripped == "labels:"
-                      and not has_upload_mount
-                  ):
-                      out.extend([
-                          "        volumes:",
-                          "            - nexus-crm-uploads:/app/uploads",
-                      ])
-                      has_upload_mount = True
-
               out.append(line)
-
-          if in_service and not has_upload_mount:
-              out.extend([
-                  "        volumes:",
-                  "            - nexus-crm-uploads:/app/uploads",
-              ])
-              has_upload_mount = True
 
           if not image_replaced:
               raise SystemExit(f"Could not replace image for service {service}")
 
-          result = "\n".join(out) + "\n"
-          if "\nvolumes:\n" not in result:
-              result = result.replace(
-                  "\nnetworks:\n",
-                  "\nvolumes:\n"
-                  "    nexus-crm-uploads:\n"
-                  "        name: nexus-crm-uploads\n"
-                  "networks:\n",
-                  1,
-              )
-          elif "nexus-crm-uploads:" not in result:
-              result = result.replace(
-                  "\nnetworks:\n",
-                  "\n    nexus-crm-uploads:\n"
-                  "        name: nexus-crm-uploads\n"
-                  "networks:\n",
-                  1,
-              )
-
-          compose_path.write_text(result)
+          compose_path.write_text("\n".join(out) + "\n")
 
           if env_path.exists():
               env_lines = env_path.read_text().splitlines()
@@ -270,6 +244,12 @@ jobs:
                   env_lines.append(f"SOURCE_COMMIT={os.environ['DEPLOY_SHA']}")
               env_path.write_text("\n".join(env_lines) + "\n")
           PY
+
+          if ! docker compose -f docker-compose.yaml config --quiet; then
+            cp "${backup}" docker-compose.yaml
+            echo "Generated compose file was invalid; restored ${backup}." >&2
+            exit 1
+          fi
 
           docker compose -f docker-compose.yaml up -d "${COOLIFY_SERVICE}"
           ps_format="{{.Names}} {{.Image}} {{.Status}}"
