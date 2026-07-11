@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
 
 export interface ActionMenuItem {
@@ -23,6 +24,7 @@ interface ActionMenuProps {
 
 export function ActionMenu({ label, items, buttonText, align = "right", className = "" }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -32,11 +34,23 @@ export function ActionMenu({ label, items, buttonText, align = "right", classNam
     if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus());
   }
 
+  function updateMenuPosition() {
+    const triggerRect = triggerRef.current?.getBoundingClientRect();
+    if (!triggerRect) return;
+    const menuWidth = 224;
+    const preferredLeft = align === "right" ? triggerRect.right - menuWidth : triggerRect.left;
+    setMenuPosition({
+      top: triggerRect.bottom + 8,
+      left: Math.min(Math.max(8, preferredLeft), window.innerWidth - menuWidth - 8),
+    });
+  }
+
   useEffect(() => {
     if (!open) return;
 
     function closeOnOutsidePointer(event: MouseEvent | TouchEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) closeMenu();
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) closeMenu();
     }
 
     function closeOnDocumentKey(event: KeyboardEvent) {
@@ -44,18 +58,29 @@ export function ActionMenu({ label, items, buttonText, align = "right", classNam
       if (event.key === "Tab") closeMenu();
     }
 
+    const triggerRect = triggerRef.current?.getBoundingClientRect();
+
     document.addEventListener("mousedown", closeOnOutsidePointer);
     document.addEventListener("touchstart", closeOnOutsidePointer);
     document.addEventListener("keydown", closeOnDocumentKey);
     requestAnimationFrame(() => {
-      menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+      const menu = menuRef.current;
+      if (!menu) return;
+      const menuRect = menu.getBoundingClientRect();
+      if (menuRect.bottom > window.innerHeight - 8) {
+        setMenuPosition((position) => ({
+          ...position,
+          top: Math.max(8, triggerRect ? triggerRect.top - menuRect.height - 8 : 8),
+        }));
+      }
+      menu.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
     });
     return () => {
       document.removeEventListener("mousedown", closeOnOutsidePointer);
       document.removeEventListener("touchstart", closeOnOutsidePointer);
       document.removeEventListener("keydown", closeOnDocumentKey);
     };
-  }, [open]);
+  }, [align, open]);
 
   function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -81,6 +106,7 @@ export function ActionMenu({ label, items, buttonText, align = "right", classNam
         aria-expanded={open}
         onClick={(event) => {
           event.stopPropagation();
+          if (!open) updateMenuPosition();
           setOpen((value) => !value);
         }}
         onKeyDown={(event) => event.stopPropagation()}
@@ -96,13 +122,14 @@ export function ActionMenu({ label, items, buttonText, align = "right", classNam
         )}
       </button>
 
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <div
           ref={menuRef}
           role="menu"
           aria-label={label}
           onKeyDown={handleMenuKeyDown}
-          className={`absolute z-40 mt-2 min-w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-white/[0.1] dark:bg-[#151617] ${align === "right" ? "right-0" : "left-0"}`}
+          style={{ top: menuPosition.top, left: menuPosition.left }}
+          className="fixed z-[100] min-w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-white/[0.1] dark:bg-[#151617]"
         >
           {items.map((item) => (
             <div key={item.id} className={item.separatorBefore ? "mt-1 border-t border-slate-100 pt-1 dark:border-white/[0.08]" : ""}>
@@ -127,7 +154,8 @@ export function ActionMenu({ label, items, buttonText, align = "right", classNam
               </button>
             </div>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
