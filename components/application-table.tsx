@@ -17,6 +17,7 @@ import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLO
 import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
+import { ActionMenu } from "./action-menu";
 
 const columnHelper = createColumnHelper<Application>();
 
@@ -76,6 +77,24 @@ interface MobileApplicationCardProps {
   showArchived?: boolean;
 }
 
+function ApplicationActionMenu({ app, onEdit, onDelete, onArchive, showArchived, buttonText }: MobileApplicationCardProps & { buttonText?: string }) {
+  const t = useTranslations("table");
+  const ta = useTranslations("actions");
+  return (
+    <ActionMenu
+      label={ta("opportunity_actions", { company: app.company || t("company") })}
+      buttonText={buttonText}
+      items={[
+        { id: "edit", label: ta("edit"), onSelect: () => onEdit(app) },
+        ...(onArchive
+          ? [{ id: "archive", label: showArchived ? ta("unarchive") : ta("archive"), onSelect: () => onArchive(app.id, !showArchived) }]
+          : []),
+        { id: "delete", label: ta("delete"), destructive: true, separatorBefore: true, onSelect: () => onDelete(app.id) },
+      ]}
+    />
+  );
+}
+
 function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived }: MobileApplicationCardProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
@@ -93,7 +112,19 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
   }
 
   return (
-    <article className="rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-sm backdrop-blur dark:border-white/[0.08] dark:bg-white/[0.035]">
+    <article
+      className="cursor-pointer rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-sm backdrop-blur transition hover:border-indigo-300 hover:shadow-md dark:border-white/[0.08] dark:bg-white/[0.035] dark:hover:border-indigo-500/50"
+      onClick={() => onEdit(app)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit(app);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex items-center gap-1.5 text-base font-semibold text-gray-900 dark:text-white">
@@ -161,7 +192,10 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
           <div className={notesExpanded ? "" : "line-clamp-3"}>{app.notes}</div>
           {app.notes.length > 120 && (
             <button
-              onClick={() => setNotesExpanded((v) => !v)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setNotesExpanded((value) => !value);
+              }}
               className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
             >
               {notesExpanded ? ta("show_less") : ta("show_more")}
@@ -177,27 +211,8 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          onClick={() => onEdit(app)}
-          className="flex min-h-[44px] items-center justify-center rounded-lg bg-blue-50 px-3 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
-        >
-          {ta("edit")}
-        </button>
-        {onArchive && (
-          <button
-            onClick={() => onArchive(app.id, !showArchived)}
-            className="flex min-h-[44px] items-center justify-center rounded-lg bg-amber-50 px-3 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:hover:bg-amber-500/25"
-          >
-            {showArchived ? ta("unarchive") : ta("archive")}
-          </button>
-        )}
-        <button
-          onClick={() => onDelete(app.id)}
-          className="flex min-h-[44px] items-center justify-center rounded-lg bg-red-50 px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:bg-red-500/15 dark:text-red-300 dark:hover:bg-red-500/25"
-        >
-          {ta("delete")}
-        </button>
+      <div className="mt-4 flex justify-end" onClick={(event) => event.stopPropagation()}>
+        <ApplicationActionMenu app={app} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive} showArchived={showArchived} buttonText={ta("more")} />
       </div>
     </article>
   );
@@ -383,28 +398,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex items-center">
-          <button
-            onClick={() => onEdit(row.original)}
-            className="flex items-center min-h-[44px] px-1.5 text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
-          >
-            {ta("edit")}
-          </button>
-          {onArchive && (
-            <button
-              onClick={() => onArchive(row.original.id, !showArchived)}
-              className="flex items-center min-h-[44px] px-1.5 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 text-sm font-medium transition-colors"
-            >
-              {showArchived ? ta("unarchive") : ta("archive")}
-            </button>
-          )}
-          <button
-            onClick={() => onDelete(row.original.id)}
-            className="flex items-center min-h-[44px] px-1.5 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
-          >
-            {ta("delete")}
-          </button>
-        </div>
+        <ApplicationActionMenu app={row.original} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive} showArchived={showArchived} />
       ),
     }),
   ];

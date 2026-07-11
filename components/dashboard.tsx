@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
@@ -13,6 +13,7 @@ import { KeyboardShortcutBar } from "./keyboard-shortcut-bar";
 import { KeyboardShortcutDialog } from "./keyboard-shortcut-dialog";
 import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
+import { ActionMenu, ActionMenuItem } from "./action-menu";
 import { Application, ApplicationStatus, STATUS_ORDER } from "@/types";
 import { format } from "date-fns";
 
@@ -215,6 +216,52 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     }
     return { ...counts, highPriority: counts[5] + counts[4] };
   }, [activeApplications]);
+
+  const workspaceActions: ActionMenuItem[] = [
+    {
+      id: "toggle-archive",
+      label: showArchived ? ta("show_active") : ta("show_archive"),
+      hint: !showArchived && archivedApplications.length > 0 ? archivedApplications.length : undefined,
+      onSelect: () => setShowArchived((value) => !value),
+    },
+    {
+      id: "export",
+      label: ta("export_csv"),
+      onSelect: () => exportToCsv(visibleApplications),
+    },
+  ];
+
+  if (!showArchived) {
+    for (const days of ARCHIVE_THRESHOLDS) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const count = activeApplications.filter((application) => {
+        const date = application.appliedAt ? new Date(application.appliedAt) : new Date(application.createdAt);
+        return date < cutoff;
+      }).length;
+      workspaceActions.push({
+        id: `archive-age-${days}`,
+        label: ta("archive_old_option", { days }),
+        hint: count || undefined,
+        disabled: count === 0 || bulkArchiveMutation.isPending,
+        separatorBefore: days === ARCHIVE_THRESHOLDS[0],
+        onSelect: () => handleBulkArchive(days),
+      });
+    }
+    for (const stars of RATING_THRESHOLDS) {
+      const count = activeApplications.filter(
+        (application) => application.rating != null && application.rating <= stars,
+      ).length;
+      workspaceActions.push({
+        id: `archive-rating-${stars}`,
+        label: ta(stars === 1 ? "archive_rating_option_one" : "archive_rating_option", { stars }),
+        hint: count || undefined,
+        disabled: count === 0 || bulkArchiveMutation.isPending,
+        separatorBefore: stars === RATING_THRESHOLDS[0],
+        onSelect: () => handleBulkArchiveByRating(stars),
+      });
+    }
+  }
 
   // Overdue follow-ups banner (only active pipeline statuses, non-archived)
   const [dismissedOverdue, setDismissedOverdue] = useState<Set<string>>(() => {
@@ -475,14 +522,6 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setIsCommandPaletteOpen(true)}
-              className="nexus-button-ghost min-h-10"
-              type="button"
-            >
-              ⌘K
-              <span className="text-slate-400">{tapp("command")}</span>
-            </button>
-            <button
               onClick={handleNewApplication}
               className="nexus-button-primary min-h-10"
               type="button"
@@ -493,25 +532,14 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           </div>
         </div>
 
-        {/* Combined pipeline + triage overview */}
-        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035] sm:px-5">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        {/* Decision-oriented overview */}
+        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035] sm:px-5">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
             <StatItem label={ts("total")} value={stats.total} className="text-blue-600 dark:text-blue-300" />
-            <StatItem label={ts("inbound")} value={stats.inbound} className="text-teal-600 dark:text-teal-300" />
             <StatItem label={ts("active")} value={stats.active} className="text-amber-600 dark:text-amber-300" />
-            <StatItem label={ts("offers")} value={stats.offers} className="text-emerald-600 dark:text-emerald-300" />
-            <StatItem label={ts("rejected")} value={stats.rejected} className="text-red-500 dark:text-red-300" />
-            <div className="hidden w-px self-stretch bg-slate-200 dark:bg-white/[0.08] sm:block" aria-hidden="true" />
-            <StatItem label={t("triage_this_week")} value={triageStats.thisWeek} className="text-slate-900 dark:text-white" />
-            <StatItem label={`5/5 ${t("triage_perfect")}`} value={triageStats[5]} className="text-green-600 dark:text-green-300" />
-            <StatItem label={`4/5 ${t("triage_strong")}`} value={triageStats[4]} className="text-blue-600 dark:text-blue-300" />
-            <StatItem label={`3/5 ${t("triage_consider")}`} value={triageStats[3]} className="text-yellow-600 dark:text-yellow-300" />
+            <StatItem label={ts("new_this_week")} value={triageStats.thisWeek} className="text-slate-900 dark:text-white" />
+            <StatItem label={ts("high_priority")} value={triageStats.highPriority} className="text-emerald-600 dark:text-emerald-300" />
           </div>
-          {triageStats.highPriority > 0 && (
-            <p className="mt-2 text-sm font-medium text-green-700 dark:text-green-400">
-              {t("triage_action", { count: triageStats.highPriority })}
-            </p>
-          )}
         </section>
 
         {/* Toolbar */}
@@ -521,11 +549,11 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
               {showArchived ? ta("archive") : t("applications")} ({visibleApplications.length})
             </h2>
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <div className="inline-flex w-full items-center overflow-hidden rounded-lg border border-gray-200 text-sm dark:border-gray-600 sm:w-auto">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="inline-flex min-w-0 flex-1 items-center overflow-hidden rounded-lg border border-gray-200 text-sm dark:border-gray-600 sm:flex-none">
               <button
                 onClick={() => setViewMode("table")}
-                className={`flex-1 px-3 py-1.5 font-medium transition-colors whitespace-nowrap sm:flex-none ${
+                className={`flex-1 px-3 py-2 font-medium transition-colors whitespace-nowrap sm:flex-none ${
                   viewMode === "table"
                     ? "bg-blue-600 text-white"
                     : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -535,7 +563,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
               </button>
               <button
                 onClick={() => setViewMode("kanban")}
-                className={`flex-1 px-3 py-1.5 font-medium transition-colors whitespace-nowrap sm:flex-none ${
+                className={`flex-1 px-3 py-2 font-medium transition-colors whitespace-nowrap sm:flex-none ${
                   viewMode === "kanban"
                     ? "bg-blue-600 text-white"
                     : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -544,35 +572,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
                 {tn("kanban_view")}
               </button>
             </div>
-
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <button
-                onClick={() => setShowArchived((v) => !v)}
-                className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition-colors sm:flex-none ${
-                  showArchived
-                    ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
-                    : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                }`}
-              >
-                {showArchived ? ta("show_active") : ta("show_archive")}
-                {archivedApplications.length > 0 && !showArchived && (
-                  <span className="ml-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-gray-200 px-1 text-xs font-bold text-gray-700 dark:bg-gray-600 dark:text-gray-200">
-                    {archivedApplications.length}
-                  </span>
-                )}
-              </button>
-
-              {!showArchived && <ArchiveOldDropdown applications={activeApplications} onArchive={handleBulkArchive} onArchiveByRating={handleBulkArchiveByRating} isPending={bulkArchiveMutation.isPending} />}
-
-              <button
-                onClick={() => exportToCsv(visibleApplications)}
-                title={ta("export_csv")}
-                className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 sm:flex-none"
-              >
-                <span>↓</span>
-                {ta("export_csv")}
-              </button>
-            </div>
+            <ActionMenu label={ta("more_actions")} buttonText={ta("more")} items={workspaceActions} />
           </div>
         </div>
 
@@ -640,124 +640,6 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
 const ARCHIVE_THRESHOLDS = [30, 60, 90, 180] as const;
 const RATING_THRESHOLDS = [1, 2, 3] as const;
-
-function ArchiveOldDropdown({
-  applications,
-  onArchive,
-  onArchiveByRating,
-  isPending,
-}: {
-  applications: Application[];
-  onArchive: (days: number) => void;
-  onArchiveByRating: (maxRating: number) => void;
-  isPending: boolean;
-}) {
-  const ta = useTranslations("actions");
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  const countForDays = useCallback(
-    (days: number) => {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      return applications.filter((a) => {
-        const d = a.appliedAt ? new Date(a.appliedAt) : new Date(a.createdAt);
-        return d < cutoff;
-      }).length;
-    },
-    [applications]
-  );
-
-  const countForRating = useCallback(
-    (maxRating: number) =>
-      applications.filter((a) => a.rating !== null && a.rating !== undefined && a.rating <= maxRating).length,
-    [applications]
-  );
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    if (open) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative flex-1 sm:flex-none">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        disabled={isPending}
-        className={`flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-          open
-            ? "border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"
-            : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-        } ${isPending ? "opacity-50 cursor-wait" : ""}`}
-      >
-        {isPending ? ta("archive_old_archiving") : ta("bulk_archive")}
-        <span className="text-xs">{open ? "▲" : "▼"}</span>
-      </button>
-      {open && (
-        <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800">
-          {ARCHIVE_THRESHOLDS.map((days) => {
-            const count = countForDays(days);
-            return (
-              <button
-                key={`age-${days}`}
-                onClick={() => {
-                  setOpen(false);
-                  onArchive(days);
-                }}
-                disabled={count === 0}
-                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed first:rounded-t-lg"
-              >
-                <span className="text-gray-700 dark:text-gray-200">
-                  {ta("archive_old_option", { days })}
-                </span>
-                {count > 0 && (
-                  <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          <div className="border-t border-gray-200 dark:border-gray-600 px-4 py-1.5">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-              {ta("archive_by_rating")}
-            </span>
-          </div>
-          {RATING_THRESHOLDS.map((stars) => {
-            const count = countForRating(stars);
-            return (
-              <button
-                key={`rating-${stars}`}
-                onClick={() => {
-                  setOpen(false);
-                  onArchiveByRating(stars);
-                }}
-                disabled={count === 0}
-                className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed last:rounded-b-lg"
-              >
-                <span className="text-gray-700 dark:text-gray-200">
-                  {ta(stars === 1 ? "archive_rating_option_one" : "archive_rating_option", { stars })}
-                </span>
-                {count > 0 && (
-                  <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 text-xs font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function StatItem({ label, value, className }: { label: string; value: number; className?: string }) {
   return (

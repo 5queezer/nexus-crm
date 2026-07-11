@@ -21,7 +21,9 @@
     "inbound": "New Leads",
     "active": "Active",
     "offers": "Closing",
-    "rejected": "Lost"
+    "rejected": "Lost",
+    "new_this_week": "New this week",
+    "high_priority": "High priority"
   },
   "actions": {
     "new_application": "New Opportunity",
@@ -51,7 +53,10 @@
     "archive_rating_option": "{stars} stars and below",
     "archive_rating_confirm": "Archive {count} opportunities rated {stars} stars and below?",
     "show_more": "Show more",
-    "show_less": "Show less"
+    "show_less": "Show less",
+    "more": "More",
+    "more_actions": "More actions",
+    "opportunity_actions": "Actions for {company}"
   },
   "table": {
     "company": "Account",
