@@ -6,7 +6,7 @@ The opportunities workspace gives secondary utilities and nine summary values ne
 
 - Establish one primary page action: create a new opportunity.
 - Remove the visible command-palette button while preserving its keyboard shortcut.
-- Reduce the overview to four decision-oriented signals: total pipeline, active pipeline, new this week, and high-priority opportunities.
+- Reduce the overview to four decision-oriented signals: total active opportunities, active pipeline, new this week, and high-priority opportunities.
 - Consolidate view selection, archive access, CSV export, and bulk archival into one calm workspace toolbar with secondary actions in an overflow menu.
 - Replace per-row edit/archive/delete button clusters with a single accessible row-actions menu while retaining direct row opening.
 - Simplify mobile opportunity cards so their primary interaction opens details and secondary actions live in one menu.

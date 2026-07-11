@@ -77,6 +77,24 @@ interface MobileApplicationCardProps {
   showArchived?: boolean;
 }
 
+function ApplicationActionMenu({ app, onEdit, onDelete, onArchive, showArchived, buttonText }: MobileApplicationCardProps & { buttonText?: string }) {
+  const t = useTranslations("table");
+  const ta = useTranslations("actions");
+  return (
+    <ActionMenu
+      label={ta("opportunity_actions", { company: app.company || t("company") })}
+      buttonText={buttonText}
+      items={[
+        { id: "edit", label: ta("edit"), onSelect: () => onEdit(app) },
+        ...(onArchive
+          ? [{ id: "archive", label: showArchived ? ta("unarchive") : ta("archive"), onSelect: () => onArchive(app.id, !showArchived) }]
+          : []),
+        { id: "delete", label: ta("delete"), destructive: true, separatorBefore: true, onSelect: () => onDelete(app.id) },
+      ]}
+    />
+  );
+}
+
 function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived }: MobileApplicationCardProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
@@ -98,6 +116,7 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
       className="cursor-pointer rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-sm backdrop-blur transition hover:border-indigo-300 hover:shadow-md dark:border-white/[0.08] dark:bg-white/[0.035] dark:hover:border-indigo-500/50"
       onClick={() => onEdit(app)}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onEdit(app);
@@ -173,7 +192,10 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
           <div className={notesExpanded ? "" : "line-clamp-3"}>{app.notes}</div>
           {app.notes.length > 120 && (
             <button
-              onClick={() => setNotesExpanded((v) => !v)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setNotesExpanded((value) => !value);
+              }}
               className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
             >
               {notesExpanded ? ta("show_less") : ta("show_more")}
@@ -190,17 +212,7 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
       )}
 
       <div className="mt-4 flex justify-end" onClick={(event) => event.stopPropagation()}>
-        <ActionMenu
-          label={ta("opportunity_actions", { company: app.company || t("company") })}
-          buttonText={ta("more")}
-          items={[
-            { id: "edit", label: ta("edit"), onSelect: () => onEdit(app) },
-            ...(onArchive
-              ? [{ id: "archive", label: showArchived ? ta("unarchive") : ta("archive"), onSelect: () => onArchive(app.id, !showArchived) }]
-              : []),
-            { id: "delete", label: ta("delete"), destructive: true, separatorBefore: true, onSelect: () => onDelete(app.id) },
-          ]}
-        />
+        <ApplicationActionMenu app={app} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive} showArchived={showArchived} buttonText={ta("more")} />
       </div>
     </article>
   );
@@ -386,16 +398,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <ActionMenu
-          label={ta("opportunity_actions", { company: row.original.company || t("company") })}
-          items={[
-            { id: "edit", label: ta("edit"), onSelect: () => onEdit(row.original) },
-            ...(onArchive
-              ? [{ id: "archive", label: showArchived ? ta("unarchive") : ta("archive"), onSelect: () => onArchive(row.original.id, !showArchived) }]
-              : []),
-            { id: "delete", label: ta("delete"), destructive: true, separatorBefore: true, onSelect: () => onDelete(row.original.id) },
-          ]}
-        />
+        <ApplicationActionMenu app={row.original} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive} showArchived={showArchived} />
       ),
     }),
   ];
