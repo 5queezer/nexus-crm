@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, normalizeSource } from "@/types";
+import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, getSourceCategory } from "@/types";
 import { AppHeader } from "./app-header";
 
 async function fetchApplications(): Promise<Application[]> {
@@ -156,7 +156,7 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const { topSources, maxSourceCount } = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const app of activeApps) {
-      const source = normalizeSource(app.source) || "Unknown";
+      const source = getSourceCategory(app.source);
       counts[source] = (counts[source] || 0) + 1;
     }
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -411,8 +411,11 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
                       className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                       onClick={() => router.push(`/?source=${encodeURIComponent(source)}`)}
                     >
-                      <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate" title={source}>
-                        {source}
+                      <span
+                        className="w-32 truncate text-sm text-gray-700 dark:text-gray-300"
+                        title={t(`source_labels.${source}`)}
+                      >
+                        {t(`source_labels.${source}`)}
                       </span>
                       <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
