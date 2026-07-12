@@ -107,7 +107,7 @@ export function KeyboardShortcutDialog({ onClose }: KeyboardShortcutDialogProps)
                       {shortcut.keys.map((key, i) => (
                         <span key={key}>
                           {i > 0 && <span className="text-gray-400 dark:text-gray-500 text-xs mx-0.5">/</span>}
-                          <kbd className="inline-flex items-center px-1.5 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 min-w-[1.5rem] justify-center">
+                          <kbd className="inline-flex items-center px-1.5 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 min-w-6 justify-center">
                             {key}
                           </kbd>
                         </span>

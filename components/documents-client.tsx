@@ -282,7 +282,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                   key={doc.id}
                   className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 dark:hover:bg-gray-700/50 transition-colors"
                 >
-                  <span className="text-2xl flex-shrink-0">{fileIcon(doc.mimeType)}</span>
+                  <span className="text-2xl shrink-0">{fileIcon(doc.mimeType)}</span>
                   <div className="flex-1 min-w-0">
                     {renamingId === doc.id ? (
                       <InlineRename doc={doc} onDone={() => setRenamingId(null)} />
@@ -312,7 +312,7 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
                     <a
                       href={`/api/documents/${doc.id}/file`}
                       download={doc.originalName}

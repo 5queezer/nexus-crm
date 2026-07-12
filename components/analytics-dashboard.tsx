@@ -262,7 +262,7 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
                     return (
                       <div
                         key={week}
-                        className="flex flex-col items-center flex-1 min-w-[2rem]"
+                        className="flex flex-col items-center flex-1 min-w-8"
                         title={`${t("week")} ${formatWeekLabel(week)}: ${bucket.applied} ${ts("applied")}, ${bucket.inbound} ${ts("inbound")}`}
                       >
                         <span className="text-xs text-gray-500 dark:text-gray-400 mb-1">

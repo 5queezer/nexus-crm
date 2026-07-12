@@ -206,10 +206,10 @@ function StatTile({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`min-h-[4.5rem] rounded-2xl border px-3 py-3 text-center transition sm:px-4 ${
+      className={`min-h-18 rounded-2xl border px-3 py-3 text-center transition sm:px-4 ${
         active
           ? "border-indigo-500 bg-indigo-50 shadow-sm dark:border-[#7170ff] dark:bg-[#5e6ad2]/15"
-          : "border-slate-200/80 bg-white/90 hover:border-slate-300 hover:bg-slate-50 dark:border-white/[0.08] dark:bg-white/[0.035] dark:hover:border-white/[0.14] dark:hover:bg-white/[0.06]"
+          : "border-slate-200/80 bg-white/90 hover:border-slate-300 hover:bg-slate-50 dark:border-white/8 dark:bg-white/[0.035] dark:hover:border-white/[0.14] dark:hover:bg-white/6"
       }`}
     >
       <div className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
@@ -295,7 +295,7 @@ export function SharePortal({
 
   return (
     <div className="nexus-shell">
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#08090a]/80">
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl dark:border-white/8 dark:bg-[#08090a]/80">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-16 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -313,7 +313,7 @@ export function SharePortal({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <span
-                className="nexus-chip gap-1.5 !py-1.5 text-emerald-700 dark:text-emerald-300"
+                className="nexus-chip gap-1.5 py-1.5! text-emerald-700 dark:text-emerald-300"
                 title={t.readOnly}
               >
                 <Lock className="h-3.5 w-3.5" aria-hidden />
@@ -390,7 +390,7 @@ export function SharePortal({
                     className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
                       filter === s
                         ? "border-indigo-500 bg-indigo-50 text-slate-950 dark:border-[#7170ff] dark:bg-[#5e6ad2]/15 dark:text-white"
-                        : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/[0.06]"
+                        : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/6"
                     }`}
                   >
                     <span
@@ -409,7 +409,7 @@ export function SharePortal({
         </section>
 
         <section className="nexus-panel mt-4 overflow-hidden sm:mt-6">
-          <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 dark:border-white/[0.06] sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 dark:border-white/6 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <h2 className="text-base font-semibold text-slate-950 dark:text-white sm:text-lg">
               {t.table.heading}
               <span className="ml-2 text-sm font-normal nexus-muted">
@@ -426,7 +426,7 @@ export function SharePortal({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t.searchPlaceholder}
-                className="nexus-input !pl-9"
+                className="nexus-input pl-9!"
               />
             </div>
           </div>
@@ -460,7 +460,7 @@ export function SharePortal({
                   return (
                     <li
                       key={app.id}
-                      className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.035]"
+                      className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm dark:border-white/8 dark:bg-white/[0.035]"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -511,7 +511,7 @@ export function SharePortal({
                           type="button"
                           onClick={() => toggleNotes(app.id)}
                           aria-expanded={expanded}
-                          className="mt-3 w-full rounded-xl bg-slate-50 px-3 py-2 text-left text-sm text-slate-600 dark:bg-white/[0.04] dark:text-slate-300"
+                          className="mt-3 w-full rounded-xl bg-slate-50 px-3 py-2 text-left text-sm text-slate-600 dark:bg-white/4 dark:text-slate-300"
                         >
                           <span className={expanded ? "" : "line-clamp-2"}>{app.notes}</span>
                         </button>
@@ -525,7 +525,7 @@ export function SharePortal({
               <div className="hidden overflow-x-auto md:block">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/60 dark:border-white/[0.06] dark:bg-white/[0.02]">
+                    <tr className="border-b border-slate-100 bg-slate-50/60 dark:border-white/6 dark:bg-white/2">
                       {[
                         t.table.company,
                         t.table.role,
@@ -548,7 +548,7 @@ export function SharePortal({
                     {filtered.map((app) => (
                       <tr
                         key={app.id}
-                        className="border-b border-slate-50 transition-colors last:border-0 hover:bg-slate-50/60 dark:border-white/[0.04] dark:hover:bg-white/[0.03]"
+                        className="border-b border-slate-50 transition-colors last:border-0 hover:bg-slate-50/60 dark:border-white/4 dark:hover:bg-white/3"
                       >
                         <td className="px-4 py-3 font-medium text-slate-950 dark:text-white first:pl-5">
                           {app.company}
@@ -587,7 +587,7 @@ export function SharePortal({
             </>
           )}
 
-          <div className="border-t border-slate-100 px-4 py-3 text-xs nexus-muted dark:border-white/[0.06] sm:px-5">
+          <div className="border-t border-slate-100 px-4 py-3 text-xs nexus-muted dark:border-white/6 sm:px-5">
             {t.footer(applications.length, generatedAt)}
           </div>
         </section>

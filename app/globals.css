@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
@@ -25,11 +25,11 @@
   }
 
   .nexus-surface {
-    @apply border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035];
+    @apply border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl dark:border-white/8 dark:bg-white/[0.035];
   }
 
   .nexus-panel {
-    @apply rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035];
+    @apply rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl dark:border-white/8 dark:bg-white/[0.035];
   }
 
   .nexus-muted {
@@ -41,14 +41,14 @@
   }
 
   .nexus-button-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-slate-300 dark:hover:border-white/[0.14] dark:hover:bg-white/[0.06] dark:hover:text-white;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 dark:border-white/8 dark:bg-white/3 dark:text-slate-300 dark:hover:border-white/[0.14] dark:hover:bg-white/6 dark:hover:text-white;
   }
 
   .nexus-input {
-    @apply w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-slate-100 dark:placeholder:text-slate-500;
+    @apply w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-white/8 dark:bg-white/4 dark:text-slate-100 dark:placeholder:text-slate-500;
   }
 
   .nexus-chip {
-    @apply inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-slate-300;
+    @apply inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-white/8 dark:bg-white/4 dark:text-slate-300;
   }
 }

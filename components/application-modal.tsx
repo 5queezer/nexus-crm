@@ -161,7 +161,7 @@ export function JobUrlField({ value, onChange, label, placeholder, editLabel, sa
             target="_blank"
             rel="noopener noreferrer"
             title={value}
-            className="min-w-0 flex-1 truncate rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-50 hover:underline dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#828fff] dark:hover:bg-white/[0.06]"
+            className="min-w-0 flex-1 truncate rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-50 hover:underline dark:border-white/8 dark:bg-white/4 dark:text-[#828fff] dark:hover:bg-white/6"
           >
             {value}
           </a>
@@ -380,9 +380,9 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 backdrop-blur-md sm:items-center sm:p-4">
-      <div className="w-full max-w-3xl max-h-[95vh] overflow-y-auto rounded-t-[1.75rem] border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0f1011]/95 sm:max-h-[90vh] sm:rounded-[1.75rem]">
+      <div className="w-full max-w-3xl max-h-[95vh] overflow-y-auto rounded-t-[1.75rem] border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/95 sm:max-h-[90vh] sm:rounded-[1.75rem]">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0f1011]/90 sm:px-6">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/90 sm:px-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Nexus CRM</p>
             <h2 className="pr-2 text-base font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8] sm:text-lg">
@@ -391,7 +391,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
           </div>
           <button
             onClick={onClose}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-xl leading-none text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 dark:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-slate-200"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-xl leading-none text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 dark:border-white/8 dark:hover:bg-white/6 dark:hover:text-slate-200"
           >
             ×
           </button>
@@ -803,7 +803,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
           {isEditing && <ResumeSection applicationId={application!.id} resumeId={application!.resumeId} />}
 
           {/* Actions */}
-          <div className="sticky bottom-0 -mx-4 -mb-4 flex gap-3 border-t border-slate-200/80 bg-white/90 p-4 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0f1011]/90 sm:-mx-6 sm:-mb-6 sm:p-6">
+          <div className="sticky bottom-0 -mx-4 -mb-4 flex gap-3 border-t border-slate-200/80 bg-white/90 p-4 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/90 sm:-mx-6 sm:-mb-6 sm:p-6">
             <button
               type="button"
               onClick={onClose}
@@ -1003,7 +1003,7 @@ function DocumentsSection({ applicationId }: { applicationId: string }) {
                   key={doc.id}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-600"
                 >
-                  <span className="text-lg flex-shrink-0">{docFileIcon(doc.mimeType)}</span>
+                  <span className="text-lg shrink-0">{docFileIcon(doc.mimeType)}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                       {doc.originalName}
@@ -1012,7 +1012,7 @@ function DocumentsSection({ applicationId }: { applicationId: string }) {
                       {docFormatBytes(doc.size)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <a
                       href={`/api/documents/${doc.id}/file`}
                       download={doc.originalName}

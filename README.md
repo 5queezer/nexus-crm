@@ -59,7 +59,7 @@ A lead and opportunity management suite for tracking your sales pipeline. Manage
 | **Table** | [TanStack Table v8](https://tanstack.com/table) — headless sort & filter |
 | **Drag & Drop** | [@dnd-kit](https://dndkit.com) — Kanban board |
 | **i18n** | [next-intl](https://next-intl-docs.vercel.app) — DE / EN |
-| **Styling** | [Tailwind CSS v3](https://tailwindcss.com) — class-based dark mode |
+| **Styling** | [Tailwind CSS v4.3](https://tailwindcss.com) — class-based dark mode |
 | **Validation** | [Zod 4](https://zod.dev) — runtime schema validation |
 | **AI Integration** | [@modelcontextprotocol/sdk](https://modelcontextprotocol.io) — MCP server |
 | **File Storage** | Google Cloud Storage or local filesystem |

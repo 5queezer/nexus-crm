@@ -412,7 +412,7 @@ function FilterButton({
     >
       {label}
       <span
-        className={`inline-flex items-center justify-center px-1.5 min-w-[1.25rem] h-5 rounded-full text-xs font-bold ${
+        className={`inline-flex items-center justify-center px-1.5 min-w-5 h-5 rounded-full text-xs font-bold ${
           active
             ? "bg-white/20 text-white"
             : "bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200"
