@@ -25,5 +25,7 @@ describe("WorkspaceToolbar", () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("min-h-10");
     expect(html).toContain("col-span-2");
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Table / Kanban"');
   });
 });

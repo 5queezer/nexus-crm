@@ -194,6 +194,8 @@ Run: `npm test -- components/__tests__/header-utility-menu.test.tsx components/_
 
 Expected: both test files PASS.
 
+The focused menu coverage must verify the closed disclosure contract, valid ARIA menu structure, ArrowUp/ArrowDown entry and wraparound rules, and pathname-change dismissal. Because this repository has no DOM test environment, verify portal mounting, outside-click dismissal, Escape dismissal with trigger-focus restoration, and navigation dismissal in the browser during Task 4 rather than implying those behaviors are covered by server-rendered tests.
+
 - [ ] **Step 6: Commit the utility menu slice**
 
 Stage only the utility menu, switchers, header integration, locale changes, and their tests. Use the Lore commit intent `Reduce header noise by grouping low-frequency utilities`, with accessibility behaviors under `Directive:` and focused tests under `Tested:`.
@@ -303,6 +305,17 @@ Expected: production build completes successfully.
 - [ ] **Step 2: Capture desktop and mobile dashboard screenshots**
 
 Start the app on port 3001, load `/` using the existing development authentication path, and capture approximately 1584×892 and 390×844 screenshots. Open the account menu for a second desktop capture to verify its grouping and alignment.
+
+Exercise this acceptance matrix explicitly:
+
+| Viewport | Theme | Locale | App title | Sharing | User role | Acceptance checks |
+| --- | --- | --- | --- | --- | --- | --- |
+| Desktop | Light | German | Default | Present | Admin | One product brand; Opportunities destination; Settings visible; Share visible inside the portal menu; outside click dismisses. |
+| Desktop | Dark | English | Custom | Absent | Non-admin | Custom brand appears once; Settings and Share absent; menu contrast remains readable; Escape dismisses and restores trigger focus. |
+| Mobile | Light | English | Default | Present | Non-admin | View labels remain visible; Share appears in the utility menu; navigation menu has no duplicate utilities. |
+| Mobile | Dark | German | Custom | Absent | Admin | Custom brand remains compact; Settings appears in mobile navigation; Share absent; route navigation dismisses the utility menu. |
+
+For the navigation case, open the account menu, activate a route change, and confirm that the portal is removed on the new pathname. Record failures as visual-verdict differences before editing.
 
 - [ ] **Step 3: Run `visual-verdict` before any visual correction**
 

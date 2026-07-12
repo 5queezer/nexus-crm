@@ -81,7 +81,8 @@ Desktop and mobile use the same menu content so utility placement remains consis
 - Run lint, typecheck, unit tests, and static analysis already configured by the project.
 - Capture desktop and mobile screenshots of the dashboard.
 - Compare the resulting hierarchy against the annotated reference using `visual-verdict`; iterate until the score is at least 90.
-- Confirm dark mode, both locales, custom app titles, sharing availability, and admin/non-admin navigation states.
+- Execute the plan's explicit acceptance matrix: desktop/light/German/default-title/sharing/admin; desktop/dark/English/custom-title/no-sharing/non-admin; mobile/light/English/default-title/sharing/non-admin; and mobile/dark/German/custom-title/no-sharing/admin.
+- Across that matrix, verify portal mounting, outside-click dismissal, Escape dismissal with trigger-focus restoration, pathname-change dismissal, dark-mode contrast, localized labels, custom-title uniqueness, conditional sharing, and role-gated Settings navigation.
 
 ## Risks and Mitigations
 

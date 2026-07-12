@@ -3,6 +3,7 @@
 import { KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
+import { usePathname } from "next/navigation";
 import { ChevronDown, ExternalLink, LogOut } from "lucide-react";
 import { LanguageSwitcher } from "./language-switcher";
 import { ThemeSwitcher } from "./theme-switcher";
@@ -23,6 +24,31 @@ interface HeaderUtilityMenuPanelProps extends HeaderUtilityMenuProps {
   onRequestClose?: () => void;
 }
 
+export function getNextMenuItemIndex(
+  currentIndex: number,
+  itemCount: number,
+  key: "ArrowDown" | "ArrowUp",
+): number {
+  if (itemCount <= 0) return -1;
+  if (currentIndex === -1) return key === "ArrowDown" ? 0 : itemCount - 1;
+  const direction = key === "ArrowDown" ? 1 : -1;
+  return (currentIndex + direction + itemCount) % itemCount;
+}
+
+export function getHeaderUtilityMenuDisclosureKey(pathname: string): string {
+  return pathname;
+}
+
+export function shouldDismissMenuForPointer(insideRoot: boolean, insideMenu: boolean): boolean {
+  return !insideRoot && !insideMenu;
+}
+
+export function getMenuKeyboardDismissal(key: string): { close: boolean; restoreFocus: boolean } {
+  if (key === "Escape") return { close: true, restoreFocus: true };
+  if (key === "Tab") return { close: true, restoreFocus: false };
+  return { close: false, restoreFocus: false };
+}
+
 export function HeaderUtilityMenuPanel({
   user,
   shareUrl,
@@ -32,8 +58,8 @@ export function HeaderUtilityMenuPanel({
   const tn = useTranslations("nav");
 
   return (
-    <div className="p-1.5">
-      <div className="border-b border-slate-100 px-3 py-2.5 dark:border-white/8">
+    <div role="none" className="p-1.5">
+      <div role="none" className="border-b border-slate-100 px-3 py-2.5 dark:border-white/8">
         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
           {tn("signed_in_as")}
         </div>
@@ -45,7 +71,7 @@ export function HeaderUtilityMenuPanel({
         <div className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</div>
       </div>
 
-      <div className="py-1">
+      <div role="none" className="py-1">
         {shareUrl && (
           <a
             href={shareUrl}
@@ -72,7 +98,7 @@ export function HeaderUtilityMenuPanel({
         <LanguageSwitcher variant="menu" label={tn("language")} onChange={onRequestClose} />
       </div>
 
-      <div className="border-t border-slate-100 pt-1 dark:border-white/8">
+      <div role="none" className="border-t border-slate-100 pt-1 dark:border-white/8">
         <button
           type="button"
           role="menuitem"
@@ -90,7 +116,12 @@ export function HeaderUtilityMenuPanel({
   );
 }
 
-export function HeaderUtilityMenu({ user, shareUrl, onLogout }: HeaderUtilityMenuProps) {
+export function HeaderUtilityMenu(props: HeaderUtilityMenuProps) {
+  const pathname = usePathname();
+  return <HeaderUtilityMenuDisclosure key={getHeaderUtilityMenuDisclosureKey(pathname)} {...props} />;
+}
+
+function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtilityMenuProps) {
   const tn = useTranslations("nav");
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
@@ -119,12 +150,15 @@ export function HeaderUtilityMenu({ user, shareUrl, onLogout }: HeaderUtilityMen
 
     function closeOnOutsidePointer(event: MouseEvent | TouchEvent) {
       const target = event.target as Node;
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) closeMenu();
+      if (shouldDismissMenuForPointer(
+        rootRef.current?.contains(target) ?? false,
+        menuRef.current?.contains(target) ?? false,
+      )) closeMenu();
     }
 
     function closeOnDocumentKey(event: KeyboardEvent) {
-      if (event.key === "Escape") closeMenu({ restoreFocus: true });
-      if (event.key === "Tab") closeMenu();
+      const dismissal = getMenuKeyboardDismissal(event.key);
+      if (dismissal.close) closeMenu({ restoreFocus: dismissal.restoreFocus });
     }
 
     function closeOnViewportChange() {
@@ -157,8 +191,7 @@ export function HeaderUtilityMenu({ user, shareUrl, onLogout }: HeaderUtilityMen
     if (items.length === 0) return;
     event.preventDefault();
     const currentIndex = items.indexOf(document.activeElement as HTMLElement);
-    const direction = event.key === "ArrowDown" ? 1 : -1;
-    items[(currentIndex + direction + items.length) % items.length].focus();
+    items[getNextMenuItemIndex(currentIndex, items.length, event.key)].focus();
   }
 
   return (

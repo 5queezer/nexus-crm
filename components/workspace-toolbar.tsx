@@ -32,7 +32,11 @@ export function WorkspaceToolbar({
       </h1>
 
       <div className="grid w-full grid-cols-[auto_1fr] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-        <div className="col-span-2 inline-flex min-w-0 w-full items-center overflow-hidden rounded-xl border border-slate-200 bg-white text-sm shadow-xs dark:border-white/10 dark:bg-white/[0.035] sm:w-auto sm:flex-none">
+        <div
+          role="group"
+          aria-label={`${tableLabel} / ${kanbanLabel}`}
+          className="col-span-2 inline-flex min-w-0 w-full items-center overflow-hidden rounded-xl border border-slate-200 bg-white text-sm shadow-xs dark:border-white/10 dark:bg-white/[0.035] sm:w-auto sm:flex-none"
+        >
           <button
             type="button"
             aria-pressed={viewMode === "table"}
