@@ -98,6 +98,7 @@ function ApplicationActionMenu({ app, onEdit, onDelete, onArchive, showArchived,
 function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived }: MobileApplicationCardProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
+  const tAnalytics = useTranslations("analytics");
   const locale = useLocale();
   const dateFnsLocale = locale === "de" ? de : enUS;
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -167,7 +168,12 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
         </div>
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">{t("source")}</div>
-          <div className="text-gray-700 dark:text-gray-300 wrap-break-word">{app.source || "—"}</div>
+          <div
+            className="text-gray-700 dark:text-gray-300 wrap-break-word"
+            title={app.source || undefined}
+          >
+            {app.source ? tAnalytics(`source_labels.${getSourceCategory(app.source)}`) : "—"}
+          </div>
         </div>
         {app.rating && (
           <div>
@@ -237,6 +243,7 @@ interface ApplicationTableProps {
 export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived, initialStatusFilter, initialSourceFilter, initialGlobalFilter, selectedIds, onToggleSelect, onSelectAll, onClearSelection, focusedIndex }: ApplicationTableProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
+  const tAnalytics = useTranslations("analytics");
   const ts = useTranslations("status");
   const locale = useLocale();
   const dateFnsLocale = locale === "de" ? de : enUS;
@@ -370,13 +377,15 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
     columnHelper.accessor("source", {
       header: t("source"),
       cell: (info) => {
-        const val = info.getValue();
-        return val ? (
+        const rawSource = info.getValue();
+        return rawSource ? (
           <span
             className="inline-flex max-w-36 items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300"
-            title={val}
+            title={rawSource}
           >
-            <span className="truncate">{val}</span>
+            <span className="truncate">
+              {tAnalytics(`source_labels.${getSourceCategory(rawSource)}`)}
+            </span>
           </span>
         ) : (
           <span className="text-gray-400 dark:text-gray-500">—</span>
