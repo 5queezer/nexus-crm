@@ -44,7 +44,7 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
   }
 
   const navLinks = [
-    { href: "/", label: tapp("title"), icon: BriefcaseBusiness, show: true },
+    { href: "/", label: tn("opportunities"), icon: BriefcaseBusiness, show: true },
     { href: "/documents", label: tn("documents"), icon: FolderOpen, show: true },
     { href: "/analytics", label: tn("analytics"), icon: BarChart3, show: true },
     { href: "/resume-review", label: tn("resume_ai"), icon: Bot, show: true },

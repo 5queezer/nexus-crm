@@ -8,6 +8,7 @@
   },
   "nav": {
     "logout": "Sign out",
+    "opportunities": "Opportunities",
     "table_view": "Table",
     "kanban_view": "Kanban",
     "settings": "Settings",
