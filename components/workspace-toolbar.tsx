@@ -31,8 +31,8 @@ export function WorkspaceToolbar({
         {title} ({count})
       </h1>
 
-      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-        <div className="inline-flex min-w-0 flex-1 items-center overflow-hidden rounded-xl border border-slate-200 bg-white text-sm shadow-xs dark:border-white/10 dark:bg-white/[0.035] sm:flex-none">
+      <div className="grid w-full grid-cols-[auto_1fr] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+        <div className="col-span-2 inline-flex min-w-0 w-full items-center overflow-hidden rounded-xl border border-slate-200 bg-white text-sm shadow-xs dark:border-white/10 dark:bg-white/[0.035] sm:w-auto sm:flex-none">
           <button
             type="button"
             aria-pressed={viewMode === "table"}
@@ -64,7 +64,7 @@ export function WorkspaceToolbar({
         <button
           type="button"
           onClick={onCreate}
-          className="nexus-button-primary min-h-10 whitespace-nowrap px-4"
+          className="nexus-button-primary min-h-10 justify-self-end whitespace-nowrap px-4 sm:justify-self-auto"
         >
           <span aria-hidden="true">+</span>
           {createLabel}

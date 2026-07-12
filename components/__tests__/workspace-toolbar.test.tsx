@@ -24,5 +24,6 @@ describe("WorkspaceToolbar", () => {
     expect(html.indexOf("More")).toBeLessThan(html.indexOf("New Opportunity"));
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("min-h-10");
+    expect(html).toContain("col-span-2");
   });
 });
