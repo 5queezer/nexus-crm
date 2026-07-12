@@ -48,9 +48,9 @@ export default function LoginPage() {
       </div>
 
       <main className="relative z-10 grid min-h-screen place-items-center px-4 py-16 sm:px-6 lg:px-8">
-        <div className="grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white/80 shadow-2xl shadow-slate-200/70 backdrop-blur-2xl dark:border-white/[0.08] dark:bg-white/[0.035] dark:shadow-black/40 lg:grid-cols-[1.15fr_0.85fr]">
-          <section className="relative hidden border-r border-slate-200/80 p-10 dark:border-white/[0.08] lg:block">
-            <div className="mb-12 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-slate-300">
+        <div className="grid w-full max-w-6xl overflow-hidden rounded-4xl border border-slate-200/80 bg-white/80 shadow-2xl shadow-slate-200/70 backdrop-blur-2xl dark:border-white/8 dark:bg-white/[0.035] dark:shadow-black/40 lg:grid-cols-[1.15fr_0.85fr]">
+          <section className="relative hidden border-r border-slate-200/80 p-10 dark:border-white/8 lg:block">
+            <div className="mb-12 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm dark:border-white/8 dark:bg-white/4 dark:text-slate-300">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
               {t("login.hero_badge")}
             </div>
@@ -67,13 +67,13 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <div className="mt-12 grid max-w-xl gap-3 rounded-2xl border border-slate-200 bg-slate-950 p-3 shadow-2xl shadow-slate-300/50 dark:border-white/[0.08] dark:bg-black/40 dark:shadow-black/40">
+            <div className="mt-12 grid max-w-xl gap-3 rounded-2xl border border-slate-200 bg-slate-950 p-3 shadow-2xl shadow-slate-300/50 dark:border-white/8 dark:bg-black/40 dark:shadow-black/40">
               {[
                 [t("login.sample_inbound"), t("login.sample_role_1"), t("login.sample_today"), "bg-emerald-400"],
                 [t("login.sample_interview"), t("login.sample_role_2"), t("login.sample_thursday"), "bg-indigo-400"],
                 [t("login.sample_follow_up"), t("login.sample_role_3"), t("login.sample_overdue"), "bg-amber-400"],
               ].map(([stage, role, date, dot]) => (
-                <div key={role} className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
+                <div key={role} className="flex items-center justify-between rounded-xl border border-white/8 bg-white/4 px-4 py-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
                       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
@@ -81,7 +81,7 @@ export default function LoginPage() {
                     </div>
                     <div className="mt-1 truncate text-sm font-semibold text-white">{role}</div>
                   </div>
-                  <span className="rounded-full border border-white/[0.08] px-2 py-1 text-xs text-slate-300">{date}</span>
+                  <span className="rounded-full border border-white/8 px-2 py-1 text-xs text-slate-300">{date}</span>
                 </div>
               ))}
             </div>
@@ -114,7 +114,7 @@ export default function LoginPage() {
             <button
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="mt-8 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-slate-100 dark:hover:bg-white/[0.09]"
+              className="mt-8 flex min-h-[52px] w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/8 dark:bg-white/6 dark:text-slate-100 dark:hover:bg-white/9"
             >
               {loading ? (
                 <div className="h-5 w-5 rounded-full border-2 border-slate-400 border-t-transparent animate-spin" />

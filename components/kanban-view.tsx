@@ -72,7 +72,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
         group cursor-pointer rounded-2xl border bg-white/85 p-3 shadow-sm backdrop-blur transition-all dark:bg-white/[0.035]
         ${isDragging
           ? "rotate-1 scale-105 border-indigo-400 shadow-xl opacity-95 dark:border-[#7170ff]"
-          : "border-slate-200/80 hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-white/[0.08] dark:hover:border-[#7170ff]/60"
+          : "border-slate-200/80 hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-white/8 dark:hover:border-[#7170ff]/60"
         }
       `}
     >
@@ -175,7 +175,7 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({ id: status });
 
   return (
-    <div className="flex w-full flex-col rounded-2xl border border-slate-200/80 bg-white/55 p-3 shadow-sm backdrop-blur dark:border-white/[0.08] dark:bg-white/[0.025]">
+    <div className="flex w-full flex-col rounded-2xl border border-slate-200/80 bg-white/55 p-3 shadow-sm backdrop-blur dark:border-white/8 dark:bg-white/2.5">
       <div className="mb-3 flex items-center justify-between gap-2">
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}>
           {ts(status)}
@@ -192,7 +192,7 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
         `}
       >
         {apps.length === 0 && !isOver ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-8 text-center text-xs italic text-slate-400 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-slate-500">
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-8 text-center text-xs italic text-slate-400 dark:border-white/8 dark:bg-white/2 dark:text-slate-500">
             {tk("empty")}
           </div>
         ) : (
@@ -313,7 +313,7 @@ export function KanbanView({ applications, onEdit }: KanbanViewProps) {
         ) : (
           mobileStatuses.map((status) => (
             <section key={status} className="space-y-2">
-              <div className="sticky top-16 z-[5] -mx-1 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
+              <div className="sticky top-16 z-5 -mx-1 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
                 <div className="flex items-center gap-2">
                   <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_COLORS[status]}`}>
                     {ts(status)}

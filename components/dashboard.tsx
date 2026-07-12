@@ -533,7 +533,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
         </div>
 
         {/* Decision-oriented overview */}
-        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.035] sm:px-5">
+        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur-xl dark:border-white/8 dark:bg-white/[0.035] sm:px-5">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
             <StatItem label={ts("total")} value={stats.total} className="text-blue-600 dark:text-blue-300" />
             <StatItem label={ts("active")} value={stats.active} className="text-amber-600 dark:text-amber-300" />
@@ -643,7 +643,7 @@ const RATING_THRESHOLDS = [1, 2, 3] as const;
 
 function StatItem({ label, value, className }: { label: string; value: number; className?: string }) {
   return (
-    <div className="min-w-[4.5rem]">
+    <div className="min-w-18">
       <div className={`text-xl font-semibold leading-6 ${className ?? ""}`}>{value}</div>
       <div className="mt-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
     </div>

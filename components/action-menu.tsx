@@ -129,10 +129,10 @@ export function ActionMenu({ label, items, buttonText, align = "right", classNam
           aria-label={label}
           onKeyDown={handleMenuKeyDown}
           style={{ top: menuPosition.top, left: menuPosition.left }}
-          className="fixed z-[100] min-w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-white/[0.1] dark:bg-[#151617]"
+          className="fixed z-100 min-w-56 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#151617]"
         >
           {items.map((item) => (
-            <div key={item.id} className={item.separatorBefore ? "mt-1 border-t border-slate-100 pt-1 dark:border-white/[0.08]" : ""}>
+            <div key={item.id} className={item.separatorBefore ? "mt-1 border-t border-slate-100 pt-1 dark:border-white/8" : ""}>
               <button
                 type="button"
                 role="menuitem"
