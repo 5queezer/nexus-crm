@@ -195,7 +195,8 @@ export function getSourceCategory(source: string | null | undefined): SourceCate
   // Direct ATS and company-career links are first-party website applications.
   if (
     /\b(ashby|greenhouse|lever|workday)\b/.test(lower) ||
-    /\b(direct|career|careers|karriereseite|homepage)\b/.test(lower) ||
+    /\b(direct (?:application|apply|career(?:s)?(?: link)?))\b/.test(lower) ||
+    /\b(career|careers|karriereseite|homepage)\b/.test(lower) ||
     /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(lower)
   ) {
     return "website";

@@ -106,7 +106,13 @@ describe("getSourceCategory", () => {
 
   it("maps ATS and direct career links to the website category", () => {
     expect(getSourceCategory("Direct Ashby ATS; talent pool import")).toBe("website");
+    expect(getSourceCategory("direct application on company careers page")).toBe("website");
     expect(getSourceCategory("jobs.example.com")).toBe("website");
+  });
+
+  it("does not treat unrelated direct channels as company websites", () => {
+    expect(getSourceCategory("direct referral from a former colleague")).not.toBe("website");
+    expect(getSourceCategory("direct message from partner")).not.toBe("website");
   });
 
   it("keeps known sources stable and groups verbose unknown notes", () => {
