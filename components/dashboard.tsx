@@ -14,6 +14,7 @@ import { KeyboardShortcutDialog } from "./keyboard-shortcut-dialog";
 import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
+import { WorkspaceToolbar } from "./workspace-toolbar";
 import { Application, ApplicationStatus, STATUS_ORDER } from "@/types";
 import { format } from "date-fns";
 
@@ -82,7 +83,6 @@ type ViewMode = "table" | "kanban";
 export function Dashboard({ user, shareUrl, initialStatus, initialSource, initialSearch }: DashboardProps) {
   const queryClient = useQueryClient();
   const t = useTranslations("dashboard");
-  const tapp = useTranslations("app");
   const tn = useTranslations("nav");
   const ts = useTranslations("stats");
   const ta = useTranslations("actions");
@@ -513,25 +513,6 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           </div>
         )}
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-[#f7f8f8] sm:text-3xl">
-              {customTitle || "Nexus CRM"}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{tapp("subtitle")}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={handleNewApplication}
-              className="nexus-button-primary min-h-10"
-              type="button"
-            >
-              <span>+</span>
-              {ta("new_application")}
-            </button>
-          </div>
-        </div>
-
         {/* Decision-oriented overview */}
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur-xl dark:border-white/8 dark:bg-white/[0.035] sm:px-5">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
@@ -542,39 +523,17 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           </div>
         </section>
 
-        {/* Toolbar */}
-        <div className="mb-4 sm:mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <h2 className="truncate text-lg font-semibold text-gray-900 dark:text-white">
-              {showArchived ? ta("archive") : t("applications")} ({visibleApplications.length})
-            </h2>
-          </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <div className="inline-flex min-w-0 flex-1 items-center overflow-hidden rounded-lg border border-gray-200 text-sm dark:border-gray-600 sm:flex-none">
-              <button
-                onClick={() => setViewMode("table")}
-                className={`flex-1 px-3 py-2 font-medium transition-colors whitespace-nowrap sm:flex-none ${
-                  viewMode === "table"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                }`}
-              >
-                {tn("table_view")}
-              </button>
-              <button
-                onClick={() => setViewMode("kanban")}
-                className={`flex-1 px-3 py-2 font-medium transition-colors whitespace-nowrap sm:flex-none ${
-                  viewMode === "kanban"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                }`}
-              >
-                {tn("kanban_view")}
-              </button>
-            </div>
-            <ActionMenu label={ta("more_actions")} buttonText={ta("more")} items={workspaceActions} />
-          </div>
-        </div>
+        <WorkspaceToolbar
+          title={showArchived ? ta("archive") : t("applications")}
+          count={visibleApplications.length}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          moreMenu={<ActionMenu label={ta("more_actions")} buttonText={ta("more")} items={workspaceActions} />}
+          onCreate={handleNewApplication}
+          createLabel={ta("new_application")}
+          tableLabel={tn("table_view")}
+          kanbanLabel={tn("kanban_view")}
+        />
 
         {/* Content */}
         {isLoading ? (

@@ -9,15 +9,12 @@ import {
   FolderOpen,
   Bot,
   Settings,
-  ExternalLink,
-  LogOut,
   Menu,
   X,
   BriefcaseBusiness,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { LanguageSwitcher } from "./language-switcher";
-import { ThemeSwitcher } from "./theme-switcher";
+import { HeaderUtilityMenu } from "./header-utility-menu";
 
 interface AppHeaderProps {
   user: {
@@ -44,7 +41,7 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
   }
 
   const navLinks = [
-    { href: "/", label: tapp("title"), icon: BriefcaseBusiness, show: true },
+    { href: "/", label: tn("opportunities"), icon: BriefcaseBusiness, show: true },
     { href: "/documents", label: tn("documents"), icon: FolderOpen, show: true },
     { href: "/analytics", label: tn("analytics"), icon: BarChart3, show: true },
     { href: "/resume-review", label: tn("resume_ai"), icon: Bot, show: true },
@@ -54,8 +51,6 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
   ];
 
   const activeLinks = navLinks.filter((l) => l.show);
-  const userInitial = (user.name || user.email || "N").trim().charAt(0).toUpperCase();
-
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl dark:border-white/8 dark:bg-[#08090a]/80">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -98,42 +93,11 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
           </nav>
 
           <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            {shareUrl && (
-              <a
-                href={shareUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={tn("share")}
-                aria-label={tn("share")}
-                className="nexus-button-ghost min-h-10 whitespace-nowrap px-3 py-2"
-              >
-                <span className="hidden xl:inline">{tn("share")}</span>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            )}
-            <ThemeSwitcher />
-            <LanguageSwitcher />
-            <div
-              className="flex items-center rounded-2xl border border-slate-200 bg-white/70 px-1.5 py-1 dark:border-white/8 dark:bg-white/4"
-              title={user.name || user.email}
-            >
-              {user.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={user.image} alt={user.name || user.email} className="h-8 w-8 rounded-full" />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white">
-                  {userInitial}
-                </div>
-              )}
-            </div>
-            <button onClick={handleLogout} className="nexus-button-ghost min-h-10 px-3 py-2" title={tn("logout")}>
-              <LogOut className="h-4 w-4" />
-            </button>
+            <HeaderUtilityMenu user={user} shareUrl={shareUrl} onLogout={handleLogout} />
           </div>
 
           <div className="flex shrink-0 items-center gap-2 lg:hidden">
-            <ThemeSwitcher />
-            <LanguageSwitcher />
+            <HeaderUtilityMenu user={user} shareUrl={shareUrl} onLogout={handleLogout} />
             <button
               onClick={() => setMobileMenuOpen((v) => !v)}
               className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/70 text-slate-600 transition hover:bg-slate-50 dark:border-white/8 dark:bg-white/4 dark:text-slate-300"
@@ -170,25 +134,6 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
                 </Link>
               );
             })}
-            {shareUrl && (
-              <a
-                href={shareUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 dark:text-[#828fff] dark:hover:bg-white/4"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <ExternalLink className="h-4 w-4" />
-                {tn("share")}
-              </a>
-            )}
-            <button
-              onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
-              className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-left text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-white/4 dark:hover:text-slate-200"
-            >
-              <LogOut className="h-4 w-4" />
-              {tn("logout")}
-            </button>
           </div>
         </div>
       )}

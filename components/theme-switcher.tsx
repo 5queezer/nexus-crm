@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 
 type Theme = "light" | "dark" | "system";
 
+interface ThemeSwitcherProps {
+  variant?: "compact" | "menu";
+  label?: string;
+  themeLabels?: Record<Theme, string>;
+  onChange?: () => void;
+}
+
 function getStoredTheme(): Theme {
   if (typeof window === "undefined") return "system";
   return (localStorage.getItem("theme") as Theme) ?? "system";
@@ -26,7 +33,12 @@ const ICONS: Record<Theme, string> = {
 
 const CYCLE: Theme[] = ["light", "dark", "system"];
 
-export function ThemeSwitcher() {
+export function ThemeSwitcher({
+  variant = "compact",
+  label = "Theme",
+  themeLabels = { light: "Light", dark: "Dark", system: "System" },
+  onChange,
+}: ThemeSwitcherProps = {}) {
   const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
 
   useEffect(() => {
@@ -43,15 +55,26 @@ export function ThemeSwitcher() {
     setTheme(next);
     localStorage.setItem("theme", next);
     applyTheme(next);
+    onChange?.();
   }
 
   return (
     <button
       onClick={cycle}
-      title={theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System"}
-      className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 transition-all"
+      type="button"
+      role={variant === "menu" ? "menuitem" : undefined}
+      aria-label={label}
+      title={themeLabels[theme]}
+      className={variant === "menu"
+        ? "theme-menu-control flex min-h-10 w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/[0.07]"
+        : "flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-600 transition-all hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:bg-gray-700"
+      }
     >
-      <span className="text-base leading-none">{ICONS[theme]}</span>
+      {variant === "menu" && <span>{label}</span>}
+      <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+        <span className="text-base leading-none">{ICONS[theme]}</span>
+        {variant === "menu" && <span className="text-xs font-normal">{themeLabels[theme]}</span>}
+      </span>
     </button>
   );
 }
