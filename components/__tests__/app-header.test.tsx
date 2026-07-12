@@ -13,6 +13,7 @@ const translations: Record<string, string> = {
   "nav.settings": "Settings",
   "nav.share": "Share",
   "nav.logout": "Sign out",
+  "nav.account_menu": "Account and display",
 };
 
 vi.mock("next-intl", () => ({
@@ -44,5 +45,6 @@ describe("AppHeader", () => {
     expect(html.match(/Nexus CRM/g)).toHaveLength(1);
     expect(html).toContain('href="/"');
     expect(html).toContain("Opportunities");
+    expect(html).toContain('aria-label="Account and display"');
   });
 });

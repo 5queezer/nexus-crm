@@ -9,6 +9,13 @@
   "nav": {
     "logout": "Sign out",
     "opportunities": "Opportunities",
+    "account_menu": "Account and display",
+    "signed_in_as": "Signed in as",
+    "theme": "Appearance",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "theme_system": "System",
+    "language": "Language",
     "table_view": "Table",
     "kanban_view": "Kanban",
     "settings": "Settings",
