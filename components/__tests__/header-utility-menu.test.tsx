@@ -1,6 +1,9 @@
-import React from "react";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot, Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as headerUtilityMenu from "../header-utility-menu";
 
 const { HeaderUtilityMenu, HeaderUtilityMenuPanel } = headerUtilityMenu;
@@ -10,6 +13,7 @@ const menuHelpers = headerUtilityMenu as typeof headerUtilityMenu & {
   shouldDismissMenuForPointer?: (insideRoot: boolean, insideMenu: boolean) => boolean;
   getMenuKeyboardDismissal?: (key: string) => { close: boolean; restoreFocus: boolean };
 };
+const navigation = vi.hoisted(() => ({ pathname: "/" }));
 
 vi.mock("next-intl", () => ({
   useLocale: () => "de",
@@ -27,7 +31,7 @@ vi.mock("next-intl", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
-  usePathname: () => "/",
+  usePathname: () => navigation.pathname,
 }));
 
 describe("HeaderUtilityMenuPanel", () => {
@@ -102,5 +106,96 @@ describe("header utility menu interaction rules", () => {
     expect(menuHelpers.getMenuKeyboardDismissal?.("Escape")).toEqual({ close: true, restoreFocus: true });
     expect(menuHelpers.getMenuKeyboardDismissal?.("Tab")).toEqual({ close: true, restoreFocus: false });
     expect(menuHelpers.getMenuKeyboardDismissal?.("Enter")).toEqual({ close: false, restoreFocus: false });
+  });
+});
+
+describe("HeaderUtilityMenu interactions", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  async function renderMenu() {
+    await act(async () => {
+      root.render(<HeaderUtilityMenu user={{ name: "Chris", email: "chris@example.com" }} onLogout={vi.fn()} />);
+    });
+  }
+
+  async function openMenu(): Promise<HTMLButtonElement> {
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+    if (!trigger) throw new Error("Menu trigger was not rendered");
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    return trigger;
+  }
+
+  beforeEach(() => {
+    navigation.pathname = "/";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    document.body.replaceChildren();
+  });
+
+  it("mounts the menu in a body portal when the trigger opens it", async () => {
+    await renderMenu();
+    await openMenu();
+
+    const menu = document.body.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("dismisses the portal on an outside pointer event", async () => {
+    await renderMenu();
+    await openMenu();
+
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("dismisses on Escape and restores focus to the trigger", async () => {
+    await renderMenu();
+    const trigger = await openMenu();
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("dismisses the open portal after a pathname change", async () => {
+    await renderMenu();
+    await openMenu();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+
+    navigation.pathname = "/documents";
+    await renderMenu();
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("moves ArrowUp from outside the menu to the last menu item", async () => {
+    await renderMenu();
+    const trigger = await openMenu();
+    const menu = document.body.querySelector<HTMLElement>('[role="menu"]');
+    const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    if (!menu || items.length === 0) throw new Error("Menu items were not rendered");
+    trigger.focus();
+
+    await act(async () => {
+      menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    });
+
+    expect(document.activeElement).toBe(items.at(-1));
   });
 });

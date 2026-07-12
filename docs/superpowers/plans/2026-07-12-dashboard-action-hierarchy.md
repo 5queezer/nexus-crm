@@ -194,7 +194,7 @@ Run: `npm test -- components/__tests__/header-utility-menu.test.tsx components/_
 
 Expected: both test files PASS.
 
-The focused menu coverage must verify the closed disclosure contract, valid ARIA menu structure, ArrowUp/ArrowDown entry and wraparound rules, and pathname-change dismissal. Because this repository has no DOM test environment, verify portal mounting, outside-click dismissal, Escape dismissal with trigger-focus restoration, and navigation dismissal in the browser during Task 4 rather than implying those behaviors are covered by server-rendered tests.
+The focused menu coverage uses a file-scoped happy-dom environment to render and interact with `HeaderUtilityMenu`. It must verify the closed disclosure contract, portal mounting, valid ARIA menu structure, outside-click dismissal, Escape dismissal with trigger-focus restoration, ArrowUp/ArrowDown entry and wraparound rules, and pathname-change dismissal. Task 4 repeats the critical dismissal paths in the browser as an end-to-end acceptance check.
 
 - [ ] **Step 6: Commit the utility menu slice**
 
