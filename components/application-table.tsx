@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-table";
 import { useState, useMemo } from "react";
 import { useTranslations } from "next-intl";
-import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLORS, STATUS_ORDER, TRIAGE_COLORS } from "@/types";
+import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLORS, STATUS_ORDER, TRIAGE_COLORS, getSourceCategory } from "@/types";
 import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
@@ -382,7 +382,8 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
           <span className="text-gray-400 dark:text-gray-500">—</span>
         );
       },
-      filterFn: "equals",
+      filterFn: (row, _columnId, filterValue) =>
+        getSourceCategory(row.original.source) === String(filterValue),
     }),
     columnHelper.accessor("appliedAt", {
       header: t("applied_at"),
