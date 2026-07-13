@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mocks (available inside vi.mock factories) ──────────────────────
 
-const { mockGetAll, stores, mockTimestamp } = vi.hoisted(() => {
+const { mockGetAll, stores, mockTimestamp, batchState } = vi.hoisted(() => {
   const stores = {
     applications: new Map<string, Record<string, unknown>>(),
     documents: new Map<string, Record<string, unknown>>(),
@@ -14,8 +14,9 @@ const { mockGetAll, stores, mockTimestamp } = vi.hoisted(() => {
 
   const mockGetAll = vi.fn();
   const mockTimestamp = { toDate: () => new Date("2025-01-01") };
+  const batchState = { commitCount: 0, failOnCommit: null as number | null };
 
-  return { mockGetAll, stores, mockTimestamp };
+  return { mockGetAll, stores, mockTimestamp, batchState };
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -54,14 +55,16 @@ function makeDocRef(store: Map<string, Record<string, unknown>>, id: string): Mo
 
 function makeQuery(
   store: Map<string, Record<string, unknown>>,
-  filters: Array<{ field: string; value: unknown }> = [],
+  filters: Array<{ field: string; operator: string; value: unknown }> = [],
   sort?: { field: string; direction: "asc" | "desc" },
   max?: number,
 ) {
   return {
     where(field: string, operator: string, value: unknown) {
-      if (operator !== "==") throw new Error(`Unsupported mock operator: ${operator}`);
-      return makeQuery(store, [...filters, { field, value }], sort, max);
+      if (!["==", "array-contains", "in"].includes(operator)) {
+        throw new Error(`Unsupported mock operator: ${operator}`);
+      }
+      return makeQuery(store, [...filters, { field, operator, value }], sort, max);
     },
     orderBy(field: string, direction: "asc" | "desc" = "asc") {
       return makeQuery(store, filters, { field, direction }, max);
@@ -71,7 +74,11 @@ function makeQuery(
     },
     async get() {
       let entries = Array.from(store.entries()).filter(([, data]) =>
-        filters.every(({ field, value }) => data[field] === value),
+        filters.every(({ field, operator, value }) => {
+          if (operator === "==") return data[field] === value;
+          if (operator === "array-contains") return Array.isArray(data[field]) && data[field].includes(value);
+          return Array.isArray(value) && value.includes(data[field]);
+        }),
       );
       if (sort) {
         entries.sort(([, left], [, right]) => {
@@ -155,7 +162,22 @@ vi.mock("firebase-admin/firestore", () => ({
       writes.forEach((write) => write());
       return result;
     },
-    batch: () => ({ delete: vi.fn(), commit: vi.fn() }),
+    batch: () => {
+      const writes: Array<() => void> = [];
+      return {
+        delete: (ref: MockDocRef) => writes.push(() => ref.__store.delete(ref.id)),
+        update: (ref: MockDocRef, data: Record<string, unknown>) => writes.push(() => {
+          const current = ref.__store.get(ref.id);
+          if (!current) throw new Error("not_found");
+          ref.__store.set(ref.id, { ...current, ...data });
+        }),
+        commit: async () => {
+          batchState.commitCount += 1;
+          if (batchState.failOnCommit === batchState.commitCount) throw new Error("injected_batch_failure");
+          writes.forEach((write) => write());
+        },
+      };
+    },
   }),
   Timestamp: {
     now: () => mockTimestamp,
@@ -222,6 +244,11 @@ function seedDocs(docs: Array<{ id: string; userId: string; filename: string; or
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  batchState.commitCount = 0;
+  batchState.failOnCommit = null;
+});
 
 describe("FirestoreAdapter — application metadata", () => {
   beforeEach(() => {
@@ -341,6 +368,59 @@ describe("FirestoreAdapter — application metadata", () => {
     expect(stores.applicationCanonicalUrls.size).toBe(1);
     expect(Array.from(stores.applicationCanonicalUrls.values())[0].canonicalJobUrl)
       .toBe("https://example.com/jobs/1");
+  });
+});
+
+describe("FirestoreAdapter — retryable application deletion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.values(stores).forEach((store) => store.clear());
+  });
+
+  it("preserves all submitted documents before deleting submissions and recovers after a later batch fails", async () => {
+    const adapter = new FirestoreAdapter();
+    stores.applications.set("app-1", {
+      userId: "user-1", company: "Acme", role: "Engineer", canonicalJobUrl: null,
+    });
+    stores.applicationSubmissions.set("submission-1", {
+      userId: "user-1", applicationId: "app-1",
+    });
+    for (let index = 0; index < 451; index += 1) {
+      stores.documents.set(`doc-${index}`, {
+        userId: "user-1",
+        filename: `doc-${index}.pdf`,
+        originalName: `doc-${index}.pdf`,
+        size: 1,
+        mimeType: "application/pdf",
+        applicationIds: ["app-1"],
+        submissionId: "submission-1",
+        state: "submitted",
+        uploadedAt: mockTimestamp,
+      });
+    }
+    batchState.failOnCommit = 2;
+
+    await expect(adapter.deleteApplication("app-1", "user-1"))
+      .rejects.toThrow("injected_batch_failure");
+    expect(stores.applicationSubmissions.has("submission-1")).toBe(true);
+    expect(stores.documents.get("doc-0")).toMatchObject({
+      applicationIds: [], submissionId: null, state: "historical",
+    });
+    expect(stores.documents.get("doc-450")).toMatchObject({
+      applicationIds: ["app-1"], submissionId: "submission-1", state: "submitted",
+    });
+
+    batchState.failOnCommit = null;
+    await adapter.deleteApplication("app-1", "user-1");
+
+    expect(stores.applications.has("app-1")).toBe(false);
+    expect(stores.applicationSubmissions.has("submission-1")).toBe(false);
+    expect(Array.from(stores.documents.values()).every((document) =>
+      Array.isArray(document.applicationIds)
+      && document.applicationIds.length === 0
+      && document.submissionId === null
+      && document.state === "historical"
+    )).toBe(true);
   });
 });
 

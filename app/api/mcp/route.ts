@@ -449,6 +449,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
     },
     async (args) => {
+      if (args.type === "application_submitted" && !canAccessSubmissions) return submissionScopeError();
       try {
         const event = await getDb().createApplicationEvent(args.applicationId, auth.userId, {
           type: args.type,
@@ -474,6 +475,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       limit: z.number().int().min(1).max(500).default(100),
     },
     async ({ applicationId, limit }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
       try {
         const events = await getDb().listApplicationEvents(applicationId, auth.userId, limit);
         return { content: [{ type: "text", text: JSON.stringify(events, null, 2) }] };
@@ -624,6 +626,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     "Return deterministic pipeline data-quality findings without modifying records.",
     {},
     async () => {
+      if (!canAccessSubmissions) return submissionScopeError();
       const db = getDb();
       const [applications, submissions, documents] = await Promise.all([
         db.listApplications(auth.userId),

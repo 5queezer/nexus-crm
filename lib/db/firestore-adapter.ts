@@ -439,28 +439,33 @@ export class FirestoreAdapter implements DatabaseAdapter {
       snapshot.docs.forEach((document) => documents.set(document.id, document));
     }
 
+    // Preserve and detach every document before deleting any submission. This ordering
+    // makes the multi-batch cascade retryable: while document batches are incomplete,
+    // submission rows remain available to rediscover every submitted artifact. Once a
+    // submission deletion starts, all associated documents have already been preserved.
+    const documentOperations = Array.from(documents.values()).map((document) => {
+      const data = document.data();
+      const submissionId = typeof data.submissionId === "string" ? data.submissionId : null;
+      const belongsToDeletedSubmission = submissionId !== null && deletedSubmissionIds.has(submissionId);
+      return {
+        type: "update" as const,
+        ref: document.ref,
+        data: {
+          applicationIds: ((data.applicationIds as string[] | undefined) ?? [])
+            .filter((applicationId) => applicationId !== id),
+          submissionId: belongsToDeletedSubmission ? null : submissionId,
+          state: belongsToDeletedSubmission ? "historical" : (data.state ?? "current"),
+        },
+      };
+    });
     const operations: Array<
       | { type: "delete"; ref: FirebaseFirestore.DocumentReference }
       | { type: "update"; ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }
     > = [
+      ...documentOperations,
       ...contactSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
-      ...submissionSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
       ...eventSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
-      ...Array.from(documents.values()).map((document) => {
-        const data = document.data();
-        const submissionId = typeof data.submissionId === "string" ? data.submissionId : null;
-        const belongsToDeletedSubmission = submissionId !== null && deletedSubmissionIds.has(submissionId);
-        return {
-          type: "update" as const,
-          ref: document.ref,
-          data: {
-            applicationIds: ((data.applicationIds as string[] | undefined) ?? [])
-              .filter((applicationId) => applicationId !== id),
-            submissionId: belongsToDeletedSubmission ? null : submissionId,
-            state: belongsToDeletedSubmission ? "historical" : (data.state ?? "current"),
-          },
-        };
-      }),
+      ...submissionSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
     ];
     for (let offset = 0; offset < operations.length; offset += 450) {
       const batch = this.db.batch();
