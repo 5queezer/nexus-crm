@@ -496,6 +496,17 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(stores.applicationEvents).toHaveLength(1);
   });
 
+  it("rejects reuse of a historical submission artifact without partial writes", async () => {
+    const adapter = new FirestoreAdapter();
+    stores.documents.get("doc-1")!.state = "historical";
+
+    await expect(adapter.recordApplicationSubmission(userId, input()))
+      .rejects.toThrow("document_already_submitted");
+    expect(stores.applicationSubmissions).toHaveLength(0);
+    expect(stores.applicationEvents).toHaveLength(0);
+    expect(stores.documents.get("doc-1")).toMatchObject({ state: "historical", submissionId: null });
+  });
+
   it("rejects the same idempotency key with a different payload", async () => {
     const adapter = new FirestoreAdapter();
     await adapter.recordApplicationSubmission(userId, input());
@@ -756,12 +767,16 @@ describe("FirestoreAdapter — document operations", () => {
         size: 100, mimeType: "application/pdf", applicationIds: [],
         submissionId: "submission-1",
       }]);
+      stores.documents.get("doc-1")!.state = "submitted";
 
       const historical = await adapter.updateDocumentMetadata("doc-1", userId, {
         state: "historical",
       });
       expect(historical.state).toBe("historical");
 
+      await expect(
+        adapter.updateDocumentMetadata("doc-1", userId, { state: "submitted" }),
+      ).rejects.toThrow("submitted_document_immutable");
       await expect(
         adapter.updateDocumentMetadata("doc-1", userId, { version: 2 }),
       ).rejects.toThrow("submitted_document_immutable");
@@ -781,6 +796,8 @@ describe("FirestoreAdapter — document operations", () => {
       await expect(adapter.deleteDocument("doc-1", userId))
         .rejects.toThrow("submitted_document_immutable");
       await expect(adapter.updateDocumentMetadata("doc-1", userId, { source: "changed" }))
+        .rejects.toThrow("submitted_document_immutable");
+      await expect(adapter.updateDocumentMetadata("doc-1", userId, { state: "submitted" }))
         .rejects.toThrow("submitted_document_immutable");
     });
 

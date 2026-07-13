@@ -606,7 +606,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
       for (const documentId of uniqueDocumentIds) {
         const snapshot = await transaction.get(this.docs.doc(documentId));
         if (!snapshot.exists || snapshot.data()!.userId !== userId) throw new Error("invalid_documents");
-        if (snapshot.data()!.submissionId) throw new Error("document_already_submitted");
+        if (
+          snapshot.data()!.submissionId
+          || snapshot.data()!.state === "submitted"
+          || snapshot.data()!.state === "historical"
+        ) throw new Error("document_already_submitted");
         documentSnapshots.push(snapshot);
       }
 
@@ -1192,7 +1196,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const stateOnly = keys.every((key) => key === "state");
       const immutable = submissionId || existing.data()!.state === "submitted" || existing.data()!.state === "historical";
       if (immutable) {
-        if (!stateOnly || (data.state !== "submitted" && data.state !== "historical")) {
+        const allowedState = data.state === existing.data()!.state
+          || (existing.data()!.state === "submitted" && data.state === "historical");
+        if (!stateOnly || !allowedState) {
           throw new Error("submitted_document_immutable");
         }
       } else if (data.state === "submitted") {

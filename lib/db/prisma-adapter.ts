@@ -567,7 +567,11 @@ export class PrismaAdapter implements DatabaseAdapter {
           })
         : [];
       if (documents.length !== uniqueDocumentIds.length) throw new Error("invalid_documents");
-      if (documents.some((document) => document.submissionId !== null)) {
+      if (documents.some((document) =>
+        document.submissionId !== null
+        || document.state === "submitted"
+        || document.state === "historical"
+      )) {
         throw new Error("document_already_submitted");
       }
 
@@ -647,6 +651,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             id: { in: uniqueDocumentIds.map(nid) },
             userId,
             submissionId: null,
+            state: { notIn: ["submitted", "historical"] },
           },
           data: { state: "submitted", submittedAt: input.submittedAt, submissionId: created.id },
         });
@@ -1132,7 +1137,9 @@ export class PrismaAdapter implements DatabaseAdapter {
     const stateOnly = keys.every((key) => key === "state");
     const immutable = existing.submissionId !== null || existing.state === "submitted" || existing.state === "historical";
     if (immutable) {
-      if (!stateOnly || (data.state !== "submitted" && data.state !== "historical")) {
+      const allowedState = data.state === existing.state
+        || (existing.state === "submitted" && data.state === "historical");
+      if (!stateOnly || !allowedState) {
         throw new Error("submitted_document_immutable");
       }
     } else if (data.state === "submitted") {
