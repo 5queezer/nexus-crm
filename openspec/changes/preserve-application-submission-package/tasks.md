@@ -52,5 +52,5 @@
 - [x] 7.2 Run the full Vitest suite and confirm new tests failed before implementation and pass afterward
 - [x] 7.3 Run ESLint and production build, comparing against baseline warnings
 - [x] 7.4 Run strict OpenSpec validation
-- [ ] 7.5 Run independent security/code review and address findings
-- [ ] 7.6 Open PR, request CodeRabbit, address all actionable comments, wait for green CI, and merge
+- [x] 7.5 Run independent security/code review and address findings
+- [ ] 7.6 Open PR, request CodeRabbit, address all actionable comments, wait for green CI, and merge *(PR #127 open; actionable Codex findings addressed; CI and GitGuardian green; merge pending)*
