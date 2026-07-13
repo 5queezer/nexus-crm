@@ -42,6 +42,45 @@ type OAuthPending = {
   scope: string;
 };
 
+type SubmissionConsent = {
+  clientId: string;
+  userId: string;
+  redirectUri: string;
+  codeChallenge: string;
+  scope: string;
+  expiresAt: number;
+};
+
+function createSubmissionConsent(payload: SubmissionConsent): string {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${encoded}.${signPayload(encoded)}`;
+}
+
+function hasValidSubmissionConsent(
+  token: string | null,
+  expected: Omit<SubmissionConsent, "expiresAt">,
+): boolean {
+  if (!token) return false;
+  const consent = verifyAndParse<SubmissionConsent>(token);
+  return !!consent &&
+    consent.expiresAt >= Date.now() &&
+    consent.clientId === expected.clientId &&
+    consent.userId === expected.userId &&
+    consent.redirectUri === expected.redirectUri &&
+    consent.codeChallenge === expected.codeChallenge &&
+    consent.scope === expected.scope;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[character]!);
+}
+
 /**
  * OAuth 2.1 Authorization Endpoint for MCP.
  *
@@ -72,6 +111,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       { error: "invalid_request", error_description: "Missing required parameters (client_id, redirect_uri, code_challenge)" },
       { status: 400 }
+    );
+  }
+  const scopes = scope.split(" ").filter(Boolean);
+  const supportedScopes = new Set(["mcp:tools", "mcp:submissions"]);
+  if (!scopes.includes("mcp:tools") || scopes.some((candidate) => !supportedScopes.has(candidate))) {
+    return NextResponse.json(
+      { error: "invalid_scope", error_description: "Supported scopes are mcp:tools and mcp:submissions" },
+      { status: 400 },
     );
   }
   if (responseType !== "code") {
@@ -142,8 +189,49 @@ export async function GET(req: NextRequest) {
     return response;
   }
 
-  // User is authenticated — issue authorization code
-  const scopes = scope.split(" ").filter(Boolean);
+  if (scopes.includes("mcp:submissions")) {
+    const expectedConsent = {
+      clientId,
+      userId: session.user.id,
+      redirectUri,
+      codeChallenge,
+      scope: scopes.join(" "),
+    };
+    if (!hasValidSubmissionConsent(url.searchParams.get("consent"), expectedConsent)) {
+      const approvalUrl = new URL("/api/mcp/authorize", getPublicBaseUrl(req));
+      approvalUrl.searchParams.set("client_id", clientId);
+      approvalUrl.searchParams.set("redirect_uri", redirectUri);
+      approvalUrl.searchParams.set("response_type", "code");
+      approvalUrl.searchParams.set("code_challenge", codeChallenge);
+      approvalUrl.searchParams.set("code_challenge_method", "S256");
+      approvalUrl.searchParams.set("scope", expectedConsent.scope);
+      if (state) approvalUrl.searchParams.set("state", state);
+      approvalUrl.searchParams.set("consent", createSubmissionConsent({
+        ...expectedConsent,
+        expiresAt: Date.now() + COOKIE_MAX_AGE * 1000,
+      }));
+      const clientLabel = escapeHtml(client.clientName ?? clientId);
+      const approvalHref = escapeHtml(approvalUrl.toString());
+      return new NextResponse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize submission access</title></head>
+<body><main><h1>Authorize sensitive submission access?</h1>
+<p><strong>${clientLabel}</strong> is requesting access to exact application answers, compensation expectations, submitted documents, and interview recall packages.</p>
+<p>This data may contain sensitive personal information. Only continue if you trust this client.</p>
+<p><a href="${approvalHref}">Allow submission access</a></p>
+<p>You can close this page to deny access.</p></main></body></html>`, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+          "X-Frame-Options": "DENY",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+    }
+  }
+
+  // User is authenticated and any sensitive scope was explicitly approved.
   const code = await createAuthCode({
     clientId,
     userId: session.user.id,

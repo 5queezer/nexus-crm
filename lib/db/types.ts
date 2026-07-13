@@ -17,6 +17,7 @@ export interface ApplicationRecord {
   salaryMax: number | null;
   rating: number | null;
   jobUrl: string | null;
+  canonicalJobUrl: string | null;
   resumeId: string | null;
   companySize: string | null;
   salaryBandMentioned: boolean;
@@ -26,6 +27,27 @@ export interface ApplicationRecord {
   autoRejected: boolean;
   autoRejectReason: string | null;
   archivedAt: Date | null;
+  workMode: string | null;
+  eligibleCountries: string[];
+  primaryLocations: string[];
+  officeDaysMin: number | null;
+  travelPercent: number | null;
+  visaSponsorship: boolean | null;
+  rightToWorkRequired: boolean | null;
+  timezoneOverlap: string | null;
+  salaryCurrency: string | null;
+  salaryPeriod: string | null;
+  salaryType: string | null;
+  atsName: string | null;
+  requisitionId: string | null;
+  jobCapturedAt: Date | null;
+  jobVerifiedAt: Date | null;
+  jobPostedAt: Date | null;
+  jobClosedAt: Date | null;
+  jobContentHash: string | null;
+  jobLiveness: string | null;
+  jobSummary: string | null;
+  currentStage: string | null;
   createdAt: Date;
   updatedAt: Date;
   contacts?: ContactRecord[];
@@ -49,8 +71,60 @@ export interface DocumentRecord {
   originalName: string;
   size: number;
   mimeType: string;
+  documentType: string;
+  state: string;
+  version: number;
+  contentHash: string | null;
+  source: string | null;
+  generatedAt: Date | null;
+  submittedAt: Date | null;
+  submissionId: string | null;
   uploadedAt: Date;
   applications?: ApplicationRef[];
+}
+
+export interface SubmissionAnswerRecord {
+  key?: string;
+  question: string;
+  answer: string;
+  kind?: "text" | "boolean" | "number" | "choice" | "salary" | "other";
+  sensitive?: boolean;
+}
+
+export interface ApplicationSubmissionRecord {
+  id: string;
+  userId: string;
+  applicationId: string;
+  idempotencyKey: string;
+  requestHash: string;
+  submittedAt: Date;
+  applicationUrl: string | null;
+  atsName: string | null;
+  requisitionId: string | null;
+  language: string | null;
+  answers: SubmissionAnswerRecord[];
+  candidateSalaryMin: number | null;
+  candidateSalaryMax: number | null;
+  candidateSalaryCurrency: string | null;
+  candidateSalaryPeriod: string | null;
+  candidateSalaryType: string | null;
+  candidateSalaryFlexible: boolean;
+  documentIds: string[];
+  createdAt: Date;
+  documents?: DocumentRecord[];
+}
+
+export interface ApplicationEventRecord {
+  id: string;
+  userId: string;
+  applicationId: string;
+  type: string;
+  idempotencyKey: string | null;
+  occurredAt: Date;
+  source: string | null;
+  actor: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
 }
 
 export interface ApplicationRef {
@@ -94,7 +168,32 @@ export interface AuditLogRecord {
 
 // ── Input types (passed into adapter) ────────────────────────────────────────
 
-export interface CreateApplicationInput {
+export interface StructuredApplicationMetadataInput {
+  canonicalJobUrl?: string | null;
+  workMode?: string | null;
+  eligibleCountries?: string[];
+  primaryLocations?: string[];
+  officeDaysMin?: number | null;
+  travelPercent?: number | null;
+  visaSponsorship?: boolean | null;
+  rightToWorkRequired?: boolean | null;
+  timezoneOverlap?: string | null;
+  salaryCurrency?: string | null;
+  salaryPeriod?: string | null;
+  salaryType?: string | null;
+  atsName?: string | null;
+  requisitionId?: string | null;
+  jobCapturedAt?: Date | null;
+  jobVerifiedAt?: Date | null;
+  jobPostedAt?: Date | null;
+  jobClosedAt?: Date | null;
+  jobContentHash?: string | null;
+  jobLiveness?: string | null;
+  jobSummary?: string | null;
+  currentStage?: string | null;
+}
+
+export interface CreateApplicationInput extends StructuredApplicationMetadataInput {
   company: string;
   role: string;
   status: string;
@@ -119,7 +218,7 @@ export interface CreateApplicationInput {
   autoRejectReason?: string | null;
 }
 
-export interface UpdateApplicationInput {
+export interface UpdateApplicationInput extends StructuredApplicationMetadataInput {
   company?: string;
   role?: string;
   status?: string;
@@ -143,6 +242,7 @@ export interface UpdateApplicationInput {
   autoRejected?: boolean;
   autoRejectReason?: string | null;
   archivedAt?: Date | null;
+  expectedUpdatedAt?: Date;
 }
 
 export interface CreateContactInput {
@@ -182,6 +282,80 @@ export interface CreateDocumentInput {
   size: number;
   mimeType: string;
   applicationIds: string[];
+  documentType?: string;
+  state?: string;
+  version?: number;
+  contentHash?: string | null;
+  source?: string | null;
+  generatedAt?: Date | null;
+  submittedAt?: Date | null;
+  submissionId?: string | null;
+}
+
+export interface UpdateDocumentMetadataInput {
+  documentType?: string;
+  state?: string;
+  version?: number;
+  contentHash?: string | null;
+  source?: string | null;
+  generatedAt?: Date | null;
+  submittedAt?: Date | null;
+}
+
+export interface ListDocumentsFilter {
+  applicationId?: string;
+  documentType?: string;
+  state?: string;
+  submissionId?: string;
+  orphaned?: boolean;
+  excludeSubmissionArtifacts?: boolean;
+  fields?: string[];
+  limit?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface RecordSubmissionInput {
+  applicationId: string;
+  idempotencyKey: string;
+  submittedAt: Date;
+  followUpAt?: Date | null;
+  applicationUrl?: string | null;
+  atsName?: string | null;
+  requisitionId?: string | null;
+  language?: string | null;
+  answers: SubmissionAnswerRecord[];
+  candidateSalaryMin?: number | null;
+  candidateSalaryMax?: number | null;
+  candidateSalaryCurrency?: string | null;
+  candidateSalaryPeriod?: string | null;
+  candidateSalaryType?: string | null;
+  candidateSalaryFlexible?: boolean;
+  documentIds: string[];
+  source?: string | null;
+  actor?: string | null;
+  dryRun?: boolean;
+  expectedUpdatedAt?: Date;
+}
+
+export interface RecordSubmissionResult {
+  replayed: boolean;
+  dryRun: boolean;
+  verified: boolean;
+  application: ApplicationRecord;
+  submission: ApplicationSubmissionRecord;
+  event: ApplicationEventRecord | null;
+  documents: DocumentRecord[];
+}
+
+export interface CreateApplicationEventInput {
+  type: string;
+  idempotencyKey?: string | null;
+  expectedUpdatedAt?: Date;
+  occurredAt: Date;
+  source?: string | null;
+  actor?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 // ── Pagination types ─────────────────────────────────────────────────────────
@@ -215,7 +389,7 @@ export interface ListApplicationsFilter {
   pageSize?: number;
 }
 
-export interface BatchUpsertItem {
+export interface BatchUpsertItem extends StructuredApplicationMetadataInput {
   id?: string;
   company?: string;
   role?: string;

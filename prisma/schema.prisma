@@ -8,37 +8,65 @@ datasource db {
 }
 
 model Application {
-  id              Int       @id @default(autoincrement())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company         String
-  role            String
-  status          String    @default("applied")
-  appliedAt       DateTime?
-  lastContact     DateTime?
-  notes           String?
-  followUpAt      DateTime?
-  jobDescription  String?
-  source          String?
-  remote          Boolean   @default(false)
-  salaryMin       Int?      // minimum salary in EUR/year
-  salaryMax       Int?      // maximum salary in EUR/year
-  rating          Int?      // suitability rating 1–5
-  jobUrl          String?   // link to job listing / opportunity page
-  resumeId        String?   // Reactive Resume resume ID
-  companySize     String?   // micro | small | mid | large | enterprise
-  salaryBandMentioned Boolean @default(false)
-  triageQuality   Int?      // 1–5 triage score
-  triageReason    String?   // short note explaining the triage rating
-  incomingSource  String?   // linkedin | email | referral | outbound
-  autoRejected    Boolean   @default(false)
-  autoRejectReason String?  // reason for auto-rejection
-  archivedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  documents       Document[]
-  contacts        Contact[]
-  cvPatch         CvPatch?
+  id                  Int                     @id @default(autoincrement())
+  userId              String
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company             String
+  role                String
+  status              String                  @default("inbound")
+  appliedAt           DateTime?
+  lastContact         DateTime?
+  notes               String?
+  followUpAt          DateTime?
+  jobDescription      String?
+  source              String?
+  remote              Boolean                 @default(false)
+  salaryMin           Int? // advertised minimum salary
+  salaryMax           Int? // advertised maximum salary
+  rating              Int? // suitability rating 1–5
+  jobUrl              String? // link to job listing / opportunity page
+  canonicalJobUrl     String? // normalized exact URL for duplicate-safe intake
+  resumeId            String? // Reactive Resume resume ID
+  companySize         String? // micro | small | mid | large | enterprise
+  salaryBandMentioned Boolean                 @default(false)
+  triageQuality       Int? // 1–5 triage score
+  triageReason        String? // short note explaining the triage rating
+  incomingSource      String? // linkedin | email | referral | outbound
+  autoRejected        Boolean                 @default(false)
+  autoRejectReason    String? // reason for auto-rejection
+  archivedAt          DateTime?
+  workMode            String? // remote | hybrid | onsite | flexible
+  eligibleCountries   Json?
+  primaryLocations    Json?
+  officeDaysMin       Int?
+  travelPercent       Int?
+  visaSponsorship     Boolean?
+  rightToWorkRequired Boolean?
+  timezoneOverlap     String?
+  salaryCurrency      String?
+  salaryPeriod        String? // annual | monthly | daily | hourly
+  salaryType          String? // base | total_compensation | contract_rate
+  atsName             String?
+  requisitionId       String?
+  jobCapturedAt       DateTime?
+  jobVerifiedAt       DateTime?
+  jobPostedAt         DateTime?
+  jobClosedAt         DateTime?
+  jobContentHash      String?
+  jobLiveness         String? // unknown | live | closed | expired
+  jobSummary          String?
+  currentStage        String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  documents           Document[]
+  contacts            Contact[]
+  cvPatch             CvPatch?
+  submissions         ApplicationSubmission[]
+  events              ApplicationEvent[]
+
+  @@unique([userId, canonicalJobUrl])
+  @@index([userId, followUpAt])
+  @@index([userId, status])
 }
 
 model Contact {
@@ -54,38 +82,99 @@ model Contact {
 }
 
 model Document {
-  id           Int           @id @default(autoincrement())
+  id           Int                    @id @default(autoincrement())
   userId       String
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  filename     String        // stored filename on disk (uuid-based)
-  originalName String        // user-facing name
-  size         Int           // bytes
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename     String // stored filename on disk (uuid-based)
+  originalName String // user-facing name
+  size         Int // bytes
   mimeType     String
-  uploadedAt   DateTime      @default(now())
+  documentType String                 @default("other")
+  state        String                 @default("current")
+  version      Int                    @default(1)
+  contentHash  String?
+  source       String?
+  generatedAt  DateTime?
+  submittedAt  DateTime?
+  submissionId Int?
+  submission   ApplicationSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  uploadedAt   DateTime               @default(now())
   applications Application[]
+
+  @@index([userId, documentType, state])
+  @@index([submissionId])
+}
+
+model ApplicationSubmission {
+  id                      Int         @id @default(autoincrement())
+  userId                  String
+  user                    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId           Int
+  application             Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  idempotencyKey          String
+  requestHash             String
+  submittedAt             DateTime
+  applicationUrl          String?
+  atsName                 String?
+  requisitionId           String?
+  language                String?
+  answers                 Json
+  candidateSalaryMin      Int?
+  candidateSalaryMax      Int?
+  candidateSalaryCurrency String?
+  candidateSalaryPeriod   String?
+  candidateSalaryType     String?
+  candidateSalaryFlexible Boolean     @default(false)
+  documentIds             Json
+  createdAt               DateTime    @default(now())
+  documents               Document[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([applicationId, submittedAt])
+}
+
+model ApplicationEvent {
+  id             Int         @id @default(autoincrement())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId  Int
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  type           String
+  idempotencyKey String?
+  occurredAt     DateTime
+  source         String?
+  actor          String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+
+  @@unique([userId, idempotencyKey])
+  @@index([applicationId, occurredAt])
+  @@index([userId, type])
 }
 
 model User {
-  id            String         @id
-  email         String         @unique
-  name          String?
-  image         String?
-  emailVerified Boolean        @default(false)
-  isAdmin       Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  applications  Application[]
-  documents     Document[]
-  apiTokens     UserApiToken[]
-  shareLinks    ShareLink[]
-  auditLogsAsActor    AdminAuditLog[]    @relation("auditActor")
-  auditLogsAsTarget   AdminAuditLog[]    @relation("auditTarget")
-  emailIntegration    EmailIntegration?
-  scannedEmails       ScannedEmail[]
-  mcpAccessTokens     McpAccessToken[]
-  cvProfile           CvProfile?
+  id                     String                  @id
+  email                  String                  @unique
+  name                   String?
+  image                  String?
+  emailVerified          Boolean                 @default(false)
+  isAdmin                Boolean                 @default(false)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  sessions               Session[]
+  accounts               Account[]
+  applications           Application[]
+  documents              Document[]
+  apiTokens              UserApiToken[]
+  shareLinks             ShareLink[]
+  auditLogsAsActor       AdminAuditLog[]         @relation("auditActor")
+  auditLogsAsTarget      AdminAuditLog[]         @relation("auditTarget")
+  emailIntegration       EmailIntegration?
+  scannedEmails          ScannedEmail[]
+  mcpAccessTokens        McpAccessToken[]
+  cvProfile              CvProfile?
+  applicationSubmissions ApplicationSubmission[]
+  applicationEvents      ApplicationEvent[]
 }
 
 model UserApiToken {
@@ -101,25 +190,25 @@ model UserApiToken {
 }
 
 model ShareLink {
-  id         Int       @id @default(autoincrement())
-  code       String    @unique         // short URL-safe code (8 chars)
-  userId     String                    // creator
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  targetType String                    // "share_page" | "document"
-  targetId   String?                   // e.g. document ID; null for share_page
-  createdAt  DateTime  @default(now())
+  id         Int      @id @default(autoincrement())
+  code       String   @unique // short URL-safe code (8 chars)
+  userId     String // creator
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetType String // "share_page" | "document"
+  targetId   String? // e.g. document ID; null for share_page
+  createdAt  DateTime @default(now())
 
   @@unique([userId, targetType, targetId])
 }
 
 model AdminAuditLog {
-  id         Int      @id @default(autoincrement())
-  actorId    String
-  actor      User     @relation("auditActor", fields: [actorId], references: [id], onDelete: Cascade)
-  action     String   // "grant_admin" | "revoke_admin"
-  targetId   String
-  target     User     @relation("auditTarget", fields: [targetId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  actorId   String
+  actor     User     @relation("auditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action    String // "grant_admin" | "revoke_admin"
+  targetId  String
+  target    User     @relation("auditTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 
   @@index([createdAt])
 }
@@ -154,35 +243,35 @@ model Account {
 }
 
 model EmailIntegration {
-  id              Int      @id @default(autoincrement())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider        String   // "gmail" | "outlook"
-  encryptedToken  String   // AES-256-GCM encrypted refresh token
-  lastHistoryId   String?  // Gmail history cursor for incremental sync
-  scanFrequency   Int      @default(15) // minutes between scans
-  autoImport      String   @default("review") // "off" | "review" | "auto"
-  scanDaysBack    Int      @default(7) // how many days back to scan on first run
-  enabled         Boolean  @default(true)
-  lastScanAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             Int       @id @default(autoincrement())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       String // "gmail" | "outlook"
+  encryptedToken String // AES-256-GCM encrypted refresh token
+  lastHistoryId  String? // Gmail history cursor for incremental sync
+  scanFrequency  Int       @default(15) // minutes between scans
+  autoImport     String    @default("review") // "off" | "review" | "auto"
+  scanDaysBack   Int       @default(7) // how many days back to scan on first run
+  enabled        Boolean   @default(true)
+  lastScanAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model ScannedEmail {
-  id              Int      @id @default(autoincrement())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messageId       String   // provider's unique message ID
-  subject         String
-  sender          String
-  receivedAt      DateTime
-  classification  String?  // "applied" | "interview" | "rejection" | "offer" | null
-  confidence      String   @default("low") // "high" | "medium" | "low"
-  extractedData   String?  // JSON: { company, role, date }
-  status          String   @default("pending") // "pending" | "imported" | "dismissed"
-  applicationId   Int?     // linked Application after import
-  createdAt       DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId      String // provider's unique message ID
+  subject        String
+  sender         String
+  receivedAt     DateTime
+  classification String? // "applied" | "interview" | "rejection" | "offer" | null
+  confidence     String   @default("low") // "high" | "medium" | "low"
+  extractedData  String? // JSON: { company, role, date }
+  status         String   @default("pending") // "pending" | "imported" | "dismissed"
+  applicationId  Int? // linked Application after import
+  createdAt      DateTime @default(now())
 
   @@unique([userId, messageId])
   @@index([userId, status])
@@ -200,54 +289,54 @@ model Verification {
 // ── MCP OAuth 2.1 ───────────────────────────────────────────────────────────
 
 model McpOAuthClient {
-  id                   String   @id @default(cuid())
-  clientId             String   @unique
-  clientSecretHash     String?
-  clientName           String?
-  redirectUris         String[] // allowed redirect URIs
-  grantTypes           String[] // ["authorization_code", "refresh_token"]
-  responseTypes        String[] // ["code"]
-  tokenEndpointAuth    String   @default("client_secret_post")
+  id                    String    @id @default(cuid())
+  clientId              String    @unique
+  clientSecretHash      String?
+  clientName            String?
+  redirectUris          String[] // allowed redirect URIs
+  grantTypes            String[] // ["authorization_code", "refresh_token"]
+  responseTypes         String[] // ["code"]
+  tokenEndpointAuth     String    @default("client_secret_post")
   clientSecretExpiresAt DateTime? // null = never expires
-  createdAt            DateTime @default(now())
+  createdAt             DateTime  @default(now())
 }
 
 model McpAuthCode {
-  id              String   @id @default(cuid())
-  code            String   @unique
-  clientId        String
-  userId          String
-  redirectUri     String
-  codeChallenge   String   // PKCE S256
-  scopes          String[] // granted scopes
-  expiresAt       DateTime
-  used            Boolean  @default(false)
-  createdAt       DateTime @default(now())
+  id            String   @id @default(cuid())
+  code          String   @unique
+  clientId      String
+  userId        String
+  redirectUri   String
+  codeChallenge String // PKCE S256
+  scopes        String[] // granted scopes
+  expiresAt     DateTime
+  used          Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
   @@index([code])
 }
 
 model McpAccessToken {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique
-  clientId   String
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  scopes     String[]
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  clientId  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes    String[]
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([userId])
 }
 
 model McpRefreshToken {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique
-  clientId   String
-  userId     String
-  scopes     String[]
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  clientId  String
+  userId    String
+  scopes    String[]
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 // ── CV Generation ────────────────────────────────────────────────────────────
@@ -257,10 +346,10 @@ model CvProfile {
   userId     String   @unique
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name       String
-  contact    Json     // { email, phone, linkedin, github, location }
-  profile    String   // professional summary
-  skills     Json     // [{ category: string, items: string[] }]
-  experience Json     // [{ id, company, title, date, location, tier, bullets }]
+  contact    Json // { email, phone, linkedin, github, location }
+  profile    String // professional summary
+  skills     Json // [{ category: string, items: string[] }]
+  experience Json // [{ id, company, title, date, location, tier, bullets }]
   projects   Json     @default("[]") // [{ name, url, stack, description }]
   education  Json     @default("[]") // [{ institution, degree, date, location, details? }]
   createdAt  DateTime @default(now())
@@ -272,11 +361,11 @@ model CvPatch {
   applicationId    Int         @unique
   application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   profileOverride  String?
-  experienceIds    Json        // string[] — ordered IDs of experience entries to include
-  skillCategories  Json        // string[] — ordered category names to include
+  experienceIds    Json // string[] — ordered IDs of experience entries to include
+  skillCategories  Json // string[] — ordered category names to include
   includeProjects  Boolean     @default(false)
   includeEducation Boolean     @default(true)
-  documentId       Int?        // ID of the generated CV Document
+  documentId       Int? // ID of the generated CV Document
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 }

@@ -71,6 +71,28 @@
           "followUpAt":     { "type": ["string", "null"],     "format": "date-time" },
           "notes":          { "type": ["string", "null"],     "example": "Had a great first call." },
           "jobDescription": { "type": ["string", "null"],     "example": "We are looking for…" },
+          "canonicalJobUrl": { "type": ["string", "null"], "format": "uri" },
+          "workMode": { "type": ["string", "null"], "enum": ["remote", "hybrid", "onsite", "flexible", null] },
+          "eligibleCountries": { "type": "array", "items": { "type": "string" } },
+          "primaryLocations": { "type": "array", "items": { "type": "string" } },
+          "officeDaysMin": { "type": ["integer", "null"] },
+          "travelPercent": { "type": ["integer", "null"] },
+          "visaSponsorship": { "type": ["boolean", "null"] },
+          "rightToWorkRequired": { "type": ["boolean", "null"] },
+          "timezoneOverlap": { "type": ["string", "null"] },
+          "salaryCurrency": { "type": ["string", "null"] },
+          "salaryPeriod": { "type": ["string", "null"] },
+          "salaryType": { "type": ["string", "null"] },
+          "atsName": { "type": ["string", "null"] },
+          "requisitionId": { "type": ["string", "null"] },
+          "jobCapturedAt": { "type": ["string", "null"], "format": "date-time" },
+          "jobVerifiedAt": { "type": ["string", "null"], "format": "date-time" },
+          "jobPostedAt": { "type": ["string", "null"], "format": "date-time" },
+          "jobClosedAt": { "type": ["string", "null"], "format": "date-time" },
+          "jobContentHash": { "type": ["string", "null"] },
+          "jobLiveness": { "type": ["string", "null"] },
+          "jobSummary": { "type": ["string", "null"] },
+          "currentStage": { "type": ["string", "null"] },
           "createdAt":      { "type": "string",               "format": "date-time" },
           "updatedAt":      { "type": "string",               "format": "date-time" },
           "contacts":       {
@@ -90,11 +112,68 @@
           "originalName": { "type": "string",  "example": "my-resume.pdf" },
           "size":         { "type": "integer", "example": 204800, "description": "File size in bytes." },
           "mimeType":     { "type": "string",  "example": "application/pdf", "enum": ["application/pdf", "image/jpeg", "image/png", "image/webp"] },
+          "documentType": { "type": "string" },
+          "state": { "type": "string", "enum": ["draft", "current", "submitted", "superseded", "historical", "orphaned"] },
+          "version": { "type": "integer", "minimum": 1 },
+          "contentHash": { "type": ["string", "null"] },
+          "source": { "type": ["string", "null"] },
+          "generatedAt": { "type": ["string", "null"], "format": "date-time" },
+          "submittedAt": { "type": ["string", "null"], "format": "date-time" },
+          "submissionId": { "type": ["string", "null"] },
           "uploadedAt":   { "type": "string",  "format": "date-time" },
           "applications": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/ApplicationRef" }
           }
+        }
+      },
+      "SubmissionAnswer": {
+        "type": "object",
+        "required": ["question", "answer"],
+        "properties": {
+          "key": { "type": ["string", "null"] },
+          "question": { "type": "string", "maxLength": 1000 },
+          "answer": { "type": "string", "maxLength": 20000 },
+          "kind": { "type": ["string", "null"] },
+          "sensitive": { "type": "boolean", "default": false }
+        }
+      },
+      "ApplicationSubmission": {
+        "type": "object",
+        "description": "Immutable snapshot of one application submission. Exact answers are sensitive.",
+        "required": ["id", "applicationId", "idempotencyKey", "requestHash", "submittedAt", "documentIds"],
+        "properties": {
+          "id": { "type": "string" },
+          "applicationId": { "type": "string" },
+          "idempotencyKey": { "type": "string" },
+          "requestHash": { "type": "string" },
+          "submittedAt": { "type": "string", "format": "date-time" },
+          "applicationUrl": { "type": ["string", "null"] },
+          "atsName": { "type": ["string", "null"] },
+          "requisitionId": { "type": ["string", "null"] },
+          "language": { "type": ["string", "null"] },
+          "answers": { "type": "array", "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
+          "candidateSalaryMin": { "type": ["number", "null"] },
+          "candidateSalaryMax": { "type": ["number", "null"] },
+          "candidateSalaryCurrency": { "type": ["string", "null"] },
+          "candidateSalaryPeriod": { "type": ["string", "null"] },
+          "candidateSalaryType": { "type": ["string", "null"] },
+          "candidateSalaryFlexible": { "type": "boolean" },
+          "documentIds": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ApplicationEvent": {
+        "type": "object",
+        "required": ["id", "applicationId", "type", "occurredAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "applicationId": { "type": "string" },
+          "type": { "type": "string" },
+          "idempotencyKey": { "type": ["string", "null"] },
+          "occurredAt": { "type": "string", "format": "date-time" },
+          "source": { "type": ["string", "null"] },
+          "actor": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"], "additionalProperties": true }
         }
       },
       "UserRecord": {
@@ -341,6 +420,119 @@
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/applications/{id}/submissions": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+      ],
+      "get": {
+        "operationId": "listApplicationSubmissions",
+        "summary": "List immutable application submission snapshots",
+        "tags": ["Applications"],
+        "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+        "parameters": [
+          { "name": "includeAnswers", "in": "query", "schema": { "type": "boolean", "default": false }, "description": "Include sensitive exact answers." }
+        ],
+        "responses": {
+          "200": {
+            "description": "Submission snapshots.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ApplicationSubmission" } } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "operationId": "recordApplicationSubmission",
+        "summary": "Atomically record an application submission",
+        "description": "Preserves exact answers, compensation, document versions, status, follow-up, and a timeline event. Supports idempotency, dry-run, and optimistic concurrency.",
+        "tags": ["Applications"],
+        "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["idempotencyKey", "submittedAt"],
+                "properties": {
+                  "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
+                  "submittedAt": { "type": "string", "format": "date-time" },
+                  "followUpAt": { "type": ["string", "null"], "format": "date-time" },
+                  "applicationUrl": { "type": ["string", "null"], "format": "uri" },
+                  "atsName": { "type": ["string", "null"] },
+                  "requisitionId": { "type": ["string", "null"] },
+                  "language": { "type": ["string", "null"] },
+                  "answers": { "type": "array", "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
+                  "candidateSalaryMin": { "type": ["number", "null"] },
+                  "candidateSalaryMax": { "type": ["number", "null"] },
+                  "candidateSalaryCurrency": { "type": ["string", "null"] },
+                  "candidateSalaryPeriod": { "type": ["string", "null"] },
+                  "candidateSalaryType": { "type": ["string", "null"] },
+                  "candidateSalaryFlexible": { "type": "boolean" },
+                  "documentIds": { "type": "array", "maxItems": 20, "items": { "type": "string" } },
+                  "expectedUpdatedAt": { "type": "string", "format": "date-time" },
+                  "dryRun": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Recorded submission package." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "409": { "description": "Idempotency or optimistic-concurrency conflict." }
+        }
+      }
+    },
+    "/api/applications/{id}/events": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+      ],
+      "get": {
+        "operationId": "listApplicationEvents",
+        "summary": "List append-only application timeline events",
+        "tags": ["Applications"],
+        "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Timeline events.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ApplicationEvent" } } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "operationId": "recordApplicationEvent",
+        "summary": "Append an application timeline event",
+        "tags": ["Applications"],
+        "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": { "type": "string", "maxLength": 100 },
+                  "idempotencyKey": { "type": ["string", "null"] },
+                  "occurredAt": { "type": "string", "format": "date-time" },
+                  "metadata": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created timeline event." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }

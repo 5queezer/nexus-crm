@@ -264,6 +264,8 @@ export async function verifyMcpAccessToken(
     userId: token.user.id,
     readScopeUserId: token.user.isAdmin ? null : token.user.id,
     user,
+    authType: "mcp_oauth",
+    scopes: token.scopes,
   };
 }
 
@@ -303,7 +305,7 @@ export function getOAuthMetadata(baseUrl: string) {
     grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
     code_challenge_methods_supported: ["S256"],
-    scopes_supported: ["mcp:tools"],
+    scopes_supported: ["mcp:tools", "mcp:submissions"],
   };
 }
 
@@ -312,7 +314,7 @@ export function getProtectedResourceMetadata(baseUrl: string) {
     resource: `${baseUrl}/api/mcp`,
     authorization_servers: [baseUrl],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["mcp:tools"],
+    scopes_supported: ["mcp:tools", "mcp:submissions"],
     resource_name: "Nexus CRM MCP Server",
   };
 }
