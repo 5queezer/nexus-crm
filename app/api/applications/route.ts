@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
-import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
+import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
+import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 
 const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
 const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
@@ -61,8 +62,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsedSalaryMin = salaryMin != null ? parseInt(String(salaryMin), 10) : null;
-  const parsedSalaryMax = salaryMax != null ? parseInt(String(salaryMax), 10) : null;
+  const parsedSalaryMin = salaryMin != null && salaryMin !== "" ? Number(salaryMin) : null;
+  const parsedSalaryMax = salaryMax != null && salaryMax !== "" ? Number(salaryMax) : null;
+  const parsedRating = rating != null && rating !== "" ? Number(rating) : null;
+
+  if (
+    (parsedSalaryMin !== null && (!Number.isInteger(parsedSalaryMin) || parsedSalaryMin < 0)) ||
+    (parsedSalaryMax !== null && (!Number.isInteger(parsedSalaryMax) || parsedSalaryMax < 0))
+  ) {
+    return NextResponse.json({ error: "salary values must be non-negative integers" }, { status: 400 });
+  }
+  if (parsedRating !== null && (!Number.isInteger(parsedRating) || parsedRating < 1 || parsedRating > 5)) {
+    return NextResponse.json({ error: "rating must be an integer from 1 to 5" }, { status: 400 });
+  }
 
   if (parsedSalaryMin != null && parsedSalaryMax != null && parsedSalaryMin > parsedSalaryMax) {
     return NextResponse.json(
@@ -71,29 +83,50 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const application = await getDb().createApplication(auth.userId, {
-    company: String(company).slice(0, 255),
-    role: String(role).slice(0, 255),
-    status: normalizeStatus(status || "applied"),
-    appliedAt: resolveCreatedAtForCreate(appliedAt),
-    lastContact: lastContact ? new Date(lastContact) : null,
-    followUpAt: followUpAt ? new Date(followUpAt) : null,
-    notes: notes ? String(notes).slice(0, 10000) : null,
-    jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
-    source: normalizeSource(source),
-    remote: !!remote,
-    salaryMin: parsedSalaryMin,
-    salaryMax: parsedSalaryMax,
-    rating: rating != null ? Math.min(5, Math.max(1, parseInt(String(rating), 10))) : null,
-    jobUrl: jobUrl ? String(jobUrl).slice(0, 2000) : null,
-    companySize: companySize && VALID_COMPANY_SIZES.includes(String(companySize)) ? String(companySize) : null,
-    salaryBandMentioned: parseBooleanField(salaryBandMentioned),
-    triageQuality: parseTriageQuality(triageQuality),
-    triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
-    incomingSource: incomingSource && VALID_INCOMING_SOURCES.includes(String(incomingSource)) ? String(incomingSource) : null,
-    autoRejected: parseBooleanField(autoRejected),
-    autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
-  });
+  let structuredMetadata;
+  try {
+    structuredMetadata = parseStructuredApplicationMetadata(body as Record<string, unknown>);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid structured metadata" },
+      { status: 400 },
+    );
+  }
 
-  return NextResponse.json(application, { status: 201 });
+  try {
+    const application = await getDb().createApplication(auth.userId, {
+      company: String(company).slice(0, 255),
+      role: String(role).slice(0, 255),
+      status: normalizeStatus(status || "inbound"),
+      appliedAt: resolveAppliedAtForCreate(status || "inbound", appliedAt),
+      lastContact: lastContact ? new Date(lastContact) : null,
+      followUpAt: followUpAt ? new Date(followUpAt) : null,
+      notes: notes ? String(notes).slice(0, 10000) : null,
+      jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
+      source: normalizeSource(source),
+      remote: !!remote,
+      salaryMin: parsedSalaryMin,
+      salaryMax: parsedSalaryMax,
+      rating: parsedRating,
+      jobUrl: jobUrl ? String(jobUrl).slice(0, 2000) : null,
+      companySize: companySize && VALID_COMPANY_SIZES.includes(String(companySize)) ? String(companySize) : null,
+      salaryBandMentioned: parseBooleanField(salaryBandMentioned),
+      triageQuality: parseTriageQuality(triageQuality),
+      triageReason: triageReason ? String(triageReason).slice(0, 1000) : null,
+      incomingSource: incomingSource && VALID_INCOMING_SOURCES.includes(String(incomingSource)) ? String(incomingSource) : null,
+      autoRejected: parseBooleanField(autoRejected),
+      autoRejectReason: autoRejectReason ? String(autoRejectReason).slice(0, 1000) : null,
+      ...structuredMetadata,
+    });
+
+    return NextResponse.json(application, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "canonical_job_url_conflict") {
+      return NextResponse.json({ error: "An application with this canonical job URL already exists" }, { status: 409 });
+    }
+    if (error instanceof Error && error.message === "appliedAt_invalid") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
+  }
 }

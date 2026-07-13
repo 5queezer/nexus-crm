@@ -42,6 +42,8 @@ A lead and opportunity management suite for tracking your sales pipeline. Manage
 - **Google OAuth** — secure login, multi-user with per-user admin roles
 - **Email Intelligence** — Gmail integration to auto-detect and import client communications
 - **MCP Server** — Model Context Protocol endpoint for AI agent integration (OAuth 2.1 + PKCE)
+- **Submission Packages** — immutable, idempotent snapshots of submitted answers, compensation, CVs, cover letters, and timeline events
+- **Interview Recall** — owner-scoped MCP retrieval of the job description, exact submissions, documents, and application timeline
 - **API Docs** — OpenAPI 3.1 spec with Swagger UI at `/api-docs`, LLM-friendly guide at `/llm.txt`
 - **Rate Limiting** — per-IP rate limits on all API routes with standard headers
 - **Security Hardened** — CSP, HSTS, X-Frame-Options, gitleaks pre-commit hooks, encrypted email tokens
@@ -238,6 +240,8 @@ The data layer uses a factory pattern (`lib/db/index.ts`). The `DB_PROVIDER` env
 - **`firestore`** — Firebase Admin SDK with Firestore
 
 All API routes call `getDb()` which returns a `DatabaseAdapter` interface. Swapping backends requires zero code changes.
+
+Firestore deployments must also apply the composite indexes in `firestore.indexes.json` (for example, `firebase deploy --only firestore:indexes`). PostgreSQL deployments apply the Prisma migration before starting the new application build.
 
 ### Storage Abstraction
 

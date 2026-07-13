@@ -23,6 +23,13 @@ import type {
   UpsertCvProfileInput,
   CvPatchRecord,
   UpsertCvPatchInput,
+  ApplicationSubmissionRecord,
+  ApplicationEventRecord,
+  RecordSubmissionInput,
+  RecordSubmissionResult,
+  CreateApplicationEventInput,
+  ListDocumentsFilter,
+  UpdateDocumentMetadataInput,
 } from "./types";
 
 export interface DatabaseAdapter {
@@ -35,6 +42,18 @@ export interface DatabaseAdapter {
   createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord>;
   updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord>;
   deleteApplication(id: string, userId: string): Promise<void>;
+  /** Find an exact canonical URL match owned by the user. */
+  findApplicationByCanonicalJobUrl(userId: string, canonicalJobUrl: string): Promise<ApplicationRecord | null>;
+  /** Append notes without a caller-side read/replace race and record an event. */
+  appendApplicationNote(id: string, userId: string, note: string, event: CreateApplicationEventInput): Promise<{ application: ApplicationRecord; event: ApplicationEventRecord }>;
+
+  // ── Submissions & timeline ───────────────────────────────────────────────
+  recordApplicationSubmission(userId: string, input: RecordSubmissionInput): Promise<RecordSubmissionResult>;
+  listApplicationSubmissions(applicationId: string, userId: string, includeAnswers?: boolean): Promise<ApplicationSubmissionRecord[]>;
+  listUserSubmissions(userId: string): Promise<ApplicationSubmissionRecord[]>;
+  getApplicationSubmission(id: string, userId: string): Promise<ApplicationSubmissionRecord | null>;
+  createApplicationEvent(applicationId: string, userId: string, input: CreateApplicationEventInput): Promise<ApplicationEventRecord>;
+  listApplicationEvents(applicationId: string, userId: string, limit?: number): Promise<ApplicationEventRecord[]>;
 
   /** List applications with optional filters and field selection. */
   listApplicationsFiltered(userId: string | null, filter: ListApplicationsFilter): Promise<Partial<ApplicationRecord>[]>;
@@ -46,16 +65,18 @@ export interface DatabaseAdapter {
   // ── Contacts ─────────────────────────────────────────────────────────────
   /** Verify an application exists and belongs to userId. */
   verifyApplicationOwner(id: string, userId: string): Promise<boolean>;
-  createContact(applicationId: string, data: CreateContactInput): Promise<ContactRecord>;
+  createContact(applicationId: string, userId: string, data: CreateContactInput): Promise<ContactRecord>;
   updateContact(id: string, applicationId: string, userId: string, data: UpdateContactInput): Promise<ContactRecord>;
   deleteContact(id: string, applicationId: string, userId: string): Promise<void>;
 
   // ── Documents ────────────────────────────────────────────────────────────
   listDocuments(userId: string | null): Promise<DocumentRecord[]>;
+  listDocumentsFiltered(userId: string | null, filter: ListDocumentsFilter): Promise<Partial<DocumentRecord>[]>;
   /** List documents linked to a specific application. */
   listDocumentsByApplication(applicationId: string, userId: string): Promise<DocumentRecord[]>;
   getDocument(id: string, userId: string | null): Promise<DocumentRecord | null>;
   createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord>;
+  updateDocumentMetadata(id: string, userId: string, data: UpdateDocumentMetadataInput): Promise<DocumentRecord>;
   /** Replace the set of linked application IDs on a document. */
   updateDocumentLinks(id: string, userId: string, applicationIds: string[]): Promise<DocumentRecord>;
   /** Rename the user-facing original name of a document. */

@@ -17,6 +17,8 @@ export type SessionAuthResult = {
   /** Use for read-only list/get operations. Null means global read access. */
   readScopeUserId: string | null;
   user: SessionUser;
+  authType?: "session" | "api_token" | "mcp_oauth";
+  scopes?: string[];
 };
 
 function parseAllowedEmails(): string[] {

@@ -24,7 +24,7 @@ export async function POST(
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
-  const contact = await getDb().createContact(applicationId, {
+  const contact = await getDb().createContact(applicationId, auth.userId, {
     name: String(name).slice(0, 255),
     email: email ? String(email).slice(0, 255) : null,
     phone: phone ? String(phone).slice(0, 50) : null,

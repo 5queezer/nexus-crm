@@ -2,8 +2,8 @@ import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
-import { sanitizeTriageFields } from "./sanitize";
-import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
+import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
+import { submissionRequestHash } from "@/lib/applications/submission";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -30,6 +30,13 @@ import type {
   UpsertCvProfileInput,
   CvPatchRecord,
   UpsertCvPatchInput,
+  ApplicationSubmissionRecord,
+  ApplicationEventRecord,
+  RecordSubmissionInput,
+  RecordSubmissionResult,
+  CreateApplicationEventInput,
+  ListDocumentsFilter,
+  UpdateDocumentMetadataInput,
 } from "./types";
 
 // ── Firestore init ──────────────────────────────────────────────────────────
@@ -69,6 +76,7 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     salaryMax: data.salaryMax ?? null,
     rating: data.rating ?? null,
     jobUrl: data.jobUrl ?? null,
+    canonicalJobUrl: data.canonicalJobUrl ?? null,
     resumeId: data.resumeId ?? null,
     companySize: data.companySize ?? null,
     salaryBandMentioned: data.salaryBandMentioned ?? false,
@@ -78,9 +86,30 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     autoRejected: data.autoRejected ?? false,
     autoRejectReason: data.autoRejectReason ?? null,
     archivedAt: toDate(data.archivedAt) ?? null,
+    workMode: data.workMode ?? null,
+    eligibleCountries: Array.isArray(data.eligibleCountries) ? data.eligibleCountries : [],
+    primaryLocations: Array.isArray(data.primaryLocations) ? data.primaryLocations : [],
+    officeDaysMin: data.officeDaysMin ?? null,
+    travelPercent: data.travelPercent ?? null,
+    visaSponsorship: data.visaSponsorship ?? null,
+    rightToWorkRequired: data.rightToWorkRequired ?? null,
+    timezoneOverlap: data.timezoneOverlap ?? null,
+    salaryCurrency: data.salaryCurrency ?? null,
+    salaryPeriod: data.salaryPeriod ?? null,
+    salaryType: data.salaryType ?? null,
+    atsName: data.atsName ?? null,
+    requisitionId: data.requisitionId ?? null,
+    jobCapturedAt: toDate(data.jobCapturedAt),
+    jobVerifiedAt: toDate(data.jobVerifiedAt),
+    jobPostedAt: toDate(data.jobPostedAt),
+    jobClosedAt: toDate(data.jobClosedAt),
+    jobContentHash: data.jobContentHash ?? null,
+    jobLiveness: data.jobLiveness ?? null,
+    jobSummary: data.jobSummary ?? null,
+    currentStage: data.currentStage ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
     updatedAt: toDate(data.updatedAt) ?? new Date(),
-    contacts: data._contacts, // populated separately when needed
+    contacts: data._contacts,
   };
 }
 
@@ -105,9 +134,85 @@ function mapDoc(id: string, data: FirebaseFirestore.DocumentData): DocumentRecor
     originalName: data.originalName,
     size: data.size,
     mimeType: data.mimeType,
+    documentType: data.documentType ?? "other",
+    state: data.state ?? "current",
+    version: data.version ?? 1,
+    contentHash: data.contentHash ?? null,
+    source: data.source ?? null,
+    generatedAt: toDate(data.generatedAt),
+    submittedAt: toDate(data.submittedAt),
+    submissionId: data.submissionId ?? null,
     uploadedAt: toDate(data.uploadedAt) ?? new Date(),
-    applications: data._applications, // populated separately when needed
+    applications: data._applications,
   };
+}
+
+function mapSubmission(
+  id: string,
+  data: FirebaseFirestore.DocumentData,
+  includeAnswers = true,
+): ApplicationSubmissionRecord {
+  return {
+    id,
+    userId: data.userId,
+    applicationId: data.applicationId,
+    idempotencyKey: data.idempotencyKey,
+    requestHash: data.requestHash,
+    submittedAt: toDate(data.submittedAt) ?? new Date(),
+    applicationUrl: data.applicationUrl ?? null,
+    atsName: data.atsName ?? null,
+    requisitionId: data.requisitionId ?? null,
+    language: data.language ?? null,
+    answers: includeAnswers && Array.isArray(data.answers) ? data.answers : [],
+    candidateSalaryMin: data.candidateSalaryMin ?? null,
+    candidateSalaryMax: data.candidateSalaryMax ?? null,
+    candidateSalaryCurrency: data.candidateSalaryCurrency ?? null,
+    candidateSalaryPeriod: data.candidateSalaryPeriod ?? null,
+    candidateSalaryType: data.candidateSalaryType ?? null,
+    candidateSalaryFlexible: data.candidateSalaryFlexible ?? false,
+    documentIds: Array.isArray(data.documentIds) ? data.documentIds : [],
+    createdAt: toDate(data.createdAt) ?? new Date(),
+    documents: data._documents,
+  };
+}
+
+function mapEvent(id: string, data: FirebaseFirestore.DocumentData): ApplicationEventRecord {
+  return {
+    id,
+    userId: data.userId,
+    applicationId: data.applicationId,
+    type: data.type,
+    idempotencyKey: data.idempotencyKey ?? null,
+    occurredAt: toDate(data.occurredAt) ?? new Date(),
+    source: data.source ?? null,
+    actor: data.actor ?? null,
+    metadata: data.metadata ?? null,
+    createdAt: toDate(data.createdAt) ?? new Date(),
+  };
+}
+
+const STRUCTURED_METADATA_FIELDS = [
+  "canonicalJobUrl", "workMode", "eligibleCountries", "primaryLocations",
+  "officeDaysMin", "travelPercent", "visaSponsorship", "rightToWorkRequired",
+  "timezoneOverlap", "salaryCurrency", "salaryPeriod", "salaryType", "atsName",
+  "requisitionId", "jobContentHash", "jobLiveness", "jobSummary", "currentStage",
+] as const;
+
+const STRUCTURED_DATE_FIELDS = [
+  "jobCapturedAt", "jobVerifiedAt", "jobPostedAt", "jobClosedAt",
+] as const;
+
+function structuredMetadataForFirestore(data: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const field of STRUCTURED_METADATA_FIELDS) {
+    if (data[field] !== undefined) result[field] = data[field];
+  }
+  for (const field of STRUCTURED_DATE_FIELDS) {
+    if (data[field] !== undefined) {
+      result[field] = toTimestamp(data[field] as Date | null | undefined);
+    }
+  }
+  return result;
 }
 
 // ── Implementation ──────────────────────────────────────────────────────────
@@ -117,6 +222,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
   private get apps() { return this.db.collection("applications"); }
   private get contacts() { return this.db.collection("contacts"); }
   private get docs() { return this.db.collection("documents"); }
+  private get submissions() { return this.db.collection("applicationSubmissions"); }
+  private get events() { return this.db.collection("applicationEvents"); }
+  private get canonicalUrls() { return this.db.collection("applicationCanonicalUrls"); }
+
+  private canonicalUrlRef(userId: string, canonicalJobUrl: string) {
+    return this.canonicalUrls.doc(submissionRequestHash({ userId, canonicalJobUrl }));
+  }
 
   // ── Applications ────────────────────────────────────────────────────────
 
@@ -183,21 +295,24 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   async createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord> {
     const now = Timestamp.now();
-    const ref = await this.apps.add({
+    const reference = this.apps.doc();
+    const payload = {
       userId,
       company: data.company,
       role: data.role,
       status: normalizeStatus(data.status),
-      appliedAt: toTimestamp(resolveCreatedAtForCreate(data.appliedAt)),
+      appliedAt: toTimestamp(resolveAppliedAtForCreate(data.status, data.appliedAt)),
       lastContact: toTimestamp(data.lastContact),
       followUpAt: toTimestamp(data.followUpAt),
       notes: data.notes,
       jobDescription: data.jobDescription,
+      source: data.source,
       remote: data.remote ?? false,
       salaryMin: data.salaryMin ?? null,
       salaryMax: data.salaryMax ?? null,
       rating: data.rating ?? null,
       jobUrl: data.jobUrl ?? null,
+      resumeId: data.resumeId ?? null,
       companySize: data.companySize ?? null,
       salaryBandMentioned: data.salaryBandMentioned ?? false,
       triageQuality: data.triageQuality ?? null,
@@ -205,22 +320,31 @@ export class FirestoreAdapter implements DatabaseAdapter {
       incomingSource: data.incomingSource ?? null,
       autoRejected: data.autoRejected ?? false,
       autoRejectReason: data.autoRejectReason ?? null,
+      ...structuredMetadataForFirestore(data as unknown as Record<string, unknown>),
       createdAt: now,
       updatedAt: now,
+    };
+    await this.db.runTransaction(async (transaction) => {
+      if (data.canonicalJobUrl) {
+        const indexReference = this.canonicalUrlRef(userId, data.canonicalJobUrl);
+        const duplicate = await transaction.get(indexReference);
+        if (duplicate.exists) throw new Error("canonical_job_url_conflict");
+        transaction.create(indexReference, {
+          userId,
+          canonicalJobUrl: data.canonicalJobUrl,
+          applicationId: reference.id,
+          createdAt: now,
+        });
+      }
+      transaction.create(reference, payload);
     });
-    const snap = await ref.get();
-    const app = mapApp(ref.id, snap.data()!);
+    const app = mapApp(reference.id, payload);
     app.contacts = [];
     return app;
   }
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
     const ref = this.apps.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.userId !== userId) {
-      throw new Error("Not found");
-    }
-
     const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
     if (data.company !== undefined) update.company = data.company;
     if (data.role !== undefined) update.role = data.role;
@@ -230,11 +354,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.followUpAt !== undefined) update.followUpAt = toTimestamp(data.followUpAt);
     if (data.notes !== undefined) update.notes = data.notes;
     if (data.jobDescription !== undefined) update.jobDescription = data.jobDescription;
+    if (data.source !== undefined) update.source = data.source;
     if (data.remote !== undefined) update.remote = data.remote;
     if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
     if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
     if (data.rating !== undefined) update.rating = data.rating;
     if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl;
+    if (data.resumeId !== undefined) update.resumeId = data.resumeId;
     if (data.companySize !== undefined) update.companySize = data.companySize;
     if (data.salaryBandMentioned !== undefined) update.salaryBandMentioned = data.salaryBandMentioned;
     if (data.triageQuality !== undefined) update.triageQuality = data.triageQuality;
@@ -242,23 +368,485 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (data.incomingSource !== undefined) update.incomingSource = data.incomingSource;
     if (data.autoRejected !== undefined) update.autoRejected = data.autoRejected;
     if (data.autoRejectReason !== undefined) update.autoRejectReason = data.autoRejectReason;
+    if (data.archivedAt !== undefined) update.archivedAt = toTimestamp(data.archivedAt);
+    Object.assign(update, structuredMetadataForFirestore(data as unknown as Record<string, unknown>));
 
-    await ref.update(update);
+    await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
+      if (existing.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      const currentCanonicalJobUrl = existing.data()!.canonicalJobUrl as string | null | undefined;
+      let nextCanonicalIndex: FirebaseFirestore.DocumentReference | null = null;
+      let nextCanonicalIndexExists = false;
+      if (data.canonicalJobUrl) {
+        nextCanonicalIndex = this.canonicalUrlRef(userId, data.canonicalJobUrl);
+        const duplicate = await transaction.get(nextCanonicalIndex);
+        if (duplicate.exists && duplicate.data()!.applicationId !== id) {
+          throw new Error("canonical_job_url_conflict");
+        }
+        nextCanonicalIndexExists = duplicate.exists;
+      }
+      if (data.expectedUpdatedAt) {
+        const currentUpdatedAt = toDate(existing.data()!.updatedAt);
+        if (!currentUpdatedAt || currentUpdatedAt.getTime() !== data.expectedUpdatedAt.getTime()) {
+          throw new Error("conflict");
+        }
+      }
+      if (data.canonicalJobUrl !== undefined) {
+        if (currentCanonicalJobUrl && currentCanonicalJobUrl !== data.canonicalJobUrl) {
+          transaction.delete(this.canonicalUrlRef(userId, currentCanonicalJobUrl));
+        }
+        if (nextCanonicalIndex && !nextCanonicalIndexExists) {
+          transaction.set(nextCanonicalIndex, {
+            userId,
+            canonicalJobUrl: data.canonicalJobUrl,
+            applicationId: id,
+            createdAt: Timestamp.now(),
+          });
+        }
+      }
+      transaction.update(ref, update);
+    });
     return (await this.getApplication(id, userId))!;
   }
 
-  async deleteApplication(id: string, userId: string): Promise<void> {
+  private async deleteApplicationCascade(id: string, userId: string): Promise<void> {
     const ref = this.apps.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.userId !== userId) {
-      throw new Error("Not found");
+    await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
+      transaction.update(ref, {
+        deletionState: "in_progress",
+        deletionStartedAt: FieldValue.serverTimestamp(),
+      });
+    });
+
+    const [contactSnap, submissionSnap, eventSnap, linkedDocumentSnap] = await Promise.all([
+      this.contacts.where("applicationId", "==", id).get(),
+      this.submissions.where("applicationId", "==", id).where("userId", "==", userId).get(),
+      this.events.where("applicationId", "==", id).where("userId", "==", userId).get(),
+      this.docs.where("userId", "==", userId).where("applicationIds", "array-contains", id).get(),
+    ]);
+    const submissionIds = submissionSnap.docs.map((document) => document.id);
+    const deletedSubmissionIds = new Set(submissionIds);
+    const documents = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+    linkedDocumentSnap.docs.forEach((document) => documents.set(document.id, document));
+    for (let offset = 0; offset < submissionIds.length; offset += 30) {
+      const snapshot = await this.docs
+        .where("userId", "==", userId)
+        .where("submissionId", "in", submissionIds.slice(offset, offset + 30))
+        .get();
+      snapshot.docs.forEach((document) => documents.set(document.id, document));
     }
-    // Cascade: delete contacts
-    const contactSnap = await this.contacts.where("applicationId", "==", id).get();
-    const batch = this.db.batch();
-    contactSnap.docs.forEach((d) => batch.delete(d.ref));
-    batch.delete(ref);
-    await batch.commit();
+
+    // Preserve and detach every document before deleting any submission. This ordering
+    // makes the multi-batch cascade retryable: while document batches are incomplete,
+    // submission rows remain available to rediscover every submitted artifact. Once a
+    // submission deletion starts, all associated documents have already been preserved.
+    const documentOperations = Array.from(documents.values()).map((document) => {
+      const data = document.data();
+      const submissionId = typeof data.submissionId === "string" ? data.submissionId : null;
+      const belongsToDeletedSubmission = submissionId !== null && deletedSubmissionIds.has(submissionId);
+      return {
+        type: "update" as const,
+        ref: document.ref,
+        data: {
+          applicationIds: FieldValue.arrayRemove(id),
+          ...(belongsToDeletedSubmission && {
+            submissionId: null,
+            state: "historical",
+          }),
+        },
+      };
+    });
+    const operations: Array<
+      | { type: "delete"; ref: FirebaseFirestore.DocumentReference }
+      | { type: "update"; ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> }
+    > = [
+      ...documentOperations,
+      ...contactSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
+      ...eventSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
+      ...submissionSnap.docs.map((document) => ({ type: "delete" as const, ref: document.ref })),
+    ];
+    for (let offset = 0; offset < operations.length; offset += 450) {
+      const batch = this.db.batch();
+      for (const operation of operations.slice(offset, offset + 450)) {
+        if (operation.type === "delete") batch.delete(operation.ref);
+        else batch.update(operation.ref, operation.data);
+      }
+      await batch.commit();
+    }
+    await this.db.runTransaction(async (transaction) => {
+      const current = await transaction.get(ref);
+      if (!current.exists) return;
+      if (current.data()!.userId !== userId || current.data()!.deletionState !== "in_progress") {
+        throw new Error("application_delete_conflict");
+      }
+      const canonicalJobUrl = current.data()!.canonicalJobUrl as string | null | undefined;
+      if (canonicalJobUrl) transaction.delete(this.canonicalUrlRef(userId, canonicalJobUrl));
+      transaction.delete(ref);
+    });
+  }
+
+  async deleteApplication(id: string, userId: string): Promise<void> {
+    await this.deleteApplicationCascade(id, userId);
+  }
+
+  async findApplicationByCanonicalJobUrl(
+    userId: string,
+    canonicalJobUrl: string,
+  ): Promise<ApplicationRecord | null> {
+    const snapshot = await this.apps
+      .where("userId", "==", userId)
+      .where("canonicalJobUrl", "==", canonicalJobUrl)
+      .limit(1)
+      .get();
+    if (snapshot.empty) return null;
+    const document = snapshot.docs[0];
+    return mapApp(document.id, document.data());
+  }
+
+  async appendApplicationNote(
+    id: string,
+    userId: string,
+    note: string,
+    eventInput: CreateApplicationEventInput,
+  ): Promise<{ application: ApplicationRecord; event: ApplicationEventRecord }> {
+    const requestHash = submissionRequestHash({ applicationId: id, note, type: eventInput.type });
+    const eventId = submissionRequestHash({
+      userId,
+      key: eventInput.idempotencyKey ?? requestHash,
+    }).slice(0, 40);
+    const result = await this.db.runTransaction(async (transaction) => {
+      const appRef = this.apps.doc(id);
+      const eventRef = this.events.doc(eventId);
+      const [appSnapshot, eventSnapshot] = await Promise.all([
+        transaction.get(appRef),
+        transaction.get(eventRef),
+      ]);
+      if (!appSnapshot.exists || appSnapshot.data()!.userId !== userId) throw new Error("not_found");
+      if (appSnapshot.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      if (eventSnapshot.exists) {
+        if (eventSnapshot.data()!.requestHash !== requestHash) throw new Error("idempotency_conflict");
+        return { appData: appSnapshot.data()!, eventData: eventSnapshot.data()! };
+      }
+      if (eventInput.expectedUpdatedAt) {
+        const currentUpdatedAt = toDate(appSnapshot.data()!.updatedAt);
+        if (!currentUpdatedAt || currentUpdatedAt.getTime() !== eventInput.expectedUpdatedAt.getTime()) {
+          throw new Error("conflict");
+        }
+      }
+      const existingNotes = appSnapshot.data()!.notes as string | null | undefined;
+      const notes = existingNotes ? `${existingNotes}\n\n${note}` : note;
+      if (notes.length > 50_000) throw new Error("notes_too_large");
+      const now = Timestamp.now();
+      const eventData = {
+        userId,
+        applicationId: id,
+        type: eventInput.type,
+        idempotencyKey: eventInput.idempotencyKey ?? null,
+        requestHash,
+        occurredAt: toTimestamp(eventInput.occurredAt),
+        source: eventInput.source ?? null,
+        actor: eventInput.actor ?? null,
+        metadata: {
+          ...(eventInput.metadata ?? {}),
+          requestHash,
+        },
+        createdAt: now,
+      };
+      transaction.update(appRef, { notes, updatedAt: now });
+      transaction.create(eventRef, eventData);
+      return { appData: { ...appSnapshot.data()!, notes, updatedAt: now }, eventData };
+    });
+    return {
+      application: mapApp(id, result.appData),
+      event: mapEvent(eventId, result.eventData),
+    };
+  }
+
+  async recordApplicationSubmission(
+    userId: string,
+    input: RecordSubmissionInput,
+  ): Promise<RecordSubmissionResult> {
+    const hashable: Record<string, unknown> = { ...input };
+    delete hashable.idempotencyKey;
+    delete hashable.dryRun;
+    delete hashable.expectedUpdatedAt;
+    delete hashable.source;
+    delete hashable.actor;
+    const requestHash = submissionRequestHash(hashable);
+    const submissionId = submissionRequestHash({ userId, key: input.idempotencyKey }).slice(0, 40);
+    const eventId = `submission-${submissionId}`;
+
+    const outcome = await this.db.runTransaction(async (transaction) => {
+      const submissionRef = this.submissions.doc(submissionId);
+      const existingSubmission = await transaction.get(submissionRef);
+      if (existingSubmission.exists) {
+        const existingData = existingSubmission.data()!;
+        if (existingData.userId !== userId || existingData.requestHash !== requestHash) {
+          throw new Error("idempotency_conflict");
+        }
+        return { replayed: true, dryRun: false };
+      }
+
+      const appRef = this.apps.doc(input.applicationId);
+      const appSnapshot = await transaction.get(appRef);
+      if (!appSnapshot.exists || appSnapshot.data()!.userId !== userId) throw new Error("not_found");
+      const appData = appSnapshot.data()!;
+      if (appData.deletionState === "in_progress") throw new Error("application_deleting");
+      if (input.expectedUpdatedAt) {
+        const updatedAt = toDate(appData.updatedAt);
+        if (!updatedAt || updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+          throw new Error("conflict");
+        }
+      }
+
+      const uniqueDocumentIds = Array.from(new Set(input.documentIds));
+      const documentSnapshots: FirebaseFirestore.DocumentSnapshot[] = [];
+      for (const documentId of uniqueDocumentIds) {
+        const snapshot = await transaction.get(this.docs.doc(documentId));
+        if (!snapshot.exists || snapshot.data()!.userId !== userId) throw new Error("invalid_documents");
+        if (
+          snapshot.data()!.submissionId
+          || snapshot.data()!.state === "submitted"
+          || snapshot.data()!.state === "historical"
+        ) throw new Error("document_already_submitted");
+        documentSnapshots.push(snapshot);
+      }
+
+      const now = Timestamp.now();
+      const submissionData = {
+        userId,
+        applicationId: input.applicationId,
+        idempotencyKey: input.idempotencyKey,
+        requestHash,
+        submittedAt: toTimestamp(input.submittedAt),
+        applicationUrl: input.applicationUrl ?? null,
+        atsName: input.atsName ?? null,
+        requisitionId: input.requisitionId ?? null,
+        language: input.language ?? null,
+        answers: input.answers,
+        candidateSalaryMin: input.candidateSalaryMin ?? null,
+        candidateSalaryMax: input.candidateSalaryMax ?? null,
+        candidateSalaryCurrency: input.candidateSalaryCurrency ?? null,
+        candidateSalaryPeriod: input.candidateSalaryPeriod ?? null,
+        candidateSalaryType: input.candidateSalaryType ?? null,
+        candidateSalaryFlexible: input.candidateSalaryFlexible ?? false,
+        documentIds: uniqueDocumentIds,
+        createdAt: now,
+      };
+      if (input.dryRun) {
+        return { replayed: false, dryRun: true, appData, submissionData, documentSnapshots };
+      }
+
+      const eventData = {
+        userId,
+        applicationId: input.applicationId,
+        type: "application_submitted",
+        occurredAt: toTimestamp(input.submittedAt),
+        source: input.source ?? "mcp",
+        actor: input.actor ?? null,
+        metadata: {
+          submissionId,
+          documentIds: uniqueDocumentIds,
+          answerCount: input.answers.length,
+        },
+        createdAt: now,
+      };
+      transaction.create(submissionRef, submissionData);
+      transaction.create(this.events.doc(eventId), eventData);
+      transaction.update(appRef, {
+        status: "applied",
+        appliedAt: toTimestamp(input.submittedAt),
+        ...(input.followUpAt !== undefined ? { followUpAt: toTimestamp(input.followUpAt) } : {}),
+        ...(input.atsName !== undefined ? { atsName: input.atsName } : {}),
+        ...(input.requisitionId !== undefined ? { requisitionId: input.requisitionId } : {}),
+        updatedAt: now,
+      });
+      documentSnapshots.forEach((snapshot) =>
+        transaction.update(snapshot.ref, {
+          state: "submitted",
+          submittedAt: toTimestamp(input.submittedAt),
+          submissionId,
+        }),
+      );
+      return { replayed: false, dryRun: false };
+    });
+
+    if (outcome.dryRun && outcome.appData && outcome.submissionData && outcome.documentSnapshots) {
+      const documents = outcome.documentSnapshots.map((snapshot) =>
+        mapDoc(snapshot.id, {
+          ...snapshot.data()!,
+          state: "submitted",
+          submittedAt: toTimestamp(input.submittedAt),
+          submissionId,
+        }),
+      );
+      const application = mapApp(input.applicationId, {
+        ...outcome.appData,
+        status: "applied",
+        appliedAt: toTimestamp(input.submittedAt),
+        ...(input.followUpAt !== undefined ? { followUpAt: toTimestamp(input.followUpAt) } : {}),
+      });
+      return {
+        replayed: false,
+        dryRun: true,
+        verified: true,
+        application,
+        submission: { ...mapSubmission("dry-run", outcome.submissionData), documents },
+        event: null,
+        documents,
+      };
+    }
+
+    const [application, submission, event] = await Promise.all([
+      this.getApplication(input.applicationId, userId),
+      this.getApplicationSubmission(submissionId, userId),
+      this.events.doc(eventId).get(),
+    ]);
+    if (!application || !submission) throw new Error("verification_failed");
+    const documents = await Promise.all(
+      submission.documentIds.map(async (documentId) => {
+        const document = await this.getDocument(documentId, userId);
+        if (!document) throw new Error("verification_failed");
+        return document;
+      }),
+    );
+    submission.documents = documents;
+    return {
+      replayed: outcome.replayed,
+      dryRun: false,
+      verified:
+        application.status === "applied" &&
+        application.appliedAt?.getTime() === input.submittedAt.getTime() &&
+        documents.length === submission.documentIds.length,
+      application,
+      submission,
+      event: event.exists ? mapEvent(event.id, event.data()!) : null,
+      documents,
+    };
+  }
+
+  private async resolveSubmissionDocuments(
+    submission: ApplicationSubmissionRecord,
+    userId: string,
+  ): Promise<ApplicationSubmissionRecord> {
+    const documents = await Promise.all(
+      submission.documentIds.map(async (documentId) => {
+        const document = await this.getDocument(documentId, userId);
+        if (!document || document.submissionId !== submission.id) {
+          throw new Error("verification_failed");
+        }
+        return document;
+      }),
+    );
+    return { ...submission, documents };
+  }
+
+  async listApplicationSubmissions(
+    applicationId: string,
+    userId: string,
+    includeAnswers = false,
+  ): Promise<ApplicationSubmissionRecord[]> {
+    const application = await this.getApplication(applicationId, userId);
+    if (!application) throw new Error("not_found");
+    const snapshot = await this.submissions
+      .where("applicationId", "==", applicationId)
+      .where("userId", "==", userId)
+      .orderBy("submittedAt", "desc")
+      .get();
+    return Promise.all(
+      snapshot.docs.map((document) =>
+        this.resolveSubmissionDocuments(
+          mapSubmission(document.id, document.data(), includeAnswers),
+          userId,
+        ),
+      ),
+    );
+  }
+
+  async listUserSubmissions(userId: string): Promise<ApplicationSubmissionRecord[]> {
+    const snapshot = await this.submissions
+      .where("userId", "==", userId)
+      .orderBy("submittedAt", "desc")
+      .get();
+    return snapshot.docs.map((document) => mapSubmission(document.id, document.data()));
+  }
+
+  async getApplicationSubmission(
+    id: string,
+    userId: string,
+  ): Promise<ApplicationSubmissionRecord | null> {
+    const snapshot = await this.submissions.doc(id).get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
+    const submission = mapSubmission(id, snapshot.data()!);
+    const application = await this.getApplication(submission.applicationId, userId);
+    if (!application) return null;
+    return this.resolveSubmissionDocuments(submission, userId);
+  }
+
+  async createApplicationEvent(
+    applicationId: string,
+    userId: string,
+    input: CreateApplicationEventInput,
+  ): Promise<ApplicationEventRecord> {
+    const requestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      metadata: input.metadata ?? {},
+    });
+    const eventId = input.idempotencyKey
+      ? submissionRequestHash({ userId, key: input.idempotencyKey }).slice(0, 40)
+      : this.events.doc().id;
+    const eventRef = this.events.doc(eventId);
+    const eventData = await this.db.runTransaction(async (transaction) => {
+      const appRef = this.apps.doc(applicationId);
+      const [application, existing] = await Promise.all([
+        transaction.get(appRef),
+        transaction.get(eventRef),
+      ]);
+      if (!application.exists || application.data()!.userId !== userId) throw new Error("not_found");
+      if (application.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      if (existing.exists) {
+        if (!input.idempotencyKey || existing.data()!.userId !== userId || existing.data()!.requestHash !== requestHash) {
+          throw new Error("idempotency_conflict");
+        }
+        return existing.data()!;
+      }
+      const data = {
+        userId,
+        applicationId,
+        type: input.type,
+        idempotencyKey: input.idempotencyKey ?? null,
+        requestHash,
+        occurredAt: toTimestamp(input.occurredAt),
+        source: input.source ?? null,
+        actor: input.actor ?? null,
+        metadata: input.metadata ?? {},
+        createdAt: Timestamp.now(),
+      };
+      transaction.create(eventRef, data);
+      return data;
+    });
+    return mapEvent(eventId, eventData);
+  }
+
+  async listApplicationEvents(
+    applicationId: string,
+    userId: string,
+    limit = 100,
+  ): Promise<ApplicationEventRecord[]> {
+    const application = await this.getApplication(applicationId, userId);
+    if (!application) throw new Error("not_found");
+    const snapshot = await this.events
+      .where("applicationId", "==", applicationId)
+      .where("userId", "==", userId)
+      .orderBy("occurredAt", "desc")
+      .limit(Math.max(1, Math.min(500, limit)))
+      .get();
+    return snapshot.docs.map((document) => mapEvent(document.id, document.data()));
   }
 
   async listApplicationsFiltered(
@@ -366,33 +954,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const item = items[i];
       try {
         if (item.id) {
-          // Update
-          const ref = this.apps.doc(item.id);
-          const existing = await ref.get();
-          if (!existing.exists || existing.data()!.userId !== userId) {
-            results.push({ index: i, id: item.id, operation: "updated", error: "Not found or access denied" });
-            failed++;
-            continue;
-          }
-          const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-          if (item.company !== undefined) update.company = item.company;
-          if (item.role !== undefined) update.role = item.role;
-          if (item.status !== undefined) update.status = normalizeStatus(item.status);
-          if (item.appliedAt !== undefined) update.appliedAt = toTimestamp(item.appliedAt);
-          if (item.lastContact !== undefined) update.lastContact = toTimestamp(item.lastContact);
-          if (item.followUpAt !== undefined) update.followUpAt = toTimestamp(item.followUpAt);
-          if (item.notes !== undefined) update.notes = item.notes;
-          if (item.jobDescription !== undefined) update.jobDescription = item.jobDescription;
-          if (item.source !== undefined) update.source = item.source;
-          if (item.remote !== undefined) update.remote = item.remote;
-          if (item.salaryMin !== undefined) update.salaryMin = item.salaryMin;
-          if (item.salaryMax !== undefined) update.salaryMax = item.salaryMax;
-          if (item.rating !== undefined) update.rating = item.rating;
-          if (item.jobUrl !== undefined) update.jobUrl = item.jobUrl;
-          Object.assign(update, sanitizeTriageFields(item as Record<string, unknown>));
-
-          await ref.update(update);
-          results.push({ index: i, id: item.id, operation: "updated" });
+          const update = { ...item } as BatchUpsertItem & { id?: string };
+          delete update.id;
+          const application = await this.updateApplication(
+            item.id,
+            userId,
+            update as UpdateApplicationInput,
+          );
+          results.push({ index: i, id: application.id, operation: "updated" });
           succeeded++;
         } else {
           // Create
@@ -401,15 +970,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
             failed++;
             continue;
           }
-          const now = Timestamp.now();
-          const ref = await this.apps.add({
-            userId,
+          const createData = {
+            ...item,
             company: item.company,
             role: item.role,
-            status: normalizeStatus(item.status || "applied"),
-            appliedAt: toTimestamp(resolveCreatedAtForCreate(item.appliedAt)),
-            lastContact: toTimestamp(item.lastContact ?? null),
-            followUpAt: toTimestamp(item.followUpAt ?? null),
+            status: item.status ?? "inbound",
+            appliedAt: item.appliedAt ?? null,
+            lastContact: item.lastContact ?? null,
+            followUpAt: item.followUpAt ?? null,
             notes: item.notes ?? null,
             jobDescription: item.jobDescription ?? null,
             source: item.source ?? null,
@@ -418,19 +986,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
             salaryMax: item.salaryMax ?? null,
             rating: item.rating ?? null,
             jobUrl: item.jobUrl ?? null,
-            ...sanitizeTriageFields({
-              companySize: item.companySize ?? null,
-              salaryBandMentioned: item.salaryBandMentioned ?? false,
-              triageQuality: item.triageQuality ?? null,
-              triageReason: item.triageReason ?? null,
-              incomingSource: item.incomingSource ?? null,
-              autoRejected: item.autoRejected ?? false,
-              autoRejectReason: item.autoRejectReason ?? null,
-            }),
-            createdAt: now,
-            updatedAt: now,
-          });
-          results.push({ index: i, id: ref.id, operation: "created" });
+            resumeId: item.resumeId ?? null,
+          } as CreateApplicationInput & { id?: string };
+          delete createData.id;
+          const application = await this.createApplication(userId, createData);
+          results.push({ index: i, id: application.id, operation: "created" });
           succeeded++;
         }
       } catch (e) {
@@ -447,48 +1007,20 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const results: BatchDeleteResult["results"] = [];
     let succeeded = 0;
     let failed = 0;
-
-    // Verify ownership and collect refs for batch delete
-    const toDelete: { id: string; ref: FirebaseFirestore.DocumentReference }[] = [];
     for (const id of ids) {
-      const ref = this.apps.doc(id);
-      const existing = await ref.get();
-      if (!existing.exists || existing.data()!.userId !== userId) {
-        results.push({ id, deleted: false, error: "Not found or access denied" });
-        failed++;
-      } else {
-        toDelete.push({ id, ref });
-      }
-    }
-
-    if (toDelete.length > 0) {
-      // Collect associated contacts for cascade delete
-      const appIds = toDelete.map((d) => d.id);
-      const contactRefs: FirebaseFirestore.DocumentReference[] = [];
-      for (let i = 0; i < appIds.length; i += 30) {
-        const chunk = appIds.slice(i, i + 30);
-        const contactSnap = await this.contacts.where("applicationId", "in", chunk).get();
-        contactSnap.docs.forEach((d) => contactRefs.push(d.ref));
-      }
-
-      // Firestore batches have a 500 operation limit; chunk if needed
-      const allRefs = [
-        ...contactRefs,
-        ...toDelete.map(({ ref }) => ref),
-      ];
-      for (let i = 0; i < allRefs.length; i += 499) {
-        const chunk = allRefs.slice(i, i + 499);
-        const batch = this.db.batch();
-        chunk.forEach((ref) => batch.delete(ref));
-        await batch.commit();
-      }
-
-      for (const { id } of toDelete) {
+      try {
+        await this.deleteApplicationCascade(id, userId);
         results.push({ id, deleted: true });
-        succeeded++;
+        succeeded += 1;
+      } catch (error) {
+        results.push({
+          id,
+          deleted: false,
+          error: error instanceof Error ? error.message : "delete_failed",
+        });
+        failed += 1;
       }
     }
-
     return { total: ids.length, succeeded, failed, results };
   }
 
@@ -499,8 +1031,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return doc.exists && doc.data()!.userId === userId;
   }
 
-  async createContact(applicationId: string, data: CreateContactInput): Promise<ContactRecord> {
-    const ref = await this.contacts.add({
+  async createContact(applicationId: string, userId: string, data: CreateContactInput): Promise<ContactRecord> {
+    const reference = this.contacts.doc();
+    const payload = {
       applicationId,
       name: data.name,
       email: data.email,
@@ -508,43 +1041,50 @@ export class FirestoreAdapter implements DatabaseAdapter {
       role: data.role,
       linkedIn: data.linkedIn,
       createdAt: Timestamp.now(),
+    };
+    await this.db.runTransaction(async (transaction) => {
+      const application = await transaction.get(this.apps.doc(applicationId));
+      if (!application.exists || application.data()!.userId !== userId) throw new Error("not_found");
+      if (application.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      transaction.create(reference, payload);
     });
-    const snap = await ref.get();
-    return mapContact(ref.id, snap.data()!);
+    return mapContact(reference.id, payload);
   }
 
   async updateContact(id: string, applicationId: string, userId: string, data: UpdateContactInput): Promise<ContactRecord> {
-    // Verify ownership chain
-    if (!(await this.verifyApplicationOwner(applicationId, userId))) {
-      throw new Error("Not found");
-    }
-    const ref = this.contacts.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.applicationId !== applicationId) {
-      throw new Error("Not found");
-    }
+    const reference = this.contacts.doc(id);
     const update: Record<string, unknown> = {};
     if (data.name !== undefined) update.name = data.name;
     if (data.email !== undefined) update.email = data.email;
     if (data.phone !== undefined) update.phone = data.phone;
     if (data.role !== undefined) update.role = data.role;
     if (data.linkedIn !== undefined) update.linkedIn = data.linkedIn;
-
-    await ref.update(update);
-    const snap = await ref.get();
-    return mapContact(id, snap.data()!);
+    await this.db.runTransaction(async (transaction) => {
+      const [application, contact] = await Promise.all([
+        transaction.get(this.apps.doc(applicationId)),
+        transaction.get(reference),
+      ]);
+      if (!application.exists || application.data()!.userId !== userId) throw new Error("not_found");
+      if (application.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      if (!contact.exists || contact.data()!.applicationId !== applicationId) throw new Error("not_found");
+      transaction.update(reference, update);
+    });
+    const snapshot = await reference.get();
+    return mapContact(id, snapshot.data()!);
   }
 
   async deleteContact(id: string, applicationId: string, userId: string): Promise<void> {
-    if (!(await this.verifyApplicationOwner(applicationId, userId))) {
-      throw new Error("Not found");
-    }
-    const ref = this.contacts.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.applicationId !== applicationId) {
-      throw new Error("Not found");
-    }
-    await ref.delete();
+    const reference = this.contacts.doc(id);
+    await this.db.runTransaction(async (transaction) => {
+      const [application, contact] = await Promise.all([
+        transaction.get(this.apps.doc(applicationId)),
+        transaction.get(reference),
+      ]);
+      if (!application.exists || application.data()!.userId !== userId) throw new Error("not_found");
+      if (application.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      if (!contact.exists || contact.data()!.applicationId !== applicationId) throw new Error("not_found");
+      transaction.delete(reference);
+    });
   }
 
   // ── Documents ───────────────────────────────────────────────────────────
@@ -572,7 +1112,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     });
 
     if (allAppIds.size > 0) {
-      const appMap = await this.loadAppRefs([...allAppIds]);
+      const appMap = await this.loadAppRefs(Array.from(allAppIds));
       for (let i = 0; i < documents.length; i++) {
         const ids: string[] = snap.docs[i].data().applicationIds ?? [];
         documents[i].applications = ids
@@ -583,94 +1123,188 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return documents;
   }
 
+  async listDocumentsFiltered(
+    userId: string | null,
+    filter: ListDocumentsFilter,
+  ): Promise<Partial<DocumentRecord>[]> {
+    let documents = await this.listDocuments(userId);
+    if (filter.applicationId) {
+      documents = documents.filter((document) =>
+        document.applications?.some((application) => application.id === filter.applicationId),
+      );
+    }
+    if (filter.documentType) documents = documents.filter((document) => document.documentType === filter.documentType);
+    if (filter.state) documents = documents.filter((document) => document.state === filter.state);
+    if (filter.submissionId) documents = documents.filter((document) => document.submissionId === filter.submissionId);
+    if (filter.excludeSubmissionArtifacts) {
+      documents = documents.filter((document) =>
+        !document.submissionId && document.state !== "submitted" && document.state !== "historical"
+      );
+    }
+    if (filter.orphaned !== undefined) {
+      documents = documents.filter((document) =>
+        filter.orphaned ? !document.applications?.length : Boolean(document.applications?.length),
+      );
+    }
+    const pageSize = Math.max(1, Math.min(200, filter.pageSize ?? filter.limit ?? 50));
+    const page = Math.max(1, filter.page ?? 1);
+    const pageDocuments = documents.slice((page - 1) * pageSize, page * pageSize);
+    if (!filter.fields?.length) return pageDocuments;
+    return pageDocuments.map((document) => {
+      const selected: Partial<DocumentRecord> = { id: document.id };
+      for (const field of filter.fields ?? []) {
+        if (field in document) {
+          (selected as Record<string, unknown>)[field] = document[field as keyof DocumentRecord];
+        }
+      }
+      return selected;
+    });
+  }
+
   async getDocument(id: string, userId: string | null): Promise<DocumentRecord | null> {
-    const doc = await this.docs.doc(id).get();
-    if (!doc.exists) return null;
-    const data = doc.data()!;
+    const document = await this.docs.doc(id).get();
+    if (!document.exists) return null;
+    const data = document.data()!;
     if (userId && data.userId !== userId) return null;
-    return mapDoc(id, data);
+    const record = mapDoc(id, data);
+    const applicationIds: string[] = Array.isArray(data.applicationIds) ? data.applicationIds : [];
+    const applicationMap = await this.loadAppRefs(applicationIds);
+    record.applications = applicationIds
+      .map((applicationId) => applicationMap.get(applicationId))
+      .filter((application): application is NonNullable<typeof application> => Boolean(application));
+    return record;
+  }
+
+  async updateDocumentMetadata(
+    id: string,
+    userId: string,
+    data: UpdateDocumentMetadataInput,
+  ): Promise<DocumentRecord> {
+    const reference = this.docs.doc(id);
+    const update: Record<string, unknown> = {};
+    if (data.documentType !== undefined) update.documentType = data.documentType;
+    if (data.state !== undefined) update.state = data.state;
+    if (data.version !== undefined) update.version = data.version;
+    if (data.contentHash !== undefined) update.contentHash = data.contentHash;
+    if (data.source !== undefined) update.source = data.source;
+    if (data.generatedAt !== undefined) update.generatedAt = toTimestamp(data.generatedAt);
+    if (data.submittedAt !== undefined) update.submittedAt = toTimestamp(data.submittedAt);
+    await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
+      const submissionId = existing.data()!.submissionId;
+      const keys = Object.keys(data);
+      const stateOnly = keys.every((key) => key === "state");
+      const immutable = submissionId || existing.data()!.state === "submitted" || existing.data()!.state === "historical";
+      if (immutable) {
+        const allowedState = data.state === existing.data()!.state
+          || (existing.data()!.state === "submitted" && data.state === "historical");
+        if (!stateOnly || !allowedState) {
+          throw new Error("submitted_document_immutable");
+        }
+      } else if (data.state === "submitted") {
+        throw new Error("submitted_state_reserved");
+      }
+      transaction.update(reference, update);
+    });
+    return (await this.getDocument(id, userId))!;
   }
 
   async createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord> {
-    const { applicationIds, ...rest } = data;
-
-    // Verify ownership of referenced applications and load refs in one batch
-    let appMap = new Map<string, { id: string; company: string; role: string }>();
-    if (applicationIds.length > 0) {
-      appMap = await this.loadVerifiedAppRefs(applicationIds, userId);
-    }
-    const safeIds = Array.from(appMap.keys());
-
-    const ref = await this.docs.add({
+    const { applicationIds, submissionId, ...rest } = data;
+    if (submissionId || rest.state === "submitted") throw new Error("submitted_state_reserved");
+    const uniqueApplicationIds = Array.from(new Set(applicationIds));
+    const applicationReferences = uniqueApplicationIds.map((applicationId) => this.apps.doc(applicationId));
+    const reference = this.docs.doc();
+    const payload = {
       userId,
       ...rest,
-      applicationIds: safeIds,
+      applicationIds: uniqueApplicationIds,
       uploadedAt: Timestamp.now(),
+    };
+    const applicationData = await this.db.runTransaction(async (transaction) => {
+      const applicationSnapshots = await Promise.all(
+        applicationReferences.map((applicationReference) => transaction.get(applicationReference)),
+      );
+      if (applicationSnapshots.some((snapshot) =>
+        !snapshot.exists
+        || snapshot.data()!.userId !== userId
+        || snapshot.data()!.deletionState === "in_progress"
+      )) {
+        throw new Error("invalid_applications");
+      }
+      transaction.create(reference, payload);
+      return applicationSnapshots.map((snapshot) => ({
+        id: snapshot.id,
+        company: String(snapshot.data()!.company),
+        role: String(snapshot.data()!.role),
+      }));
     });
-    const snap = await ref.get();
-    const rec = mapDoc(ref.id, snap.data()!);
-
-    // Populate resolved app refs
-    rec.applications = safeIds
-      .map((id) => appMap.get(id))
-      .filter((a): a is NonNullable<typeof a> => !!a);
-
-    return rec;
+    const record = mapDoc(reference.id, payload);
+    record.applications = applicationData;
+    return record;
   }
 
   async updateDocumentLinks(id: string, userId: string, applicationIds: string[]): Promise<DocumentRecord> {
-    const ref = this.docs.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.userId !== userId) {
-      throw new Error("Not found");
-    }
-
-    // Verify ownership of referenced applications and load refs in one batch
-    let appMap = new Map<string, { id: string; company: string; role: string }>();
-    if (applicationIds.length > 0) {
-      appMap = await this.loadVerifiedAppRefs(applicationIds, userId);
-    }
-    const safeIds = Array.from(appMap.keys());
-    await ref.update({ applicationIds: safeIds });
-
-    const rec = mapDoc(id, (await ref.get()).data()!);
-    // Populate resolved app refs
-    rec.applications = safeIds
-      .map((aid) => appMap.get(aid))
-      .filter((a): a is NonNullable<typeof a> => !!a);
-    return rec;
+    const reference = this.docs.doc(id);
+    const uniqueApplicationIds = Array.from(new Set(applicationIds));
+    const applicationReferences = uniqueApplicationIds.map((applicationId) => this.apps.doc(applicationId));
+    await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
+      if (
+        existing.data()!.submissionId
+        || existing.data()!.state === "submitted"
+        || existing.data()!.state === "historical"
+      ) throw new Error("submitted_document_immutable");
+      const applicationSnapshots = await Promise.all(
+        applicationReferences.map((applicationReference) => transaction.get(applicationReference)),
+      );
+      if (applicationSnapshots.some((snapshot) =>
+        !snapshot.exists
+        || snapshot.data()!.userId !== userId
+        || snapshot.data()!.deletionState === "in_progress"
+      )) {
+        throw new Error("invalid_applications");
+      }
+      transaction.update(reference, { applicationIds: uniqueApplicationIds });
+    });
+    return (await this.getDocument(id, userId))!;
   }
 
   async renameDocument(id: string, userId: string, newName: string): Promise<DocumentRecord | null> {
-    const ref = this.docs.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.userId !== userId) return null;
-    await ref.update({ originalName: newName });
-    const updated = await ref.get();
-    const data = updated.data()!;
-    const rec = mapDoc(id, data);
-    const appIds: string[] = data.applicationIds ?? [];
-
-    // Verify ownership of referenced applications and load refs in one batch
-    let appMap = new Map<string, { id: string; company: string; role: string }>();
-    if (appIds.length > 0) {
-      appMap = await this.loadVerifiedAppRefs(appIds, userId);
-    }
-    rec.applications = appIds
-      .map((aid) => appMap.get(aid))
-      .filter((a): a is NonNullable<typeof a> => !!a);
-
-    return rec;
+    const reference = this.docs.doc(id);
+    const changed = await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (!existing.exists || existing.data()!.userId !== userId) return false;
+      if (
+        existing.data()!.submissionId
+        || existing.data()!.state === "submitted"
+        || existing.data()!.state === "historical"
+      ) throw new Error("submitted_document_immutable");
+      transaction.update(reference, { originalName: newName });
+      return true;
+    });
+    return changed ? this.getDocument(id, userId) : null;
   }
 
   async deleteDocument(id: string, userId: string): Promise<DocumentRecord | null> {
-    const ref = this.docs.doc(id);
-    const existing = await ref.get();
-    if (!existing.exists || existing.data()!.userId !== userId) return null;
-    const rec = mapDoc(id, existing.data()!);
+    const reference = this.docs.doc(id);
+    const document = await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (!existing.exists || existing.data()!.userId !== userId) return null;
+      if (
+        existing.data()!.submissionId
+        || existing.data()!.state === "submitted"
+        || existing.data()!.state === "historical"
+      ) throw new Error("submitted_document_immutable");
+      const record = mapDoc(id, existing.data()!);
+      transaction.delete(reference);
+      return record;
+    });
+    if (!document) return null;
     await prisma.shareLink.deleteMany({ where: { userId, targetType: "document", targetId: id } });
-    await ref.delete();
-    return rec;
+    return document;
   }
 
   // ── Users ───────────────────────────────────────────────────────────────
