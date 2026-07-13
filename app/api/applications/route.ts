@@ -62,9 +62,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsedSalaryMin = salaryMin != null ? Number(salaryMin) : null;
-  const parsedSalaryMax = salaryMax != null ? Number(salaryMax) : null;
-  const parsedRating = rating != null ? Number(rating) : null;
+  const parsedSalaryMin = salaryMin != null && salaryMin !== "" ? Number(salaryMin) : null;
+  const parsedSalaryMax = salaryMax != null && salaryMax !== "" ? Number(salaryMax) : null;
+  const parsedRating = rating != null && rating !== "" ? Number(rating) : null;
 
   if (
     (parsedSalaryMin !== null && (!Number.isInteger(parsedSalaryMin) || parsedSalaryMin < 0)) ||
@@ -123,6 +123,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof Error && error.message === "canonical_job_url_conflict") {
       return NextResponse.json({ error: "An application with this canonical job URL already exists" }, { status: 409 });
+    }
+    if (error instanceof Error && error.message === "appliedAt_invalid") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
   }

@@ -33,4 +33,14 @@ describe("parseStructuredApplicationMetadata", () => {
     expect(() => parseStructuredApplicationMetadata({ jobContentHash: "not-a-sha256" })).toThrow(/jobContentHash/);
     expect(() => parseStructuredApplicationMetadata({ jobUrl: "javascript:alert(1)" })).toThrow(/http or https/);
   });
+
+  it("preserves explicit nulls so PATCH can clear normalized fields", () => {
+    expect(parseStructuredApplicationMetadata({
+      salaryCurrency: null,
+      jobContentHash: null,
+    })).toMatchObject({
+      salaryCurrency: null,
+      jobContentHash: null,
+    });
+  });
 });

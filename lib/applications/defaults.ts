@@ -14,7 +14,14 @@ export function resolveAppliedAtForCreate(
   value: Date | string | null | undefined,
   now: Date = new Date(),
 ): Date | null {
-  if (value instanceof Date) return value;
-  if (value !== undefined && value !== null && value !== "") return new Date(value);
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new Error("appliedAt_invalid");
+    return value;
+  }
+  if (value !== undefined && value !== null && value !== "") {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) throw new Error("appliedAt_invalid");
+    return parsed;
+  }
   return APPLIED_OR_LATER.has(status) ? now : null;
 }

@@ -132,7 +132,7 @@
         "required": ["question", "answer"],
         "properties": {
           "key": { "type": ["string", "null"] },
-          "question": { "type": "string", "maxLength": 1000 },
+          "question": { "type": "string", "maxLength": 2000 },
           "answer": { "type": "string", "maxLength": 20000 },
           "kind": { "type": ["string", "null"] },
           "sensitive": { "type": "boolean", "default": false }
@@ -426,7 +426,7 @@
     },
     "/api/applications/{id}/submissions": {
       "parameters": [
-        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
       ],
       "get": {
         "operationId": "listApplicationSubmissions",
@@ -491,7 +491,7 @@
     },
     "/api/applications/{id}/events": {
       "parameters": [
-        { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1 } }
       ],
       "get": {
         "operationId": "listApplicationEvents",

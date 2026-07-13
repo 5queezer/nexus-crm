@@ -84,11 +84,13 @@ export function parseStructuredApplicationMetadata(
     throw new Error("eligibleCountries_invalid");
   }
 
-  const salaryCurrency = optionalString(input.salaryCurrency, 3)?.toUpperCase();
+  const rawSalaryCurrency = optionalString(input.salaryCurrency, 3);
+  const salaryCurrency = rawSalaryCurrency == null ? rawSalaryCurrency : rawSalaryCurrency.toUpperCase();
   if (salaryCurrency != null && !/^[A-Z]{3}$/.test(salaryCurrency)) {
     throw new Error("salaryCurrency_invalid");
   }
-  const jobContentHash = optionalString(input.jobContentHash, 64)?.toLowerCase();
+  const rawJobContentHash = optionalString(input.jobContentHash, 64);
+  const jobContentHash = rawJobContentHash == null ? rawJobContentHash : rawJobContentHash.toLowerCase();
   if (jobContentHash != null && !/^[a-f0-9]{64}$/.test(jobContentHash)) {
     throw new Error("jobContentHash_invalid");
   }

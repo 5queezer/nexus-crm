@@ -49,9 +49,9 @@ export async function PATCH(
   const body = await request.json();
   const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt, companySize, salaryBandMentioned, triageQuality, triageReason, incomingSource, autoRejected, autoRejectReason } = body;
 
-  const parsedSalaryMin = salaryMin != null ? Number(salaryMin) : null;
-  const parsedSalaryMax = salaryMax != null ? Number(salaryMax) : null;
-  const parsedRating = rating != null ? Number(rating) : null;
+  const parsedSalaryMin = salaryMin != null && salaryMin !== "" ? Number(salaryMin) : null;
+  const parsedSalaryMax = salaryMax != null && salaryMax !== "" ? Number(salaryMax) : null;
+  const parsedRating = rating != null && rating !== "" ? Number(rating) : null;
   if (
     (parsedSalaryMin !== null && (!Number.isInteger(parsedSalaryMin) || parsedSalaryMin < 0)) ||
     (parsedSalaryMax !== null && (!Number.isInteger(parsedSalaryMax) || parsedSalaryMax < 0))
@@ -76,6 +76,14 @@ export async function PATCH(
       { error: error instanceof Error ? error.message : "Invalid structured metadata" },
       { status: 400 },
     );
+  }
+
+  let expectedUpdatedAt: Date | undefined;
+  if (body.expectedUpdatedAt !== undefined) {
+    expectedUpdatedAt = new Date(String(body.expectedUpdatedAt));
+    if (Number.isNaN(expectedUpdatedAt.getTime())) {
+      return NextResponse.json({ error: "invalid_expected_updated_at" }, { status: 400 });
+    }
   }
 
   try {
@@ -132,15 +140,19 @@ export async function PATCH(
       archivedAt: archivedAt ? new Date(archivedAt) : null,
     }),
     ...structuredMetadata,
-    ...(body.expectedUpdatedAt && {
-      expectedUpdatedAt: new Date(String(body.expectedUpdatedAt)),
+    ...(expectedUpdatedAt !== undefined && {
+      expectedUpdatedAt,
     }),
     });
 
     return NextResponse.json(application);
   } catch (error) {
     const code = error instanceof Error ? error.message : "update_failed";
-    const responseStatus = code === "conflict" ? 409 : code === "not_found" ? 404 : 400;
+    const responseStatus = code === "conflict" || code === "canonical_job_url_conflict"
+      ? 409
+      : code === "not_found"
+        ? 404
+        : 400;
     return NextResponse.json({ error: code }, { status: responseStatus });
   }
 }

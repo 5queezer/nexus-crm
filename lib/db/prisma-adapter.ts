@@ -303,31 +303,49 @@ export class PrismaAdapter implements DatabaseAdapter {
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
     const { expectedUpdatedAt, ...update } = data;
-    if (expectedUpdatedAt) {
-      const result = await prisma.application.updateMany({
-        where: { id: nid(id), userId, updatedAt: expectedUpdatedAt },
+    const applicationId = nid(id);
+    try {
+      if (expectedUpdatedAt) {
+        const result = await prisma.application.updateMany({
+          where: { id: applicationId, userId, updatedAt: expectedUpdatedAt },
+          data: {
+            ...update,
+            ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
+          },
+        });
+        if (result.count !== 1) {
+          const current = await prisma.application.findFirst({
+            where: { id: applicationId, userId },
+            select: { id: true },
+          });
+          throw new Error(current ? "conflict" : "not_found");
+        }
+        const row = await prisma.application.findFirstOrThrow({
+          where: { id: applicationId, userId },
+          include: { contacts: true },
+        });
+        return mapApp(row);
+      }
+
+      const row = await prisma.application.update({
+        where: { id: applicationId, userId },
         data: {
           ...update,
           ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
         },
-      });
-      if (result.count !== 1) throw new Error("conflict");
-      const row = await prisma.application.findFirstOrThrow({
-        where: { id: nid(id), userId },
         include: { contacts: true },
       });
       return mapApp(row);
+    } catch (error) {
+      if (error instanceof Error && (error.message === "conflict" || error.message === "not_found")) {
+        throw error;
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === "P2002") throw new Error("canonical_job_url_conflict");
+        if (error.code === "P2025") throw new Error("not_found");
+      }
+      throw error;
     }
-
-    const row = await prisma.application.update({
-      where: { id: nid(id), userId },
-      data: {
-        ...update,
-        ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
-      },
-      include: { contacts: true },
-    });
-    return mapApp(row);
   }
 
   async deleteApplication(id: string, userId: string): Promise<void> {
@@ -1095,7 +1113,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     filter: ListDocumentsFilter,
   ): Promise<Partial<DocumentRecord>[]> {
     const where: Prisma.DocumentWhereInput = { ...userWhere(userId) };
-    if (filter.applicationId) where.applications = { some: { id: nid(filter.applicationId) } };
+    const applicationPredicates: Prisma.DocumentWhereInput[] = [];
+    if (filter.applicationId) {
+      applicationPredicates.push({ applications: { some: { id: nid(filter.applicationId) } } });
+    }
     if (filter.documentType) where.documentType = filter.documentType;
     if (filter.state) where.state = filter.state;
     if (filter.submissionId) where.submissionId = nid(filter.submissionId);
@@ -1103,8 +1124,9 @@ export class PrismaAdapter implements DatabaseAdapter {
       where.submissionId = null;
       where.state = { notIn: ["submitted", "historical"] };
     }
-    if (filter.orphaned === true) where.applications = { none: {} };
-    if (filter.orphaned === false) where.applications = { some: {} };
+    if (filter.orphaned === true) applicationPredicates.push({ applications: { none: {} } });
+    if (filter.orphaned === false) applicationPredicates.push({ applications: { some: {} } });
+    if (applicationPredicates.length) where.AND = applicationPredicates;
     const pageSize = Math.max(1, Math.min(200, filter.pageSize ?? filter.limit ?? 50));
     const page = Math.max(1, filter.page ?? 1);
     const rows = await prisma.document.findMany({

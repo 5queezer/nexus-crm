@@ -23,6 +23,13 @@ describe("opportunity creation defaults", () => {
     );
   });
 
+  it("rejects invalid explicit appliedAt values", () => {
+    expect(() => resolveAppliedAtForCreate("applied", "not-a-date", now))
+      .toThrow("appliedAt_invalid");
+    expect(() => resolveAppliedAtForCreate("applied", new Date("invalid"), now))
+      .toThrow("appliedAt_invalid");
+  });
+
   it("formats a date for date inputs", () => {
     expect(toDateInputValue(new Date("2026-06-30T12:34:56.000Z"))).toBe("2026-06-30");
   });

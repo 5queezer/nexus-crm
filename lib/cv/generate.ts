@@ -4,6 +4,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { CvDocument } from "./pdf-template";
 import { uploadFile } from "@/lib/storage";
 import { deleteDocumentWithContent } from "@/lib/documents/service";
+import { isSubmissionDocument } from "@/lib/documents/access";
 import type { DatabaseAdapter } from "@/lib/db/adapter";
 import type { CvProfileRecord, CvPatchRecord, DocumentRecord } from "@/lib/db/types";
 
@@ -82,7 +83,7 @@ export async function generateAndStoreCv(opts: {
   // Delete previous CV document if tracked on the patch
   if (patch.documentId) {
     const previous = await db.getDocument(patch.documentId, userId);
-    if (previous && !previous.submissionId) {
+    if (previous && !isSubmissionDocument(previous)) {
       await deleteDocumentWithContent(db, patch.documentId, userId);
     }
   }

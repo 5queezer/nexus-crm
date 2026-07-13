@@ -3,6 +3,20 @@ import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { deleteDocumentWithContent } from "@/lib/documents/service";
 
+function documentMutationError(error: unknown) {
+  const code = error instanceof Error ? error.message : "document_update_failed";
+  if (code === "not_found") {
+    return NextResponse.json({ error: code }, { status: 404 });
+  }
+  if (code === "submitted_document_immutable") {
+    return NextResponse.json({ error: code }, { status: 409 });
+  }
+  if (code === "invalid_applications" || code === "submitted_state_reserved") {
+    return NextResponse.json({ error: code }, { status: 400 });
+  }
+  return NextResponse.json({ error: "document_update_failed" }, { status: 500 });
+}
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -64,8 +78,8 @@ export async function PATCH(
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
       return NextResponse.json(document);
-    } catch {
-      return NextResponse.json({ error: "Not found, immutable, or access denied" }, { status: 409 });
+    } catch (error) {
+      return documentMutationError(error);
     }
   }
 
@@ -111,8 +125,8 @@ export async function PATCH(
         }),
       });
       return NextResponse.json(document);
-    } catch {
-      return NextResponse.json({ error: "Not found, immutable, or access denied" }, { status: 409 });
+    } catch (error) {
+      return documentMutationError(error);
     }
   }
 
@@ -124,7 +138,7 @@ export async function PATCH(
   try {
     const document = await getDb().updateDocumentLinks(id, auth.userId, applicationIds);
     return NextResponse.json(document);
-  } catch {
-    return NextResponse.json({ error: "Not found, immutable, or access denied" }, { status: 409 });
+  } catch (error) {
+    return documentMutationError(error);
   }
 }

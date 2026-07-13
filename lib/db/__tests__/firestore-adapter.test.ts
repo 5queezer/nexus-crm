@@ -547,13 +547,13 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(created.application.status).toBe("applied");
     expect(created.submission.answers).toEqual([{ question: "Why Pleo?", answer: "Exact submitted answer" }]);
     expect(created.documents[0].state).toBe("submitted");
-    expect(stores.applicationSubmissions).toHaveLength(1);
-    expect(stores.applicationEvents).toHaveLength(1);
+    expect(stores.applicationSubmissions.size).toBe(1);
+    expect(stores.applicationEvents.size).toBe(1);
 
     const replay = await adapter.recordApplicationSubmission(userId, input());
     expect(replay.replayed).toBe(true);
-    expect(stores.applicationSubmissions).toHaveLength(1);
-    expect(stores.applicationEvents).toHaveLength(1);
+    expect(stores.applicationSubmissions.size).toBe(1);
+    expect(stores.applicationEvents.size).toBe(1);
   });
 
   it("rejects reuse of a historical submission artifact without partial writes", async () => {
@@ -562,8 +562,8 @@ describe("FirestoreAdapter — submission transaction", () => {
 
     await expect(adapter.recordApplicationSubmission(userId, input()))
       .rejects.toThrow("document_already_submitted");
-    expect(stores.applicationSubmissions).toHaveLength(0);
-    expect(stores.applicationEvents).toHaveLength(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
     expect(stores.documents.get("doc-1")).toMatchObject({ state: "historical", submissionId: null });
   });
 
@@ -583,8 +583,8 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(result.dryRun).toBe(true);
     expect(stores.applications.get("app-1")!.status).toBe("inbound");
     expect(stores.documents.get("doc-1")!.state).toBe("current");
-    expect(stores.applicationSubmissions).toHaveLength(0);
-    expect(stores.applicationEvents).toHaveLength(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
   });
 
   it("rejects cross-user submission attempts without partial writes", async () => {
@@ -592,8 +592,8 @@ describe("FirestoreAdapter — submission transaction", () => {
     await expect(
       adapter.recordApplicationSubmission("other-user", input()),
     ).rejects.toThrow("not_found");
-    expect(stores.applicationSubmissions).toHaveLength(0);
-    expect(stores.applicationEvents).toHaveLength(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
   });
 
   it("rejects writes while application deletion is in progress", async () => {
@@ -601,8 +601,8 @@ describe("FirestoreAdapter — submission transaction", () => {
     stores.applications.get("app-1")!.deletionState = "in_progress";
 
     await expect(adapter.recordApplicationSubmission(userId, input())).rejects.toThrow("application_deleting");
-    expect(stores.applicationSubmissions).toHaveLength(0);
-    expect(stores.applicationEvents).toHaveLength(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
   });
 
   it("rolls back the entire package when a referenced document is invalid", async () => {
@@ -615,8 +615,8 @@ describe("FirestoreAdapter — submission transaction", () => {
     ).rejects.toThrow("invalid_documents");
     expect(stores.applications.get("app-1")!.status).toBe("inbound");
     expect(stores.documents.get("doc-1")!.state).toBe("current");
-    expect(stores.applicationSubmissions).toHaveLength(0);
-    expect(stores.applicationEvents).toHaveLength(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
   });
 
   it("rejects stale optimistic-concurrency timestamps without writes", async () => {
@@ -628,7 +628,7 @@ describe("FirestoreAdapter — submission transaction", () => {
       }),
     ).rejects.toThrow("conflict");
     expect(stores.applications.get("app-1")!.status).toBe("inbound");
-    expect(stores.applicationSubmissions).toHaveLength(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
   });
 });
 

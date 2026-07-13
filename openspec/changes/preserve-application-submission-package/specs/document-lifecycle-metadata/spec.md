@@ -12,6 +12,11 @@ Each document SHALL support a type, lifecycle state, version, content hash, sour
 - **THEN** Nexus records its submitted state and timestamp
 - **AND** links it to that submission
 
+#### Scenario: Submitted document resists reclassification
+- **WHEN** a caller attempts to change a submitted or historical document to `draft` or `superseded`
+- **THEN** Nexus rejects the reclassification
+- **AND** preserves the submission linkage, submitted timestamp, and original material identity
+
 ### Requirement: Consistent resolved links
 Single-document and list-document reads SHALL consistently return resolved application references subject to caller scope.
 

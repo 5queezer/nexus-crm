@@ -26,7 +26,12 @@ export async function POST(
   const auth = await requireAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const body = await request.json() as Record<string, unknown>;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json() as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const type = String(body.type ?? "").trim().slice(0, 100);
   if (!type) return NextResponse.json({ error: "type is required" }, { status: 400 });
   const occurredAt = body.occurredAt ? new Date(String(body.occurredAt)) : new Date();

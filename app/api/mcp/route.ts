@@ -50,6 +50,28 @@ const structuredApplicationToolFields = {
   currentStage: z.string().max(255).nullable().optional(),
 };
 
+const APPLICATION_UPDATE_ERROR_CODES = new Set([
+  "not_found",
+  "conflict",
+  "canonical_job_url_conflict",
+  "application_deleting",
+]);
+const SUBMISSION_ERROR_CODES = new Set([
+  "salary_range_invalid",
+  "not_found",
+  "conflict",
+  "application_deleting",
+  "idempotency_conflict",
+  "invalid_documents",
+  "document_already_submitted",
+  "verification_failed",
+]);
+
+function controlledErrorCode(error: unknown, allowed: Set<string>, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  return allowed.has(error.message) ? error.message : fallback;
+}
+
 // ── Auth helper ──────────────────────────────────────────────────────────────
 // Tries MCP OAuth access token first, then falls back to CRM API token.
 
@@ -234,35 +256,35 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       ...structuredApplicationToolFields,
     },
     async ({ id, ...data }) => {
-      const update: Record<string, unknown> = {};
-      if (data.company !== undefined) update.company = data.company.slice(0, 255);
-      if (data.role !== undefined) update.role = data.role.slice(0, 255);
-      if (data.status !== undefined) update.status = normalizeStatus(data.status);
-      if (data.appliedAt !== undefined)
-        update.appliedAt = data.appliedAt ? new Date(data.appliedAt) : null;
-      if (data.lastContact !== undefined)
-        update.lastContact = data.lastContact ? new Date(data.lastContact) : null;
-      if (data.followUpAt !== undefined)
-        update.followUpAt = data.followUpAt ? new Date(data.followUpAt) : null;
-      if (data.notes !== undefined) update.notes = data.notes?.slice(0, 10000) ?? null;
-      if (data.jobDescription !== undefined)
-        update.jobDescription = data.jobDescription?.slice(0, 50000) ?? null;
-      if (data.source !== undefined) update.source = data.source?.slice(0, 100) ?? null;
-      if (data.remote !== undefined) update.remote = data.remote;
-      if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
-      if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
-      if (data.rating !== undefined) update.rating = data.rating;
-      if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl?.slice(0, 2000) ?? null;
-      if (data.resumeId !== undefined) update.resumeId = data.resumeId ?? null;
-      Object.assign(
-        update,
-        parseStructuredApplicationMetadata(data as unknown as Record<string, unknown>),
-      );
-      if (data.expectedUpdatedAt !== undefined) {
-        update.expectedUpdatedAt = new Date(data.expectedUpdatedAt);
-      }
-
       try {
+        const update: Record<string, unknown> = {};
+        if (data.company !== undefined) update.company = data.company.slice(0, 255);
+        if (data.role !== undefined) update.role = data.role.slice(0, 255);
+        if (data.status !== undefined) update.status = normalizeStatus(data.status);
+        if (data.appliedAt !== undefined)
+          update.appliedAt = data.appliedAt ? new Date(data.appliedAt) : null;
+        if (data.lastContact !== undefined)
+          update.lastContact = data.lastContact ? new Date(data.lastContact) : null;
+        if (data.followUpAt !== undefined)
+          update.followUpAt = data.followUpAt ? new Date(data.followUpAt) : null;
+        if (data.notes !== undefined) update.notes = data.notes?.slice(0, 10000) ?? null;
+        if (data.jobDescription !== undefined)
+          update.jobDescription = data.jobDescription?.slice(0, 50000) ?? null;
+        if (data.source !== undefined) update.source = data.source?.slice(0, 100) ?? null;
+        if (data.remote !== undefined) update.remote = data.remote;
+        if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
+        if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
+        if (data.rating !== undefined) update.rating = data.rating;
+        if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl?.slice(0, 2000) ?? null;
+        if (data.resumeId !== undefined) update.resumeId = data.resumeId ?? null;
+        Object.assign(
+          update,
+          parseStructuredApplicationMetadata(data as unknown as Record<string, unknown>),
+        );
+        if (data.expectedUpdatedAt !== undefined) {
+          update.expectedUpdatedAt = new Date(data.expectedUpdatedAt);
+        }
+
         if (data.dryRun) {
           const current = await getDb().getApplication(id, auth.userId);
           if (!current) throw new Error("not_found");
@@ -283,9 +305,14 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         return {
           content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
         };
-      } catch {
+      } catch (error) {
+        const code = controlledErrorCode(
+          error,
+          APPLICATION_UPDATE_ERROR_CODES,
+          "application_update_failed",
+        );
         return {
-          content: [{ type: "text", text: "Application not found or access denied" }],
+          content: [{ type: "text", text: JSON.stringify({ error: { code } }) }],
           isError: true,
         };
       }
@@ -374,7 +401,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
-        const code = error instanceof Error ? error.message : "submission_failed";
+        const code = controlledErrorCode(error, SUBMISSION_ERROR_CODES, "submission_failed");
         return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
       }
     },

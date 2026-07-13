@@ -6,7 +6,6 @@ import { prisma } from "@/lib/prisma";
 import {
   createAuthCode,
   getPublicBaseUrl,
-  isLoopbackRedirectUri,
   isRedirectUriAllowed,
   SENSITIVE_CONSENT_VERSION,
 } from "@/lib/mcp-oauth";
@@ -150,11 +149,7 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
-  const isPublicLoopbackClient =
-    client.clientId.startsWith("mcp_") &&
-    client.tokenEndpointAuth === "none" &&
-    isLoopbackRedirectUri(redirectUri);
-  if (!isRedirectUriAllowed(client.redirectUris, redirectUri) && !isPublicLoopbackClient) {
+  if (!isRedirectUriAllowed(client.redirectUris, redirectUri)) {
     return NextResponse.json(
       { error: "invalid_request", error_description: "redirect_uri not registered for this client" },
       { status: 400 }
