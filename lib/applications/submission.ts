@@ -146,6 +146,15 @@ export function validateEventMetadata(value: unknown): Record<string, unknown> {
   return metadata;
 }
 
+export function requireOccurredAtForIdempotency(
+  idempotencyKey: string | null | undefined,
+  occurredAt: string | Date | null | undefined,
+): void {
+  if (idempotencyKey && !occurredAt) {
+    throw new Error("occurred_at_required_for_idempotency");
+  }
+}
+
 function asDate(value: Date | string | null): Date | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);

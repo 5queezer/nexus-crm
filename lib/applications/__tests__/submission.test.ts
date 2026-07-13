@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalizeJobUrl,
   computeApplicationHealth,
+  requireOccurredAtForIdempotency,
   validateSubmissionAnswers,
 } from "../submission";
 
@@ -57,6 +58,16 @@ describe("validateSubmissionAnswers", () => {
       answer: "x".repeat(20_000),
     }));
     expect(() => validateSubmissionAnswers(answers)).toThrowError(/750000-byte/);
+  });
+});
+
+describe("requireOccurredAtForIdempotency", () => {
+  it("requires a stable timestamp when an idempotency key is supplied", () => {
+    expect(() => requireOccurredAtForIdempotency("retry-key", undefined))
+      .toThrow("occurred_at_required_for_idempotency");
+    expect(() => requireOccurredAtForIdempotency("retry-key", "2026-07-13T20:00:00Z"))
+      .not.toThrow();
+    expect(() => requireOccurredAtForIdempotency(undefined, undefined)).not.toThrow();
   });
 });
 

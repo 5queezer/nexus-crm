@@ -521,8 +521,8 @@
                 "required": ["type"],
                 "properties": {
                   "type": { "type": "string", "maxLength": 100 },
-                  "idempotencyKey": { "type": ["string", "null"] },
-                  "occurredAt": { "type": "string", "format": "date-time" },
+                  "idempotencyKey": { "type": ["string", "null"], "description": "When supplied, occurredAt is required so retries hash deterministically." },
+                  "occurredAt": { "type": "string", "format": "date-time", "description": "Required when idempotencyKey is supplied." },
                   "metadata": { "type": "object", "additionalProperties": true }
                 }
               }

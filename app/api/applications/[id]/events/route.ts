@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { validateEventMetadata } from "@/lib/applications/submission";
+import {
+  requireOccurredAtForIdempotency,
+  validateEventMetadata,
+} from "@/lib/applications/submission";
 
 export async function GET(
   request: NextRequest,
@@ -43,6 +46,14 @@ export async function POST(
     : String(body.idempotencyKey).trim();
   if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 128)) {
     return NextResponse.json({ error: "idempotencyKey must contain 8-128 characters" }, { status: 400 });
+  }
+  try {
+    requireOccurredAtForIdempotency(idempotencyKey, body.occurredAt as string | undefined);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "invalid_idempotent_event" },
+      { status: 400 },
+    );
   }
   try {
     const event = await getDb().createApplicationEvent(id, auth.userId, {

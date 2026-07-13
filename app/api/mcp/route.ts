@@ -10,6 +10,7 @@ import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
 import {
   canonicalizeJobUrl,
   computeApplicationHealth,
+  requireOccurredAtForIdempotency,
   validateEventMetadata,
   validateSubmissionAnswers,
 } from "@/lib/applications/submission";
@@ -440,7 +441,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     {
       applicationId: z.string().min(1),
       note: z.string().trim().min(1).max(5000),
-      occurredAt: z.string().datetime().optional(),
+      occurredAt: z.string().datetime().describe("Stable event timestamp required for idempotent retries"),
       idempotencyKey: z.string().min(8).max(128),
       expectedUpdatedAt: z.string().datetime().optional(),
     },
@@ -454,7 +455,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             type: "note_added",
             idempotencyKey: args.idempotencyKey,
             expectedUpdatedAt: args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt) : undefined,
-            occurredAt: args.occurredAt ? new Date(args.occurredAt) : new Date(),
+            occurredAt: new Date(args.occurredAt),
             source: "mcp",
             actor: auth.user.email,
             metadata: {},
@@ -481,6 +482,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     async (args) => {
       if (args.type === "application_submitted" && !canAccessSubmissions) return submissionScopeError();
       try {
+        requireOccurredAtForIdempotency(args.idempotencyKey, args.occurredAt);
         const event = await getDb().createApplicationEvent(args.applicationId, auth.userId, {
           type: args.type,
           idempotencyKey: args.idempotencyKey,
