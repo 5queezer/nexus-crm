@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isLoopbackRedirectUri, isRedirectUriAllowed } from "../mcp-oauth";
+import {
+  effectiveMcpScopes,
+  isLoopbackRedirectUri,
+  isRedirectUriAllowed,
+  SENSITIVE_CONSENT_VERSION,
+} from "../mcp-oauth";
 
 describe("MCP OAuth redirect validation", () => {
   it("accepts exact registered redirect URIs", () => {
@@ -37,5 +42,18 @@ describe("MCP OAuth redirect validation", () => {
         "http://127.0.0.1:47987/callback"
       )
     ).toBe(false);
+  });
+});
+
+describe("MCP OAuth sensitive consent versioning", () => {
+  it("does not activate a legacy mcp:submissions scope string", () => {
+    expect(effectiveMcpScopes(["mcp:tools", "mcp:submissions"], 0)).toEqual(["mcp:tools"]);
+  });
+
+  it("preserves mcp:submissions only after versioned consent", () => {
+    expect(effectiveMcpScopes(
+      ["mcp:tools", "mcp:submissions"],
+      SENSITIVE_CONSENT_VERSION,
+    )).toEqual(["mcp:tools", "mcp:submissions"]);
   });
 });

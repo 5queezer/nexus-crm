@@ -302,41 +302,44 @@ model McpOAuthClient {
 }
 
 model McpAuthCode {
-  id            String   @id @default(cuid())
-  code          String   @unique
-  clientId      String
-  userId        String
-  redirectUri   String
-  codeChallenge String // PKCE S256
-  scopes        String[] // granted scopes
-  expiresAt     DateTime
-  used          Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  id                      String   @id @default(cuid())
+  code                    String   @unique
+  clientId                String
+  userId                  String
+  redirectUri             String
+  codeChallenge           String // PKCE S256
+  scopes                  String[] // granted scopes
+  sensitiveConsentVersion Int      @default(0)
+  expiresAt               DateTime
+  used                    Boolean  @default(false)
+  createdAt               DateTime @default(now())
 
   @@index([code])
 }
 
 model McpAccessToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  clientId  String
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  scopes    String[]
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id                      String   @id @default(cuid())
+  tokenHash               String   @unique
+  clientId                String
+  userId                  String
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes                  String[]
+  sensitiveConsentVersion Int      @default(0)
+  expiresAt               DateTime
+  createdAt               DateTime @default(now())
 
   @@index([userId])
 }
 
 model McpRefreshToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  clientId  String
-  userId    String
-  scopes    String[]
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id                      String   @id @default(cuid())
+  tokenHash               String   @unique
+  clientId                String
+  userId                  String
+  scopes                  String[]
+  sensitiveConsentVersion Int      @default(0)
+  expiresAt               DateTime
+  createdAt               DateTime @default(now())
 }
 
 // ── CV Generation ────────────────────────────────────────────────────────────

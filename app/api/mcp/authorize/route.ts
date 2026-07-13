@@ -3,7 +3,13 @@ import { headers } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createAuthCode, getPublicBaseUrl, isLoopbackRedirectUri, isRedirectUriAllowed } from "@/lib/mcp-oauth";
+import {
+  createAuthCode,
+  getPublicBaseUrl,
+  isLoopbackRedirectUri,
+  isRedirectUriAllowed,
+  SENSITIVE_CONSENT_VERSION,
+} from "@/lib/mcp-oauth";
 
 const COOKIE_NAME = "mcp_oauth_pending";
 const COOKIE_MAX_AGE = 600; // 10 minutes
@@ -238,6 +244,7 @@ export async function GET(req: NextRequest) {
     redirectUri,
     codeChallenge,
     scopes,
+    sensitiveConsentVersion: scopes.includes("mcp:submissions") ? SENSITIVE_CONSENT_VERSION : 0,
   });
 
   // Redirect back to Claude.ai with the auth code, clear pending cookie

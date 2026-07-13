@@ -100,3 +100,9 @@ ALTER TABLE "ApplicationEvent"
 
 ALTER TABLE "Document"
   ADD CONSTRAINT "Document_submissionId_fkey" FOREIGN KEY ("submissionId") REFERENCES "ApplicationSubmission"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Legacy OAuth grants may already contain the previously unprivileged string
+-- mcp:submissions. Version sensitive consent so those grants stay unprivileged.
+ALTER TABLE "McpAuthCode" ADD COLUMN "sensitiveConsentVersion" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "McpAccessToken" ADD COLUMN "sensitiveConsentVersion" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "McpRefreshToken" ADD COLUMN "sensitiveConsentVersion" INTEGER NOT NULL DEFAULT 0;

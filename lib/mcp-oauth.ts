@@ -20,6 +20,7 @@ export function getPublicBaseUrl(req: NextRequest): string {
 const AUTH_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const REFRESH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+export const SENSITIVE_CONSENT_VERSION = 1;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,11 @@ function sha256Base64Url(data: string): string {
 
 function generateToken(prefix: string): string {
   return `${prefix}_${randomBytes(32).toString("hex")}`;
+}
+
+export function effectiveMcpScopes(scopes: string[], sensitiveConsentVersion: number): string[] {
+  if (sensitiveConsentVersion >= SENSITIVE_CONSENT_VERSION) return scopes;
+  return scopes.filter((scope) => scope !== "mcp:submissions");
 }
 
 // ── Dynamic Client Registration ──────────────────────────────────────────────
@@ -108,6 +114,7 @@ export async function createAuthCode(params: {
   redirectUri: string;
   codeChallenge: string;
   scopes: string[];
+  sensitiveConsentVersion?: number;
 }): Promise<string> {
   const code = randomBytes(32).toString("base64url");
   await prisma.mcpAuthCode.create({
@@ -118,6 +125,7 @@ export async function createAuthCode(params: {
       redirectUri: params.redirectUri,
       codeChallenge: params.codeChallenge,
       scopes: params.scopes,
+      sensitiveConsentVersion: params.sensitiveConsentVersion ?? 0,
       expiresAt: new Date(Date.now() + AUTH_CODE_TTL_MS),
     },
   });
@@ -155,6 +163,8 @@ export async function exchangeAuthCode(params: {
   const computedChallenge = sha256Base64Url(params.codeVerifier);
   if (computedChallenge !== authCode.codeChallenge) return null;
 
+  const grantedScopes = effectiveMcpScopes(authCode.scopes, authCode.sensitiveConsentVersion);
+
   // Issue tokens
   const accessToken = generateToken("mcp_at");
   const refreshToken = generateToken("mcp_rt");
@@ -164,7 +174,8 @@ export async function exchangeAuthCode(params: {
       tokenHash: sha256(accessToken),
       clientId: authCode.clientId,
       userId: authCode.userId,
-      scopes: authCode.scopes,
+      scopes: grantedScopes,
+      sensitiveConsentVersion: authCode.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_MS),
     },
   });
@@ -174,7 +185,8 @@ export async function exchangeAuthCode(params: {
       tokenHash: sha256(refreshToken),
       clientId: authCode.clientId,
       userId: authCode.userId,
-      scopes: authCode.scopes,
+      scopes: grantedScopes,
+      sensitiveConsentVersion: authCode.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
     },
   });
@@ -184,7 +196,7 @@ export async function exchangeAuthCode(params: {
     refresh_token: refreshToken,
     token_type: "Bearer",
     expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
-    scope: authCode.scopes.join(" "),
+    scope: grantedScopes.join(" "),
   };
 }
 
@@ -206,6 +218,7 @@ export async function exchangeRefreshToken(params: {
   // Rotate: delete old refresh token, issue new pair
   await prisma.mcpRefreshToken.delete({ where: { id: stored.id } });
 
+  const grantedScopes = effectiveMcpScopes(stored.scopes, stored.sensitiveConsentVersion);
   const newAccessToken = generateToken("mcp_at");
   const newRefreshToken = generateToken("mcp_rt");
 
@@ -214,7 +227,8 @@ export async function exchangeRefreshToken(params: {
       tokenHash: sha256(newAccessToken),
       clientId: stored.clientId,
       userId: stored.userId,
-      scopes: stored.scopes,
+      scopes: grantedScopes,
+      sensitiveConsentVersion: stored.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_MS),
     },
   });
@@ -224,7 +238,8 @@ export async function exchangeRefreshToken(params: {
       tokenHash: sha256(newRefreshToken),
       clientId: stored.clientId,
       userId: stored.userId,
-      scopes: stored.scopes,
+      scopes: grantedScopes,
+      sensitiveConsentVersion: stored.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
     },
   });
@@ -234,7 +249,7 @@ export async function exchangeRefreshToken(params: {
     refresh_token: newRefreshToken,
     token_type: "Bearer",
     expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
-    scope: stored.scopes.join(" "),
+    scope: grantedScopes.join(" "),
   };
 }
 
@@ -265,7 +280,7 @@ export async function verifyMcpAccessToken(
     readScopeUserId: token.user.isAdmin ? null : token.user.id,
     user,
     authType: "mcp_oauth",
-    scopes: token.scopes,
+    scopes: effectiveMcpScopes(token.scopes, token.sensitiveConsentVersion),
   };
 }
 
