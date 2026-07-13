@@ -14,12 +14,19 @@ export async function DELETE(
 
   const { id } = await params;
 
-  const document = await deleteDocumentWithContent(getDb(), id, auth.userId);
-  if (!document) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  try {
+    const document = await deleteDocumentWithContent(getDb(), id, auth.userId);
+    if (!document) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
-  return new NextResponse(null, { status: 204 });
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "submitted_document_immutable") {
+      return NextResponse.json({ error: "Submitted and historical documents are immutable" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Failed to delete document" }, { status: 500 });
+  }
 }
 
 export async function PATCH(
@@ -51,11 +58,15 @@ export async function PATCH(
     if (trimmed.length === 0 || trimmed.length > 255) {
       return NextResponse.json({ error: "originalName must be 1-255 characters" }, { status: 400 });
     }
-    const document = await getDb().renameDocument(id, auth.userId, trimmed);
-    if (!document) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    try {
+      const document = await getDb().renameDocument(id, auth.userId, trimmed);
+      if (!document) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      return NextResponse.json(document);
+    } catch {
+      return NextResponse.json({ error: "Not found, immutable, or access denied" }, { status: 409 });
     }
-    return NextResponse.json(document);
   }
 
   const metadataKeys = [
@@ -110,6 +121,10 @@ export async function PATCH(
     return NextResponse.json({ error: "applicationIds must be an array or originalName must be a string" }, { status: 400 });
   }
 
-  const document = await getDb().updateDocumentLinks(id, auth.userId, applicationIds);
-  return NextResponse.json(document);
+  try {
+    const document = await getDb().updateDocumentLinks(id, auth.userId, applicationIds);
+    return NextResponse.json(document);
+  } catch {
+    return NextResponse.json({ error: "Not found, immutable, or access denied" }, { status: 409 });
+  }
 }

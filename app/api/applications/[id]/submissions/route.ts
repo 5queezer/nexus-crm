@@ -42,8 +42,11 @@ export async function POST(
     if (Number.isNaN(submittedAt.getTime())) {
       return NextResponse.json({ error: "submittedAt must be a valid ISO timestamp" }, { status: 400 });
     }
+    if (!Array.isArray(body.answers)) {
+      return NextResponse.json({ error: "answers must be an array" }, { status: 400 });
+    }
     const answers = validateSubmissionAnswers(
-      Array.isArray(body.answers) ? body.answers as Parameters<typeof validateSubmissionAnswers>[0] : [],
+      body.answers as Parameters<typeof validateSubmissionAnswers>[0],
     );
     const salaryMin = body.candidateSalaryMin == null ? null : Number(body.candidateSalaryMin);
     const salaryMax = body.candidateSalaryMax == null ? null : Number(body.candidateSalaryMax);
