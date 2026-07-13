@@ -17,6 +17,10 @@ import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata"
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
+import {
+  isSubmissionDocument,
+  requiresSubmissionScopeForDocumentMutation,
+} from "@/lib/documents/access";
 import { uploadDocumentContent, MAX_DOCUMENT_BASE64_SIZE } from "@/lib/documents/upload";
 import { deleteDocumentWithContent } from "@/lib/documents/service";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
@@ -112,8 +116,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     content: [{ type: "text" as const, text: JSON.stringify({ error: { code: "insufficient_scope", required: "mcp:submissions" } }) }],
     isError: true,
   });
-  const isSubmissionDocument = (document: { submissionId?: string | null; state?: string | null }) =>
-    Boolean(document.submissionId) || document.state === "submitted" || document.state === "historical";
+
 
   // ── Applications ────────────────────────────────────────────────────────
 
@@ -973,7 +976,13 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ id, applicationIds }) => {
       try {
+        const existing = await getDb().getDocument(id, auth.userId);
+        if (!existing) throw new Error("not_found");
+        if (!canAccessSubmissions && requiresSubmissionScopeForDocumentMutation(existing)) {
+          return submissionScopeError();
+        }
         const doc = await getDb().updateDocumentLinks(id, auth.userId, applicationIds);
+        if (!canAccessSubmissions && isSubmissionDocument(doc)) return submissionScopeError();
         return {
           content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
         };
@@ -1001,6 +1010,14 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ id, generatedAt, submittedAt, ...metadata }) => {
       try {
+        const existing = await getDb().getDocument(id, auth.userId);
+        if (!existing) throw new Error("not_found");
+        if (
+          !canAccessSubmissions
+          && (
+            requiresSubmissionScopeForDocumentMutation(existing, metadata.state)
+          )
+        ) return submissionScopeError();
         const document = await getDb().updateDocumentMetadata(id, auth.userId, {
           ...metadata,
           ...(generatedAt !== undefined && {
@@ -1010,6 +1027,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             submittedAt: submittedAt ? new Date(submittedAt) : null,
           }),
         });
+        if (!canAccessSubmissions && isSubmissionDocument(document)) return submissionScopeError();
         return { content: [{ type: "text", text: JSON.stringify(document, null, 2) }] };
       } catch {
         return {
