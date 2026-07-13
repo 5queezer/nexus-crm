@@ -451,10 +451,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
         type: "update" as const,
         ref: document.ref,
         data: {
-          applicationIds: ((data.applicationIds as string[] | undefined) ?? [])
-            .filter((applicationId) => applicationId !== id),
-          submissionId: belongsToDeletedSubmission ? null : submissionId,
-          state: belongsToDeletedSubmission ? "historical" : (data.state ?? "current"),
+          applicationIds: FieldValue.arrayRemove(id),
+          ...(belongsToDeletedSubmission && {
+            submissionId: null,
+            state: "historical",
+          }),
         },
       };
     });

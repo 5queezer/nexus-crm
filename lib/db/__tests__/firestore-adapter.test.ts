@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mocks (available inside vi.mock factories) ──────────────────────
 
-const { mockGetAll, stores, mockTimestamp, batchState } = vi.hoisted(() => {
+const { mockGetAll, stores, mockTimestamp, batchState, applyUpdate } = vi.hoisted(() => {
   const stores = {
     applications: new Map<string, Record<string, unknown>>(),
     documents: new Map<string, Record<string, unknown>>(),
@@ -14,9 +14,29 @@ const { mockGetAll, stores, mockTimestamp, batchState } = vi.hoisted(() => {
 
   const mockGetAll = vi.fn();
   const mockTimestamp = { toDate: () => new Date("2025-01-01") };
-  const batchState = { commitCount: 0, failOnCommit: null as number | null };
+  const batchState = {
+    commitCount: 0,
+    failOnCommit: null as number | null,
+    beforeCommit: null as (() => void) | null,
+  };
+  const applyUpdate = (
+    current: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const next = { ...current };
+    for (const [key, value] of Object.entries(update)) {
+      if (value && typeof value === "object" && "__arrayRemove" in value) {
+        const removed = (value as { __arrayRemove: unknown[] }).__arrayRemove;
+        const existing = Array.isArray(next[key]) ? next[key] : [];
+        next[key] = existing.filter((item) => !removed.includes(item));
+      } else {
+        next[key] = value;
+      }
+    }
+    return next;
+  };
 
-  return { mockGetAll, stores, mockTimestamp, batchState };
+  return { mockGetAll, stores, mockTimestamp, batchState, applyUpdate };
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -46,7 +66,7 @@ function makeDocRef(store: Map<string, Record<string, unknown>>, id: string): Mo
     },
     async update(d: Record<string, unknown>) {
       const existing = store.get(id);
-      if (existing) store.set(id, { ...existing, ...d });
+      if (existing) store.set(id, applyUpdate(existing, d));
     },
     async delete() { store.delete(id); },
   };
@@ -153,7 +173,7 @@ vi.mock("firebase-admin/firestore", () => ({
         },
         update: (ref, data) => {
           if (!ref.__store.has(ref.id)) throw new Error("not_found");
-          writes.push(() => ref.__store.set(ref.id, { ...ref.__store.get(ref.id)!, ...data }));
+          writes.push(() => ref.__store.set(ref.id, applyUpdate(ref.__store.get(ref.id)!, data)));
         },
         delete: (ref) => {
           writes.push(() => ref.__store.delete(ref.id));
@@ -169,11 +189,14 @@ vi.mock("firebase-admin/firestore", () => ({
         update: (ref: MockDocRef, data: Record<string, unknown>) => writes.push(() => {
           const current = ref.__store.get(ref.id);
           if (!current) throw new Error("not_found");
-          ref.__store.set(ref.id, { ...current, ...data });
+          ref.__store.set(ref.id, applyUpdate(current, data));
         }),
         commit: async () => {
           batchState.commitCount += 1;
           if (batchState.failOnCommit === batchState.commitCount) throw new Error("injected_batch_failure");
+          const beforeCommit = batchState.beforeCommit;
+          batchState.beforeCommit = null;
+          beforeCommit?.();
           writes.forEach((write) => write());
         },
       };
@@ -183,7 +206,10 @@ vi.mock("firebase-admin/firestore", () => ({
     now: () => mockTimestamp,
     fromDate: (d: Date) => ({ toDate: () => d }),
   },
-  FieldValue: { serverTimestamp: () => mockTimestamp },
+  FieldValue: {
+    serverTimestamp: () => mockTimestamp,
+    arrayRemove: (...values: unknown[]) => ({ __arrayRemove: values }),
+  },
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -248,6 +274,7 @@ function seedDocs(docs: Array<{ id: string; userId: string; filename: string; or
 beforeEach(() => {
   batchState.commitCount = 0;
   batchState.failOnCommit = null;
+  batchState.beforeCommit = null;
 });
 
 describe("FirestoreAdapter — application metadata", () => {
@@ -375,6 +402,39 @@ describe("FirestoreAdapter — retryable application deletion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.values(stores).forEach((store) => store.clear());
+  });
+
+  it("removes only the deleted application link without overwriting a concurrent document mutation", async () => {
+    const adapter = new FirestoreAdapter();
+    stores.applications.set("app-1", {
+      userId: "user-1", company: "Acme", role: "Engineer", canonicalJobUrl: null,
+    });
+    stores.documents.set("doc-1", {
+      userId: "user-1",
+      filename: "doc.pdf",
+      originalName: "doc.pdf",
+      size: 1,
+      mimeType: "application/pdf",
+      applicationIds: ["app-1", "app-2"],
+      submissionId: null,
+      state: "current",
+      uploadedAt: mockTimestamp,
+    });
+    batchState.beforeCommit = () => {
+      stores.documents.set("doc-1", {
+        ...stores.documents.get("doc-1")!,
+        applicationIds: ["app-1", "app-2", "app-3"],
+        state: "superseded",
+      });
+    };
+
+    await adapter.deleteApplication("app-1", "user-1");
+
+    expect(stores.documents.get("doc-1")).toMatchObject({
+      applicationIds: ["app-2", "app-3"],
+      submissionId: null,
+      state: "superseded",
+    });
   });
 
   it("preserves all submitted documents before deleting submissions and recovers after a later batch fails", async () => {
