@@ -17,6 +17,7 @@ import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLO
 import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
+import { Search } from "lucide-react";
 import { ActionMenu } from "./action-menu";
 
 const columnHelper = createColumnHelper<Application>();
@@ -455,13 +456,16 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       <div className="border-b border-slate-200/80 bg-white/70 p-4 backdrop-blur dark:border-white/8 dark:bg-black/20">
         <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:flex-wrap sm:items-center">
           <div className="relative col-span-2 sm:w-72">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+              aria-hidden
+            />
             <input
               type="text"
               value={globalFilter}
               onChange={(e) => setGlobalFilter(e.target.value)}
               placeholder={ta("search")}
-              className="nexus-input pl-8"
+              className="nexus-input pl-9!"
             />
           </div>
           <select
