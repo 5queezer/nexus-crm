@@ -8,7 +8,7 @@ RUN npx prisma generate
 RUN npm run build
 
 FROM node:22-alpine AS runner
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl postgresql-client
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
@@ -19,6 +19,8 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 USER nextjs
 ENV PORT=8080
 EXPOSE ${PORT}
