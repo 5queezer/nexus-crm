@@ -165,6 +165,14 @@ describe("validateSubmissionPolicy", () => {
     });
   });
 
+  it("rejects a no-answer confirmation when answers are present", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: { ...validPolicy, confirmedNoAnswers: true },
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: ["doc-1"],
+    })).toThrow("submission_answers_conflict");
+  });
+
   it("rejects oversized override reasons", () => {
     expect(() => validateSubmissionPolicy({
       policy: { ...validPolicy, resubmissionReason: "x".repeat(1001) },

@@ -40,6 +40,11 @@ Nexus SHALL require at least one owned document for every submission. Nexus SHAL
 - **THEN** Nexus rejects the request with `submission_answers_required`
 - **AND** writes nothing
 
+#### Scenario: Contradictory no-answer confirmation
+- **WHEN** a caller supplies one or more answers and also sets `confirmedNoAnswers=true`
+- **THEN** Nexus rejects the request with `submission_answers_conflict`
+- **AND** writes nothing
+
 ### Requirement: Repeat and duplicate submission protection
 Nexus SHALL reject a second new submission for the same application unless the policy contains a non-empty `resubmissionReason`. Nexus SHALL reject a submission whose ATS requisition matches another owner-scoped application at the same normalized company unless a non-empty `resubmissionReason` is supplied. Exact idempotent replays SHALL continue to return the original submission without requiring a new override.
 

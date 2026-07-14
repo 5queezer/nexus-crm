@@ -42,6 +42,9 @@ export function validateSubmissionPolicy(input: {
     throw new Error("submission_materials_required");
   }
   const confirmedNoAnswers = policy.confirmedNoAnswers === true;
+  if (confirmedNoAnswers && Array.isArray(input.answers) && input.answers.length > 0) {
+    throw new Error("submission_answers_conflict");
+  }
   if ((!Array.isArray(input.answers) || input.answers.length === 0) && !confirmedNoAnswers) {
     throw new Error("submission_answers_required");
   }

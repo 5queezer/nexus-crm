@@ -26,6 +26,7 @@ const SUBMISSION_CLIENT_ERROR_CODES = new Set([
   "profile_consistency_review_required",
   "submission_materials_required",
   "submission_answers_required",
+  "submission_answers_conflict",
   "submission_documents_invalid",
   "submission_policy_reason_too_long",
 ]);

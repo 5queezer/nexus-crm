@@ -138,10 +138,39 @@
           "sensitive": { "type": "boolean", "default": false }
         }
       },
+      "SubmissionPolicyInput": {
+        "type": "object",
+        "description": "Human-reviewed integrity attestation required for every new submission. It may be omitted only when replaying an exact pre-policy legacy request.",
+        "required": ["humanReviewed", "identityConsistent", "factsVerified", "profileConsistencyStatus"],
+        "properties": {
+          "humanReviewed": { "type": "boolean", "const": true },
+          "identityConsistent": { "type": "boolean", "const": true },
+          "factsVerified": { "type": "boolean", "const": true },
+          "profileConsistencyStatus": { "type": "string", "enum": ["verified", "unavailable_reviewed"] },
+          "confirmedNoAnswers": { "type": "boolean", "description": "Set true only when the external form contained no application answers; conflicts with a non-empty answers array." },
+          "sameCompanyOverrideReason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "resubmissionReason": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "additionalProperties": false
+      },
+      "SubmissionPolicySnapshot": {
+        "type": "object",
+        "description": "Immutable normalized integrity attestation. Legacy submissions created before policy persistence may contain an empty object.",
+        "properties": {
+          "humanReviewed": { "type": "boolean" },
+          "identityConsistent": { "type": "boolean" },
+          "factsVerified": { "type": "boolean" },
+          "profileConsistencyStatus": { "type": "string", "enum": ["verified", "unavailable_reviewed"] },
+          "confirmedNoAnswers": { "type": "boolean", "description": "Set true only when the external form contained no application answers; conflicts with a non-empty answers array." },
+          "sameCompanyOverrideReason": { "type": "string" },
+          "resubmissionReason": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
       "ApplicationSubmission": {
         "type": "object",
         "description": "Immutable snapshot of one application submission. Exact answers are sensitive.",
-        "required": ["id", "applicationId", "idempotencyKey", "requestHash", "submittedAt", "documentIds"],
+        "required": ["id", "applicationId", "idempotencyKey", "requestHash", "submittedAt", "policy", "documentIds"],
         "properties": {
           "id": { "type": "string" },
           "applicationId": { "type": "string" },
@@ -152,6 +181,7 @@
           "atsName": { "type": ["string", "null"] },
           "requisitionId": { "type": ["string", "null"] },
           "language": { "type": ["string", "null"] },
+          "policy": { "$ref": "#/components/schemas/SubmissionPolicySnapshot" },
           "answers": { "type": "array", "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
           "candidateSalaryMin": { "type": ["number", "null"] },
           "candidateSalaryMax": { "type": ["number", "null"] },
@@ -174,6 +204,26 @@
           "source": { "type": ["string", "null"] },
           "actor": { "type": ["string", "null"] },
           "metadata": { "type": ["object", "null"], "additionalProperties": true }
+        }
+      },
+      "RecordSubmissionResult": {
+        "type": "object",
+        "required": ["replayed", "dryRun", "verified", "application", "submission", "event", "documents"],
+        "properties": {
+          "replayed": { "type": "boolean" },
+          "dryRun": { "type": "boolean" },
+          "verified": { "type": "boolean" },
+          "application": { "$ref": "#/components/schemas/Application" },
+          "submission": { "$ref": "#/components/schemas/ApplicationSubmission" },
+          "event": { "anyOf": [{ "$ref": "#/components/schemas/ApplicationEvent" }, { "type": "null" }] },
+          "documents": { "type": "array", "items": { "$ref": "#/components/schemas/Document" } }
+        }
+      },
+      "RecordSubmissionResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/RecordSubmissionResult" }
         }
       },
       "UserRecord": {
@@ -448,7 +498,7 @@
       "post": {
         "operationId": "recordApplicationSubmission",
         "summary": "Atomically record an application submission",
-        "description": "Preserves exact answers, compensation, document versions, status, follow-up, and a timeline event. Supports idempotency, dry-run, and optimistic concurrency.",
+        "description": "Preserves exact answers, integrity-policy attestations, compensation, document versions, status, follow-up, and a timeline event. New submissions require a reviewed policy, at least one document, and either answers or confirmedNoAnswers. Exact pre-policy legacy requests remain replayable by idempotency key. Supports dry-run and optimistic concurrency.",
         "tags": ["Applications"],
         "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
         "requestBody": {
@@ -457,7 +507,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["idempotencyKey", "submittedAt"],
+                "required": ["idempotencyKey", "submittedAt", "answers", "policy", "documentIds"],
                 "properties": {
                   "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
                   "submittedAt": { "type": "string", "format": "date-time" },
@@ -466,14 +516,15 @@
                   "atsName": { "type": ["string", "null"] },
                   "requisitionId": { "type": ["string", "null"] },
                   "language": { "type": ["string", "null"] },
-                  "answers": { "type": "array", "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
+                  "answers": { "type": "array", "maxItems": 50, "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
+                  "policy": { "$ref": "#/components/schemas/SubmissionPolicyInput" },
                   "candidateSalaryMin": { "type": ["number", "null"] },
                   "candidateSalaryMax": { "type": ["number", "null"] },
                   "candidateSalaryCurrency": { "type": ["string", "null"] },
                   "candidateSalaryPeriod": { "type": ["string", "null"] },
                   "candidateSalaryType": { "type": ["string", "null"] },
                   "candidateSalaryFlexible": { "type": "boolean" },
-                  "documentIds": { "type": "array", "maxItems": 20, "items": { "type": "string" } },
+                  "documentIds": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
                   "expectedUpdatedAt": { "type": "string", "format": "date-time" },
                   "dryRun": { "type": "boolean", "default": false }
                 }
@@ -482,10 +533,11 @@
           }
         },
         "responses": {
-          "201": { "description": "Recorded submission package." },
-          "400": { "$ref": "#/components/responses/BadRequest" },
+          "201": { "description": "Recorded submission package, including the immutable policy snapshot.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSubmissionResponse" } } } },
+          "400": { "description": "Invalid answers, documents, salary fields, or missing/failed integrity attestation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
-          "409": { "description": "Idempotency or optimistic-concurrency conflict." }
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Idempotency, optimistic-concurrency, duplicate requisition/job/application, same-company active-process, repeat-submission, or document-reuse conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
