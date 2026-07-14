@@ -74,7 +74,7 @@ jobs:
           fi
 
           db_count() {
-            docker compose -f docker-compose.yaml run --rm -T --no-deps \
+            docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
               --entrypoint sh "${service}" \
               -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
           }
@@ -93,7 +93,7 @@ jobs:
           database_backup="${backup_dir}/nexus-manual-recovery-${stamp}.dump"
           install -m 700 -d "${backup_dir}"
           umask 077
-          docker compose -f docker-compose.yaml run --rm -T --no-deps \
+          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
             --entrypoint sh "${service}" \
             -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
             > "${database_backup}"
@@ -104,7 +104,7 @@ jobs:
           chmod 600 "${database_backup}"
           echo "Verified pre-migration database backup."
 
-          docker compose -f docker-compose.yaml run --rm -T --no-deps \
+          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
             --entrypoint sh "${service}" \
             -c 'exec node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma'
 
