@@ -71,6 +71,8 @@ function FollowUpCell({ date }: { date: string | null }) {
 }
 
 function JobLink({ jobUrl, iconClassName }: { jobUrl: string; iconClassName: string }) {
+  const ta = useTranslations("actions");
+
   return (
     <a
       href={jobUrl}
@@ -78,6 +80,7 @@ function JobLink({ jobUrl, iconClassName }: { jobUrl: string; iconClassName: str
       rel="noopener noreferrer"
       onClick={(event) => event.stopPropagation()}
       title={jobUrl}
+      aria-label={ta("open_job_post")}
       className="shrink-0 text-gray-400 transition-colors hover:text-blue-600 dark:hover:text-blue-400"
     >
       <svg className={iconClassName} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -241,11 +244,11 @@ interface ApplicationTableProps {
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onSelectAll?: (applications: Application[]) => void;
-  onClearSelection?: () => void;
+  onDeselectAll?: (applications: Application[]) => void;
   focusedIndex?: number;
 }
 
-export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived, initialStatusFilter, initialSourceFilter, initialGlobalFilter, selectedIds, onToggleSelect, onSelectAll, onClearSelection, focusedIndex }: ApplicationTableProps) {
+export function ApplicationTable({ applications, onEdit, onDelete, onArchive, showArchived, initialStatusFilter, initialSourceFilter, initialGlobalFilter, selectedIds, onToggleSelect, onSelectAll, onDeselectAll, focusedIndex }: ApplicationTableProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
   const tAnalytics = useTranslations("analytics");
@@ -294,7 +297,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
                   type="checkbox"
                   checked={allSelected}
                   onChange={() => {
-                    if (allSelected) onClearSelection?.();
+                    if (allSelected) onDeselectAll?.(selectableApplications);
                     else onSelectAll?.(selectableApplications);
                   }}
                   className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"

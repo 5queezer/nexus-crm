@@ -308,7 +308,23 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   }
 
   function selectAll(apps: Application[]) {
-    setSelectedIds(new Set(apps.slice(0, 100).map((a) => a.id)));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const app of apps) {
+        if (next.has(app.id)) continue;
+        if (next.size >= 100) break;
+        next.add(app.id);
+      }
+      return next;
+    });
+  }
+
+  function deselectAll(apps: Application[]) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const app of apps) next.delete(app.id);
+      return next;
+    });
   }
 
   function clearSelection() {
@@ -555,7 +571,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onSelectAll={selectAll}
-            onClearSelection={clearSelection}
+            onDeselectAll={deselectAll}
             focusedIndex={focusedIndex}
           />
         ) : (

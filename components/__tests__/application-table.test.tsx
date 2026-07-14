@@ -72,7 +72,7 @@ describe("ApplicationTable bulk selection", () => {
 					selectedIds={new Set()}
 					onToggleSelect={vi.fn()}
 					onSelectAll={onSelectAll}
-					onClearSelection={vi.fn()}
+					onDeselectAll={vi.fn()}
 				/>,
 			);
 		});
@@ -86,5 +86,42 @@ describe("ApplicationTable bulk selection", () => {
 
 		expect(onSelectAll).toHaveBeenCalledOnce();
 		expect(onSelectAll).toHaveBeenCalledWith([lost]);
+	});
+
+	it("deselects only filtered applications and preserves hidden selections", async () => {
+		const lost = application("lost", "rejected");
+		const hidden = application("hidden", "interview");
+		let selectedIds = new Set([lost.id, hidden.id]);
+		const onDeselectAll = vi.fn((applications: Application[]) => {
+			const next = new Set(selectedIds);
+			for (const application of applications) next.delete(application.id);
+			selectedIds = next;
+		});
+
+		await act(async () => {
+			root.render(
+				<ApplicationTable
+					applications={[lost, hidden]}
+					onEdit={vi.fn()}
+					onDelete={vi.fn()}
+					initialStatusFilter="rejected"
+					selectedIds={selectedIds}
+					onToggleSelect={vi.fn()}
+					onSelectAll={vi.fn()}
+					onDeselectAll={onDeselectAll}
+				/>,
+			);
+		});
+
+		const selectAll = container.querySelector<HTMLInputElement>(
+			'thead input[type="checkbox"]',
+		);
+		if (!selectAll) throw new Error("Select-all checkbox was not rendered");
+
+		await act(async () => selectAll.click());
+
+		expect(onDeselectAll).toHaveBeenCalledOnce();
+		expect(onDeselectAll).toHaveBeenCalledWith([lost]);
+		expect(selectedIds).toEqual(new Set([hidden.id]));
 	});
 });
