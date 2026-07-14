@@ -369,8 +369,19 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         kind: z.enum(["text", "boolean", "number", "choice", "salary", "other"]).optional(),
         sensitive: z.boolean().optional(),
       })).max(50).default([]),
-      policy: z.unknown().optional().describe(
-        "Required for new submissions; object fields: humanReviewed, identityConsistent, factsVerified, profileConsistencyStatus, and optional audited override reasons. Omit only for an exact legacy replay.",
+      policy: z.union([
+        z.object({
+          humanReviewed: z.boolean().describe("Final external form and package were reviewed by the applicant"),
+          identityConsistent: z.boolean().describe("Name, email, phone, location, and LinkedIn identity are consistent"),
+          factsVerified: z.boolean().describe("Chronology, education, certificates, languages, claims, and metrics are verified"),
+          profileConsistencyStatus: z.enum(["verified", "unavailable_reviewed"]),
+          confirmedNoAnswers: z.boolean().optional(),
+          sameCompanyOverrideReason: z.string().min(1).max(1000).optional(),
+          resubmissionReason: z.string().min(1).max(1000).optional(),
+        }).passthrough(),
+        z.unknown(),
+      ]).optional().describe(
+        "Required for new submissions. The permissive fallback lets the adapter resolve exact legacy replays before policy validation; malformed policy on a new submission is rejected by the adapter.",
       ),
       candidateSalaryMin: z.number().int().nonnegative().nullable().optional(),
       candidateSalaryMax: z.number().int().nonnegative().nullable().optional(),

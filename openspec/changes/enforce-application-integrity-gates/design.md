@@ -41,7 +41,7 @@ This is preferable to burying assertions in free-text answers because the gate i
 
 ### Decision 2: Validate policy in a pure helper, enforce conflicts in adapters
 
-A pure `validateSubmissionPolicy` helper normalizes strings and validates mandatory attestations, answers, and document count. REST and MCP call it for fast feedback, and both adapters call it again as defense in depth.
+A pure `validateSubmissionPolicy` helper normalizes strings and validates mandatory attestations, answers, and document count. REST and MCP validate transport-level fields and answers but pass the policy through to the adapters so an existing idempotency record can be resolved before new-submission policy errors. Both adapters invoke the pure helper before any new write.
 
 Conflict checks that depend on stored state run inside each adapter's atomic submission boundary after the idempotent replay check and before any write:
 
