@@ -17,6 +17,7 @@ import { Application, ApplicationStatus, Contact, STATUS_COLORS, STATUS_ROW_COLO
 import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
+import { Search } from "lucide-react";
 import { ActionMenu } from "./action-menu";
 
 const columnHelper = createColumnHelper<Application>();
@@ -66,6 +67,23 @@ function FollowUpCell({ date }: { date: string | null }) {
       {due && "🔔 "}
       {format(d, "dd.MM.yyyy")}
     </span>
+  );
+}
+
+function JobLink({ jobUrl, iconClassName }: { jobUrl: string; iconClassName: string }) {
+  return (
+    <a
+      href={jobUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      title={jobUrl}
+      className="shrink-0 text-gray-400 transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+    >
+      <svg className={iconClassName} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>
   );
 }
 
@@ -130,20 +148,7 @@ function MobileApplicationCard({ app, onEdit, onDelete, onArchive, showArchived 
         <div className="min-w-0">
           <h3 className="flex items-center gap-1.5 text-base font-semibold text-gray-900 dark:text-white">
             <span className="truncate">{app.company || <span className="italic font-normal text-gray-400 dark:text-gray-500">—</span>}</span>
-            {app.jobUrl && (
-              <a
-                href={app.jobUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                title={app.jobUrl}
-                className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-            )}
+            {app.jobUrl && <JobLink jobUrl={app.jobUrl} iconClassName="h-4 w-4" />}
           </h3>
           <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-300">{app.role}</p>
         </div>
@@ -235,7 +240,7 @@ interface ApplicationTableProps {
   initialGlobalFilter?: string;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
-  onSelectAll?: () => void;
+  onSelectAll?: (applications: Application[]) => void;
   onClearSelection?: () => void;
   focusedIndex?: number;
 }
@@ -269,24 +274,33 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
   }
 
   const hasSelection = !!selectedIds && !!onToggleSelect;
-  const allSelected = hasSelection && selectedIds.size > 0 && applications.every((a) => selectedIds.has(a.id));
 
   const columns = [
     ...(hasSelection
       ? [
           columnHelper.display({
             id: "select",
-            header: () => (
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={() => {
-                  if (allSelected) onClearSelection?.();
-                  else onSelectAll?.();
-                }}
-                className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
-              />
-            ),
+            header: ({ table }) => {
+              const selectableApplications = table
+                .getFilteredRowModel()
+                .rows.slice(0, 100)
+                .map((row) => row.original);
+              const allSelected =
+                selectableApplications.length > 0 &&
+                selectableApplications.every((application) => selectedIds.has(application.id));
+
+              return (
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => {
+                    if (allSelected) onClearSelection?.();
+                    else onSelectAll?.(selectableApplications);
+                  }}
+                  className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+              );
+            },
             cell: ({ row }: { row: { original: Application } }) => (
               <input
                 type="checkbox"
@@ -312,18 +326,7 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
               {info.getValue() || "—"}
             </button>
             {info.row.original.jobUrl && (
-              <a
-                href={info.row.original.jobUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                title={info.row.original.jobUrl}
-                className="shrink-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
+              <JobLink jobUrl={info.row.original.jobUrl} iconClassName="h-3.5 w-3.5" />
             )}
             {info.row.original.remote && (
               <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
@@ -455,13 +458,16 @@ export function ApplicationTable({ applications, onEdit, onDelete, onArchive, sh
       <div className="border-b border-slate-200/80 bg-white/70 p-4 backdrop-blur dark:border-white/8 dark:bg-black/20">
         <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:flex-wrap sm:items-center">
           <div className="relative col-span-2 sm:w-72">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+              aria-hidden
+            />
             <input
               type="text"
               value={globalFilter}
               onChange={(e) => setGlobalFilter(e.target.value)}
               placeholder={ta("search")}
-              className="nexus-input pl-8"
+              className="nexus-input pl-9!"
             />
           </div>
           <select

@@ -554,7 +554,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
             initialGlobalFilter={initialSearch}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
-            onSelectAll={() => selectAll(visibleApplications)}
+            onSelectAll={selectAll}
             onClearSelection={clearSelection}
             focusedIndex={focusedIndex}
           />
