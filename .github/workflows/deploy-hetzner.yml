@@ -3,6 +3,9 @@ name: Deploy to Hetzner
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".github/workflows/deploy-hetzner.yml"
+      - ".github/workflows/recover-production-db.yml"
   workflow_dispatch:
 
 concurrency:
