@@ -56,13 +56,18 @@ class MemoryAgentRepository implements AgentRepository {
     return this.threads.length !== before;
   }
 
-  async createMessage(input: Omit<AgentMessageView, "id" | "createdAt">) {
+  async createMessageForOwnedThread(input: Omit<AgentMessageView, "id" | "createdAt">) {
+    const thread = this.threads.find(
+      (candidate) => candidate.id === input.threadId && candidate.userId === input.userId,
+    );
+    if (!thread) return null;
     const message: AgentMessageView = {
       ...input,
       id: `message-${this.messages.length + 1}`,
       createdAt: new Date(),
     };
     this.messages.push(message);
+    thread.updatedAt = new Date();
     return message;
   }
 }
@@ -89,6 +94,19 @@ describe("agent thread store", () => {
       }),
     ).rejects.toThrow("Thread not found");
     expect(repository.messages).toHaveLength(0);
+  });
+
+  it("preserves multiline messages and refreshes thread recency", async () => {
+    const repository = new MemoryAgentRepository();
+    const thread = await createAgentThread(repository, "user-a", "My pipeline");
+    thread.updatedAt = new Date("2026-07-01T00:00:00.000Z");
+    const message = await addThreadMessage(repository, "user-a", thread.id, {
+      role: "assistant",
+      content: "Summary\n\n```ts\nconst ready = true;\n```",
+    });
+
+    expect(message.content).toBe("Summary\n\n```ts\nconst ready = true;\n```");
+    expect(thread.updatedAt.getTime()).toBeGreaterThan(new Date("2026-07-01T00:00:00.000Z").getTime());
   });
 
   it("deletes only an owned thread", async () => {

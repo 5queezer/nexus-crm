@@ -37,6 +37,10 @@ export type ActionProposal = {
   targetType: string;
   targetId: string;
   expectedDiff: ProposalDiff[];
+  sanitizedPayload?: {
+    toolName?: string;
+    arguments?: Record<string, unknown>;
+  } | null;
   assumptions?: { reason?: string } | null;
   status: string;
   expiresAt: string;

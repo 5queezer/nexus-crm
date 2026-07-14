@@ -10,6 +10,7 @@ import {
   searchApplicationsForAgent,
 } from "./tools";
 import {
+  APPLICATION_STATUSES,
   proposeApplicationUpdate,
   type ProposalRepository,
 } from "./proposals";
@@ -19,6 +20,7 @@ import {
   type ConnectorRepository,
 } from "./connectors";
 import { discoverMcpTools } from "./mcp-client";
+import { canonicalizeMcpCall } from "./mcp-proposal";
 
 export const AGENT_LIMITS = {
   maxSteps: 6,
@@ -39,7 +41,7 @@ export function buildBoundedHistory<T extends { content: string }>(
   const candidates = messages.slice(-options.maxMessages);
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     const message = candidates[index];
-    if (characters + message.content.length > options.maxCharacters) continue;
+    if (characters + message.content.length > options.maxCharacters) break;
     selected.unshift(message);
     characters += message.content.length;
   }
@@ -139,7 +141,7 @@ export function buildAgentTools(input: {
       inputSchema: z.object({
         applicationId: z.string().min(1).max(100),
         changes: z.object({
-          status: z.enum(["wishlist", "applied", "interview", "offer", "rejected"]).optional(),
+          status: z.enum(APPLICATION_STATUSES).optional(),
           followUpAt: z.string().datetime().nullable().optional(),
           lastContact: z.string().datetime().nullable().optional(),
           notes: z.string().max(5_000).nullable().optional(),
@@ -233,11 +235,13 @@ export function buildMcpAgentTools(input: {
             if (!connector) throw new Error("Connector not found");
             const available = await discoverMcpTools(connector);
             const selected = available.find(
-              (candidate) =>
-                candidate.remoteName === toolInput.toolName ||
-                candidate.name === toolInput.toolName,
+              (candidate) => candidate.name === toolInput.toolName,
             );
             if (!selected) throw new Error("MCP tool not found");
+            const reviewedCall = canonicalizeMcpCall(
+              toolInput.arguments,
+              selected.inputSchema,
+            );
             const proposal = await input.proposalRepository.create({
               userId: input.userId,
               threadId: input.threadId,
@@ -247,8 +251,11 @@ export function buildMcpAgentTools(input: {
               targetType: "mcp_connector",
               targetId: connector.id,
               payload: {
+                connectorVersion: connector.updatedAt.toISOString(),
                 toolName: selected.remoteName,
-                arguments: toolInput.arguments,
+                arguments: reviewedCall.arguments,
+                argumentsHash: reviewedCall.argumentsHash,
+                toolSchemaHash: reviewedCall.schemaHash,
               },
               expectedDiff: [
                 {

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/session";
+import { requireSessionAuth } from "@/lib/session";
 
 export async function GET(request: Request) {
-  const session = await requireAuth({ allowDevBypass: false });
+  const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const url = new URL(request.url);
   const threadId = url.searchParams.get("threadId") ?? undefined;
@@ -13,5 +13,22 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  return NextResponse.json({ proposals });
+  const publicProposals = proposals.map(({ payload, ...proposal }) => {
+    const reviewed = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : null;
+    return {
+      ...proposal,
+      sanitizedPayload: proposal.kind === "mcp_tool" && reviewed
+        ? {
+            toolName: typeof reviewed.toolName === "string" ? reviewed.toolName : undefined,
+            arguments:
+              reviewed.arguments && typeof reviewed.arguments === "object" && !Array.isArray(reviewed.arguments)
+                ? reviewed.arguments
+                : undefined,
+          }
+        : null,
+    };
+  });
+  return NextResponse.json({ proposals: publicProposals });
 }

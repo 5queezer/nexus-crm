@@ -12,7 +12,7 @@ The system SHALL allow authenticated users to configure their own named remote S
 - **THEN** the system discloses no connector configuration and performs no network request
 
 ### Requirement: SSRF-resistant connector policy
-The system SHALL reject unsafe MCP targets and SHALL revalidate resolved destinations before connecting.
+The system SHALL reject unsafe MCP targets, SHALL pin each connection to a validated public address while preserving the original TLS hostname, and SHALL refuse redirects.
 
 #### Scenario: Private or link-local target
 - **WHEN** a production connector URL resolves to loopback, private, link-local, multicast, or unspecified address space
@@ -38,7 +38,7 @@ The system SHALL discover connector tools server-side with bounded connection ti
 - **THEN** the system closes the connection, records a redacted failure, and exposes no tools from that attempt
 
 ### Requirement: Approval-gated MCP invocation
-The system SHALL treat every external MCP invocation as consequential and SHALL require approval of the stored connector ID, namespaced tool name, and canonical arguments before calling the remote server.
+The system SHALL treat every external MCP invocation as consequential and SHALL require approval of the stored connector ID and version, namespaced tool name, and visible canonical arguments before calling the remote server.
 
 #### Scenario: Model requests an MCP tool
 - **WHEN** the model selects an external MCP tool
@@ -46,7 +46,15 @@ The system SHALL treat every external MCP invocation as consequential and SHALL 
 
 #### Scenario: User approves MCP invocation
 - **WHEN** the proposal owner approves a valid MCP proposal
-- **THEN** the system revalidates the connector destination, invokes the exact stored tool arguments, bounds execution, and persists a redacted result reference
+- **THEN** the system confirms the connector version and discovered tool-schema hash, revalidates and pins the connector destination, invokes the exact stored arguments, bounds execution, and persists a redacted verification result
+
+#### Scenario: Connector or schema changed after review
+- **WHEN** the connector version or discovered tool schema no longer matches the approved proposal
+- **THEN** the system marks the proposal stale and performs no external invocation
+
+#### Scenario: External outcome cannot be finalized
+- **WHEN** dispatch has started but transport or bookkeeping fails before verification is durable
+- **THEN** the system preserves `outcome_unknown` and does not automatically dispatch the proposal again
 
 ### Requirement: Connector credential confidentiality
 The system SHALL never return decrypted connector credentials or include them in model context, chat messages, tool traces, or provider requests.

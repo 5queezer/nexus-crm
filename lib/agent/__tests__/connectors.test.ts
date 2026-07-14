@@ -6,7 +6,11 @@ import {
   listConnectorMetadata,
   saveConnector,
 } from "../connectors";
-import { discoverMcpTools } from "../mcp-client";
+import { discoverMcpTools, createPinnedTransport } from "../mcp-client";
+import { resolveMcpDestination } from "../mcp-policy";
+import { canonicalizeMcpCall } from "../mcp-proposal";
+
+const ORIGINAL_KEY = process.env.AGENT_SECRET_ENCRYPTION_KEY;
 
 class MemoryConnectorRepository implements ConnectorRepository {
   records = new Map<string, ConnectorRecord>();
@@ -40,7 +44,10 @@ describe("per-user MCP connectors", () => {
   beforeEach(() => {
     process.env.AGENT_SECRET_ENCRYPTION_KEY = "33".repeat(32);
   });
-  afterEach(() => delete process.env.AGENT_SECRET_ENCRYPTION_KEY);
+  afterEach(() => {
+    if (ORIGINAL_KEY === undefined) delete process.env.AGENT_SECRET_ENCRYPTION_KEY;
+    else process.env.AGENT_SECRET_ENCRYPTION_KEY = ORIGINAL_KEY;
+  });
 
   it("stores authorization encrypted and returns metadata only", async () => {
     const repository = new MemoryConnectorRepository();
@@ -55,6 +62,26 @@ describe("per-user MCP connectors", () => {
     expect(stored.encryptedAuthorization).not.toContain("top-secret-token");
     expect(JSON.stringify(metadata)).not.toContain("top-secret-token");
     expect(metadata.hasAuthorization).toBe(true);
+  });
+
+  it("never carries authorization to a different connector origin", async () => {
+    const repository = new MemoryConnectorRepository();
+    const saved = await saveConnector(repository, "user-a", {
+      name: "Tools",
+      url: "https://first.example.com/mcp",
+      authorization: "Bearer user-a-token",
+      validate: async (value) => new URL(value),
+    });
+
+    const moved = await saveConnector(repository, "user-a", {
+      id: saved.id,
+      name: "Tools",
+      url: "https://second.example.com/mcp",
+      validate: async (value) => new URL(value),
+    });
+
+    expect(moved.hasAuthorization).toBe(false);
+    expect((await getConnectorSecret(repository, "user-a", saved.id))?.authorization).toBeNull();
   });
 
   it("scopes list, secret lookup, and delete to the authenticated user", async () => {
@@ -72,6 +99,52 @@ describe("per-user MCP connectors", () => {
     expect(await getConnectorSecret(repository, "user-a", saved.id)).toMatchObject({
       authorization: "Bearer user-a-token",
     });
+  });
+});
+
+describe("reviewed MCP calls", () => {
+  it("canonicalizes and validates reviewed arguments", () => {
+    const schema = {
+      type: "object",
+      properties: { query: { type: "string" }, limit: { type: "integer" } },
+      required: ["query"],
+      additionalProperties: false,
+    };
+    const reviewed = canonicalizeMcpCall({ limit: 5, query: "platform" }, schema);
+    const reordered = canonicalizeMcpCall({ query: "platform", limit: 5 }, schema);
+    expect(reviewed.arguments).toEqual({ limit: 5, query: "platform" });
+    expect(reviewed.argumentsHash).toBe(reordered.argumentsHash);
+    expect(reviewed.schemaHash).toBe(reordered.schemaHash);
+    expect(() => canonicalizeMcpCall({ query: 42 }, schema)).toThrow(
+      "MCP arguments do not match the tool schema",
+    );
+    expect(() =>
+      canonicalizeMcpCall(
+        { query: "roles", authorization: "Bearer should-not-be-stored" },
+        { type: "object" },
+      ),
+    ).toThrow("MCP arguments contain a sensitive field");
+  });
+});
+
+describe("pinned MCP transport", () => {
+  it("uses the validated address dispatcher and rejects oversized bodies while streaming", async () => {
+    const destination = await resolveMcpDestination("https://mcp.example.com/api", {
+      resolve: async () => [{ address: "8.8.8.8", family: 4 }],
+    });
+    let receivedInit: RequestInit | undefined;
+    const baseFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      receivedInit = init;
+      return new Response(new Uint8Array(300_000));
+    }) as typeof fetch;
+    const transport = createPinnedTransport(destination, baseFetch);
+    try {
+      const response = await transport.fetch("https://mcp.example.com/api");
+      expect(receivedInit).toHaveProperty("dispatcher");
+      await expect(response.arrayBuffer()).rejects.toThrow("MCP response exceeded the byte limit");
+    } finally {
+      await transport.close();
+    }
   });
 });
 

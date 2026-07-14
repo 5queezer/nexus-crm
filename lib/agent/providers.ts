@@ -53,5 +53,8 @@ export function createUserLanguageModel(input: {
   if (input.provider === "openai") {
     return createOpenAI({ apiKey: input.apiKey })(input.model);
   }
-  return createAnthropic({ apiKey: input.apiKey })(input.model);
+  if (input.provider === "anthropic") {
+    return createAnthropic({ apiKey: input.apiKey })(input.model);
+  }
+  throw new Error(`Unimplemented provider client: ${input.provider}`);
 }

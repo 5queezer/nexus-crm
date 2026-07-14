@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),
+  requireSessionAuth: vi.fn(),
   getAgentThread: vi.fn(),
   loadCredentialSecret: vi.fn(),
 }));
 
-vi.mock("@/lib/session", () => ({ requireAuth: mocks.requireAuth }));
+vi.mock("@/lib/session", () => ({
+  requireAuth: mocks.requireAuth,
+  requireSessionAuth: mocks.requireSessionAuth,
+}));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/lib/agent/credentials", () => ({
@@ -40,7 +44,18 @@ function request() {
 describe("POST /api/agent/chat preflight", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireAuth.mockResolvedValue({ userId: "user-a" });
+    mocks.requireAuth.mockResolvedValue({ userId: "user-a", authType: "session" });
+    mocks.requireSessionAuth.mockImplementation(async (options) => {
+      const authResult = await mocks.requireAuth(options);
+      return authResult?.authType === "session" ? authResult : null;
+    });
+  });
+
+  it("rejects bearer-token authentication", async () => {
+    mocks.requireAuth.mockResolvedValue({ userId: "user-a", authType: "api_token" });
+    const response = await POST(request());
+    expect(response.status).toBe(401);
+    expect(mocks.getAgentThread).not.toHaveBeenCalled();
   });
 
   it("does not disclose a thread owned by another user", async () => {

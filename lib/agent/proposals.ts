@@ -3,6 +3,14 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { DatabaseAdapter } from "@/lib/db/adapter";
 
+export const APPLICATION_STATUSES = [
+  "inbound",
+  "applied",
+  "interview",
+  "offer",
+  "rejected",
+] as const;
+
 export type ApplicationProposalChanges = {
   status?: string;
   followUpAt?: string | null;
@@ -99,7 +107,7 @@ export const prismaProposalRepository: ProposalRepository = {
   },
 };
 
-const ALLOWED_STATUSES = new Set(["wishlist", "applied", "interview", "offer", "rejected"]);
+const ALLOWED_STATUSES = new Set<string>(APPLICATION_STATUSES);
 const ALLOWED_FIELDS = new Set(["status", "followUpAt", "lastContact", "notes", "rating"]);
 
 function canonicalizeChanges(changes: ApplicationProposalChanges): ApplicationProposalChanges {
@@ -164,21 +172,32 @@ export async function proposeApplicationUpdate(input: {
     };
   });
 
-  return input.repository.create({
-    userId: input.userId,
-    threadId: input.threadId ?? null,
-    runId: input.runId ?? null,
-    toolInvocationId: input.toolInvocationId ?? null,
-    kind: "update_application",
-    targetType: "application",
-    targetId: application.id,
-    payload: payload as Record<string, unknown>,
-    expectedDiff,
-    assumptions: { reason: input.reason.trim().slice(0, 1_000) },
-    baseVersion: application.updatedAt,
-    idempotencyKey: key,
-    status: "pending",
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000),
-    executedAt: null,
-  });
+  try {
+    return await input.repository.create({
+      userId: input.userId,
+      threadId: input.threadId ?? null,
+      runId: input.runId ?? null,
+      toolInvocationId: input.toolInvocationId ?? null,
+      kind: "update_application",
+      targetType: "application",
+      targetId: application.id,
+      payload: payload as Record<string, unknown>,
+      expectedDiff,
+      assumptions: { reason: input.reason.trim().slice(0, 1_000) },
+      baseVersion: application.updatedAt,
+      idempotencyKey: key,
+      status: "pending",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000),
+      executedAt: null,
+    });
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : null;
+    if (code !== "P2002") throw error;
+    const winner = await input.repository.findByIdempotencyKey(input.userId, key);
+    if (!winner) throw error;
+    return winner;
+  }
 }

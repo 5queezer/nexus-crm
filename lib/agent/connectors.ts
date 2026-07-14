@@ -85,11 +85,16 @@ export async function saveConnector(
   const existing = input.id ? await repository.find(userId, input.id) : null;
   if (input.id && !existing) throw new Error("Connector not found");
   const authorization = input.authorization?.trim();
+  const sameOrigin = existing
+    ? new URL(existing.url).origin === validated.origin
+    : false;
   const encryptedAuthorization = authorization
     ? encryptSecret(authorization, `mcp:authorization:${userId}`)
     : input.authorization === null
       ? null
-      : existing?.encryptedAuthorization ?? null;
+      : sameOrigin
+        ? existing?.encryptedAuthorization ?? null
+        : null;
   return metadata(
     await repository.upsert({
       id: input.id,
@@ -113,13 +118,20 @@ export async function getConnectorSecret(
   repository: ConnectorRepository,
   userId: string,
   id: string,
-): Promise<{ id: string; name: string; url: string; authorization: string | null } | null> {
+): Promise<{
+  id: string;
+  name: string;
+  url: string;
+  authorization: string | null;
+  updatedAt: Date;
+} | null> {
   const record = await repository.find(userId, id);
   if (!record || !record.enabled) return null;
   return {
     id: record.id,
     name: record.name,
     url: record.url,
+    updatedAt: record.updatedAt,
     authorization: record.encryptedAuthorization
       ? decryptSecret(record.encryptedAuthorization, `mcp:authorization:${userId}`)
       : null,

@@ -8,6 +8,7 @@ import type {
   VerificationRecord,
 } from "../proposal-executor";
 import { approveProposal, rejectProposal } from "../proposal-executor";
+import { canonicalizeMcpCall } from "../mcp-proposal";
 
 function application(overrides: Partial<ApplicationRecord> = {}): ApplicationRecord {
   return {
@@ -62,6 +63,64 @@ class MemoryExecutionRepository implements ProposalExecutionRepository {
   }
 }
 
+const MCP_SCHEMA = {
+  type: "object",
+  properties: { query: { type: "string" } },
+  required: ["query"],
+  additionalProperties: false,
+};
+const MCP_VERSION = new Date("2026-07-10T00:00:00.000Z");
+
+function mcpProposal(overrides: Partial<ProposalRecord> = {}): ExecutionProposalRecord {
+  const reviewed = canonicalizeMcpCall({ query: "platform" }, MCP_SCHEMA);
+  return proposal({
+    kind: "mcp_tool",
+    targetType: "mcp_connector",
+    targetId: "connector-a",
+    baseVersion: null,
+    payload: {
+      connectorVersion: MCP_VERSION.toISOString(),
+      toolName: "search_jobs",
+      arguments: reviewed.arguments,
+      argumentsHash: reviewed.argumentsHash,
+      toolSchemaHash: reviewed.schemaHash,
+    },
+    ...overrides,
+  });
+}
+
+function mcpConnectorRepository(updatedAt = MCP_VERSION) {
+  return {
+    async find(userId: string, id: string) {
+      return userId === "user-a" && id === "connector-a"
+        ? {
+            id,
+            userId,
+            name: "Research",
+            url: "https://mcp.example.com/api",
+            encryptedAuthorization: null,
+            enabled: true,
+            lastCheckedAt: null,
+            lastStatus: null,
+            lastErrorCode: null,
+            createdAt: new Date(),
+            updatedAt,
+          }
+        : null;
+    },
+    async list() { return []; },
+    async upsert() { throw new Error("unused"); },
+    async remove() { return false; },
+  };
+}
+
+const discoverMcp = vi.fn(async () => [{
+  name: "research__search_jobs",
+  remoteName: "search_jobs",
+  description: "Search jobs",
+  inputSchema: MCP_SCHEMA,
+}]);
+
 describe("proposal executor", () => {
   it("rejects cross-user approval without reading or mutating Nexus", async () => {
     const repository = new MemoryExecutionRepository();
@@ -98,7 +157,10 @@ describe("proposal executor", () => {
     const after = application({ status: "interview", updatedAt: new Date("2026-07-12T00:00:00Z") });
     const db = {
       getApplication: vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after),
-      updateApplication: vi.fn().mockResolvedValue(after),
+      updateApplication: vi.fn().mockImplementation(async () => {
+        expect(repository.value.status).toBe("outcome_unknown");
+        return after;
+      }),
     } as unknown as DatabaseAdapter;
 
     const result = await approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" });
@@ -107,7 +169,7 @@ describe("proposal executor", () => {
       status: "interview",
       expectedUpdatedAt: new Date("2026-07-10T00:00:00Z"),
     });
-    expect(result.verification.success).toBe(true);
+    expect(result.verification!.success).toBe(true);
     expect(repository.value.status).toBe("applied");
   });
 
@@ -120,7 +182,7 @@ describe("proposal executor", () => {
     };
     const db = { updateApplication: vi.fn() } as unknown as DatabaseAdapter;
     const result = await approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" });
-    expect(result.verification.id).toBe("verification-1");
+    expect(result.verification!.id).toBe("verification-1");
     expect(db.updateApplication).not.toHaveBeenCalled();
   });
 
@@ -131,110 +193,147 @@ describe("proposal executor", () => {
       updateApplication: vi.fn().mockResolvedValue(application({ status: "interview" })),
     } as unknown as DatabaseAdapter;
     const result = await approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" });
-    expect(result.verification.success).toBe(false);
+    expect(result.verification!.success).toBe(false);
     expect(repository.value.status).toBe("applied_unverified");
-    expect(result.verification.mismatches).toEqual([{ field: "status", expected: "interview", actual: "applied" }]);
+    expect(result.verification!.mismatches).toEqual([{ field: "status", expected: "interview", actual: "applied" }]);
   });
 
   it("executes an approved MCP proposal with the exact stored connector, tool, and arguments", async () => {
-    const repository = new MemoryExecutionRepository(
-      proposal({
-        kind: "mcp_tool",
-        targetType: "mcp_connector",
-        targetId: "connector-1",
-        baseVersion: null,
-        payload: { toolName: "search", arguments: { query: "platform engineer" } },
-        expectedDiff: [
-          { field: "externalInvocation", from: null, to: "Research:search" },
-        ],
-      }),
-    );
-    const connectorRecord = {
-      id: "connector-1",
-      userId: "user-a",
-      name: "Research",
-      url: "https://mcp.example.com/api",
-      encryptedAuthorization: null,
-      enabled: true,
-      lastCheckedAt: null,
-      lastStatus: null,
-      lastErrorCode: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    const connectorRepository = {
-      find: vi.fn(async (userId: string, id: string) =>
-        userId === "user-a" && id === "connector-1" ? connectorRecord : null,
-      ),
-      list: vi.fn(),
-      upsert: vi.fn(),
-      remove: vi.fn(),
-    };
-    const callMcp = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "result" }] });
-    const db = {} as DatabaseAdapter;
+    const repository = new MemoryExecutionRepository(mcpProposal());
+    const callMcp = vi.fn().mockImplementation(async () => {
+      expect(repository.value.status).toBe("outcome_unknown");
+      return { content: [{ type: "text", text: "result" }] };
+    });
 
     const result = await approveProposal({
       repository,
-      connectorRepository,
+      connectorRepository: mcpConnectorRepository(),
       callMcp,
-      db,
+      discoverMcp,
+      db: {} as DatabaseAdapter,
       userId: "user-a",
       proposalId: "proposal-1",
     });
 
     expect(callMcp).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "connector-1", authorization: null }),
-      "search",
-      { query: "platform engineer" },
+      expect.objectContaining({ id: "connector-a", authorization: null }),
+      "search_jobs",
+      { query: "platform" },
     );
-    expect(result.verification.success).toBe(true);
+    expect(result.verification!.success).toBe(true);
     expect(repository.value.status).toBe("applied");
   });
 
-  it("moves a claimed MCP proposal to failed when the remote call fails", async () => {
-    const repository = new MemoryExecutionRepository(
-      proposal({
-        kind: "mcp_tool",
-        targetType: "mcp_connector",
-        targetId: "connector-a",
-        payload: { toolName: "search_jobs", arguments: { query: "platform" } },
-      }),
-    );
-    const connectorRepository = {
-      async find(userId: string, id: string) {
-        return userId === "user-a" && id === "connector-a"
-          ? {
-              id,
-              userId,
-              name: "Research",
-              url: "https://mcp.example.com/api",
-              encryptedAuthorization: null,
-              enabled: true,
-              lastCheckedAt: null,
-              lastStatus: null,
-              lastErrorCode: null,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }
-          : null;
-      },
-      async list() { return []; },
-      async upsert() { throw new Error("unused"); },
-      async remove() { return false; },
-    };
+  it("preserves outcome uncertainty when the remote call rejects", async () => {
+    const repository = new MemoryExecutionRepository(mcpProposal());
 
     await expect(
       approveProposal({
         repository,
         db: {} as DatabaseAdapter,
-        connectorRepository,
+        connectorRepository: mcpConnectorRepository(),
         callMcp: vi.fn().mockRejectedValue(new Error("remote included sensitive detail")),
+        discoverMcp,
         userId: "user-a",
         proposalId: "proposal-1",
       }),
     ).rejects.toThrow("remote included sensitive detail");
 
-    expect(repository.value.status).toBe("failed");
+    expect(repository.value.status).toBe("outcome_unknown");
+  });
+
+  it("rejects MCP approval when the reviewed connector version changed", async () => {
+    const repository = new MemoryExecutionRepository(mcpProposal());
+    const callMcp = vi.fn();
+    await expect(
+      approveProposal({
+        repository,
+        db: {} as DatabaseAdapter,
+        connectorRepository: mcpConnectorRepository(new Date("2026-07-11T00:00:00.000Z")),
+        callMcp,
+        discoverMcp,
+        userId: "user-a",
+        proposalId: "proposal-1",
+      }),
+    ).rejects.toThrow("Proposal is stale");
+    expect(repository.value.status).toBe("stale");
+    expect(callMcp).not.toHaveBeenCalled();
+  });
+
+  it("records MCP protocol errors as applied but unverified", async () => {
+    const repository = new MemoryExecutionRepository(mcpProposal());
+    const result = await approveProposal({
+      repository,
+      db: {} as DatabaseAdapter,
+      connectorRepository: mcpConnectorRepository(),
+      callMcp: vi.fn().mockResolvedValue({ isError: true, content: [{ type: "text", text: "denied" }] }),
+      discoverMcp,
+      userId: "user-a",
+      proposalId: "proposal-1",
+    });
+    expect(result.verification!.success).toBe(false);
+    expect(repository.value.status).toBe("applied_unverified");
+  });
+
+  it("records malformed MCP responses as applied but unverified", async () => {
+    const repository = new MemoryExecutionRepository(mcpProposal());
+    const result = await approveProposal({
+      repository,
+      db: {} as DatabaseAdapter,
+      connectorRepository: mcpConnectorRepository(),
+      callMcp: vi.fn().mockResolvedValue({ unexpected: true }),
+      discoverMcp,
+      userId: "user-a",
+      proposalId: "proposal-1",
+    });
+    expect(result.verification!.success).toBe(false);
+    expect(repository.value.status).toBe("applied_unverified");
+  });
+
+  it("preserves outcome_unknown when MCP bookkeeping fails after dispatch", async () => {
+    const repository = new MemoryExecutionRepository(mcpProposal());
+    vi.spyOn(repository, "saveVerification").mockRejectedValue(new Error("database unavailable"));
+    await expect(
+      approveProposal({
+        repository,
+        db: {} as DatabaseAdapter,
+        connectorRepository: mcpConnectorRepository(),
+        callMcp: vi.fn().mockResolvedValue({ content: [] }),
+        discoverMcp,
+        userId: "user-a",
+        proposalId: "proposal-1",
+      }),
+    ).rejects.toThrow("database unavailable");
+    expect(repository.value.status).toBe("outcome_unknown");
+  });
+
+  it("preserves outcome_unknown when CRM read-back fails after mutation", async () => {
+    const repository = new MemoryExecutionRepository();
+    const db = {
+      getApplication: vi.fn().mockResolvedValueOnce(application()).mockRejectedValueOnce(new Error("database unavailable")),
+      updateApplication: vi.fn().mockResolvedValue(application({ status: "interview" })),
+    } as unknown as DatabaseAdapter;
+    await expect(
+      approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" }),
+    ).rejects.toThrow("database unavailable");
+    expect(repository.value.status).toBe("outcome_unknown");
+  });
+
+  it("returns an outcome_unknown proposal without dispatching it again", async () => {
+    const repository = new MemoryExecutionRepository(mcpProposal({ status: "outcome_unknown" }));
+    const callMcp = vi.fn();
+    const result = await approveProposal({
+      repository,
+      db: {} as DatabaseAdapter,
+      connectorRepository: mcpConnectorRepository(),
+      callMcp,
+      discoverMcp,
+      userId: "user-a",
+      proposalId: "proposal-1",
+    });
+    expect(result.proposal.status).toBe("outcome_unknown");
+    expect(result.verification).toBeNull();
+    expect(callMcp).not.toHaveBeenCalled();
   });
 
   it("rejects a pending proposal without mutating Nexus", async () => {

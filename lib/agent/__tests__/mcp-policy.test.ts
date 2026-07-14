@@ -18,6 +18,8 @@ describe("MCP destination policy", () => {
     "169.254.169.254",
     "0.0.0.0",
     "224.0.0.1",
+    "240.0.0.1",
+    "255.255.255.255",
     "100.64.0.1",
     "::1",
     "::",
@@ -26,6 +28,10 @@ describe("MCP destination policy", () => {
     "fe80::1",
     "ff02::1",
     "::ffff:127.0.0.1",
+    "::ffff:7f00:1",
+    "::ffff:a00:1",
+    "0:0:0:0:0:ffff:7f00:1",
+    "2001:db8::1",
   ])("classifies %s as non-public", (address) => {
     expect(isPublicAddress(address)).toBe(false);
   });

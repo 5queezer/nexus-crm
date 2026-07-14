@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/session";
+import { requireSessionAuth } from "@/lib/session";
 import {
   deleteConnector,
   prismaConnectorRepository,
@@ -15,7 +15,7 @@ const schema = z.object({
 });
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
-  const session = await requireAuth({ allowDevBypass: false });
+  const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid connector" }, { status: 400 });
@@ -27,6 +27,8 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     });
     return NextResponse.json({ connector });
   } catch (error) {
+    const errorCode = error instanceof Error ? error.name.slice(0, 100) : "ConnectorSaveError";
+    console.error("Failed to save connector", { connectorId: id, errorCode });
     const message = error instanceof Error ? error.message : "Connector could not be saved";
     return NextResponse.json(
       { error: message === "Connector not found" ? message : "Connector could not be saved" },
@@ -36,7 +38,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
-  const session = await requireAuth({ allowDevBypass: false });
+  const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await context.params;
   const deleted = await deleteConnector(prismaConnectorRepository, session.userId, id);

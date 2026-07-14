@@ -31,7 +31,8 @@ This document covers the Nexus AI operator console, its per-user model credentia
 
 **Controls:**
 
-- API routes derive `userId` from a Better Auth session with development bypass disabled.
+- API routes derive `userId` from a Better Auth browser session with development bypass disabled.
+- AI credential, chat, thread, connector, proposal-list, approval, and rejection routes reject API/OAuth bearer tokens so delegated integrations cannot silently obtain interactive secret-management or approval authority.
 - Repositories combine record ID/provider/name with `userId` for reads, updates, and deletes.
 - Agent application reads pass the authenticated user ID to the domain adapter.
 - Proposal approval resolves and transitions the proposal under the same user ID.
@@ -95,8 +96,9 @@ This document covers the Nexus AI operator console, its per-user model credentia
 - The domain update receives `expectedUpdatedAt` for optimistic concurrency.
 - Per-user idempotency keys and completed-result replay prevent duplicate application.
 - The executor reads the record back, compares every expected field, and persists expected, actual, and mismatch evidence.
+- Once a consequential dispatch starts, `outcome_unknown` is persisted before verification; post-dispatch transport or bookkeeping failures are never mislabeled as definitive failures or automatically retried.
 
-**Residual risk:** The database adapter's optimistic update and proposal state transition are separate operations rather than one cross-table transaction. A process failure can leave an `executing` proposal requiring operational reconciliation. Verification failure means the write was attempted; it must not be presented as a rollback.
+**Residual risk:** The database adapter's optimistic update and proposal state transition are separate operations rather than one cross-table transaction. A process failure can leave an `executing` or `outcome_unknown` proposal requiring operational reconciliation. Verification failure means the write was attempted; it must not be presented as a rollback.
 
 ### SSRF, DNS rebinding, and credential forwarding through MCP
 
@@ -106,15 +108,17 @@ This document covers the Nexus AI operator console, its per-user model credentia
 
 - Only HTTP(S) URL parsing is accepted; production requires HTTPS.
 - Embedded credentials and fragments are rejected.
-- DNS is resolved before save/connect and all returned addresses must pass public-address policy.
-- Blocked IPv4 ranges include unspecified, private, carrier-grade NAT, loopback, link-local, benchmarking, and multicast space; IPv6 unspecified, loopback, unique-local, link-local, and multicast are blocked.
+- DNS is resolved before connect, every returned address must pass public-address policy, and the validated address is pinned in the HTTP transport while the original hostname remains the TLS SNI/Host identity.
+- Blocked IPv4 ranges include unspecified, private, carrier-grade NAT, loopback, link-local, benchmarking, and multicast space; IPv4-mapped IPv6 forms plus IPv6 unspecified, loopback, unique-local, link-local, and multicast are blocked.
 - Redirects fail rather than forwarding headers.
 - Connector records and encrypted authorization are per-user; authorization is decrypted and attached only server-side.
 - MCP clients use no retries and are closed in `finally` blocks.
 - Discovery has a five-second timeout and a 50-tool limit; tool names are connector-namespaced.
-- MCP tool discovery is model-accessible, but invocation is not direct: the model can only persist a proposal containing the validated connector, remote tool name, and arguments. A separate authenticated owner approval sends the exact stored invocation.
+- MCP tool discovery is model-accessible, but invocation is not direct: the model can only persist a proposal containing canonical schema-validated arguments, argument/schema hashes, and the connector version. The approval UI exposes those arguments, and approval rejects connector or schema changes as stale before sending the exact reviewed invocation.
+- Changing a connector to a different origin without a replacement authorization clears the prior authorization rather than forwarding it to the new host.
+- Transport responses are byte-limited while streaming, before the SDK buffers or parses the complete payload.
 
-**Residual risk:** URL and DNS filtering is not a substitute for network egress controls. Operators should also block private/link-local destinations at the host or network layer. The current implementation does not pin the connected socket to the validated DNS answer, so rebinding risk remains even though redirects, retries, time, tool count, metadata size, and returned payload size are bounded. Connector endpoints may also log requests and returned data.
+**Residual risk:** Application filtering is defense in depth, not a substitute for network egress controls. Operators should also block private/link-local destinations at the host or network layer. Connector endpoints may log requests and returned data, and a public endpoint can still return misleading or hostile content within the bounded response.
 
 ### Denial of service and cost abuse
 

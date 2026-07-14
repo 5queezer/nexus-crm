@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/session";
+import { requireSessionAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { prisma } from "@/lib/prisma";
 import {
@@ -35,7 +35,7 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const session = await requireAuth({ allowDevBypass: false });
+  const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid chat request" }, { status: 400 });
@@ -133,6 +133,12 @@ export async function POST(request: Request) {
           finishReason,
           inputTokens: usage.inputTokens ?? null,
           outputTokens: usage.outputTokens ?? null,
+        });
+      },
+      onAbort: async () => {
+        await completeAgentRun(session.userId, run.id, {
+          status: "aborted",
+          finishReason: "aborted",
         });
       },
       onError: async ({ error }) => {

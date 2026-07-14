@@ -48,6 +48,10 @@ The system SHALL read the target from Nexus after application, compare every exp
 - **WHEN** one or more expected fields differ from read-back state
 - **THEN** the system records verification failure and exposes the mismatch without concealing that the mutation was attempted
 
+#### Scenario: Post-dispatch verification is interrupted
+- **WHEN** a mutation may have been applied but read-back or persistence does not complete
+- **THEN** the proposal remains `outcome_unknown`, the UI communicates uncertainty, and retrying approval does not dispatch the mutation again
+
 ### Requirement: UI refresh after verified mutation
 The system SHALL refresh affected homepage CRM queries after a proposal is applied so table, Kanban, and details surfaces show the verified state.
 

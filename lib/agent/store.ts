@@ -27,13 +27,17 @@ export interface AgentRepository {
   listThreads(userId: string): Promise<AgentThreadView[]>;
   findThread(userId: string, threadId: string): Promise<AgentThreadView | null>;
   removeThread(userId: string, threadId: string): Promise<boolean>;
-  createMessage(
+  createMessageForOwnedThread(
     input: Omit<AgentMessageView, "id" | "createdAt">,
-  ): Promise<AgentMessageView>;
+  ): Promise<AgentMessageView | null>;
 }
 
 function normalizeVisibleText(value: string, maximum: number): string {
   return value.trim().replace(/\s+/g, " ").slice(0, maximum);
+}
+
+function normalizeMessageText(value: string, maximum: number): string {
+  return value.replace(/\r\n?/g, "\n").trim().slice(0, maximum);
 }
 
 function mapThread(record: {
@@ -102,18 +106,29 @@ export const prismaAgentRepository: AgentRepository = {
     });
     return result.count > 0;
   },
-  async createMessage(input) {
-    const record = await prisma.agentMessage.create({
-      data: {
-        userId: input.userId,
-        threadId: input.threadId,
-        runId: input.runId ?? null,
-        role: input.role,
-        content: input.content,
-        metadata: input.metadata as Prisma.InputJsonValue | undefined,
-      },
+  async createMessageForOwnedThread(input) {
+    return prisma.$transaction(async (transaction) => {
+      const thread = await transaction.agentThread.findFirst({
+        where: { id: input.threadId, userId: input.userId },
+        select: { id: true },
+      });
+      if (!thread) return null;
+      const record = await transaction.agentMessage.create({
+        data: {
+          userId: input.userId,
+          threadId: input.threadId,
+          runId: input.runId ?? null,
+          role: input.role,
+          content: input.content,
+          metadata: input.metadata as Prisma.InputJsonValue | undefined,
+        },
+      });
+      await transaction.agentThread.update({
+        where: { id: thread.id },
+        data: { updatedAt: new Date() },
+      });
+      return { ...record, metadata: record.metadata ?? undefined };
     });
-    return { ...record, metadata: record.metadata ?? undefined };
   },
 };
 
@@ -152,11 +167,9 @@ export async function addThreadMessage(
   threadId: string,
   input: { role: string; content: string; runId?: string | null; metadata?: unknown },
 ) {
-  const thread = await repository.findThread(userId, threadId);
-  if (!thread) throw new Error("Thread not found");
-  const content = normalizeVisibleText(input.content, 32_000);
+  const content = normalizeMessageText(input.content, 32_000);
   if (!content) throw new Error("Message content is required");
-  return repository.createMessage({
+  const message = await repository.createMessageForOwnedThread({
     userId,
     threadId,
     runId: input.runId,
@@ -164,6 +177,8 @@ export async function addThreadMessage(
     content,
     metadata: input.metadata,
   });
+  if (!message) throw new Error("Thread not found");
+  return message;
 }
 
 export async function createAgentRun(input: {
@@ -179,7 +194,7 @@ export async function completeAgentRun(
   userId: string,
   runId: string,
   input: {
-    status: "completed" | "failed";
+    status: "completed" | "failed" | "aborted";
     finishReason?: string | null;
     inputTokens?: number | null;
     outputTokens?: number | null;

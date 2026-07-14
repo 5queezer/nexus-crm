@@ -92,7 +92,7 @@ Only Streamable HTTP(S) remote MCP is supported. Connector creation validates UR
 - credentials are encrypted per user;
 - response/tool counts and run time are bounded.
 
-Discovered MCP tools are namespaced by connector. The model can propose an MCP invocation, but the invocation executes only after the user approves the stored connector ID, tool name, and arguments. Newly discovered tools never gain automatic execution rights.
+Discovered MCP tools are namespaced by connector. The model can propose an MCP invocation, but the invocation executes only after the user approves the stored connector ID, connector version, tool name, and visible canonical arguments. Arguments are validated against the discovered JSON schema and stored with argument/schema hashes. Approval rediscovers the tool and rejects connector or schema changes as stale; newly discovered tools never gain automatic execution rights. Once dispatch begins, uncertain outcomes remain `outcome_unknown` rather than being retried or mislabeled as failed.
 
 ### 7. Persist a useful audit trail without persisting secrets
 

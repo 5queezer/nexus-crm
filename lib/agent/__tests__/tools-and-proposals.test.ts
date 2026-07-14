@@ -177,6 +177,72 @@ describe("application update proposals", () => {
     ).rejects.toThrow("Unsupported application change");
   });
 
+  it("accepts inbound and rejects non-canonical application statuses", async () => {
+    const db = { getApplication: vi.fn().mockResolvedValue(application()) } as unknown as DatabaseAdapter;
+    const repository = new MemoryProposalRepository();
+
+    await expect(
+      proposeApplicationUpdate({
+        db,
+        repository,
+        userId: "user-a",
+        applicationId: "1",
+        changes: { status: "inbound" },
+        reason: "Saved for later",
+      }),
+    ).resolves.toMatchObject({ payload: { status: "inbound" } });
+
+    await expect(
+      proposeApplicationUpdate({
+        db,
+        repository,
+        userId: "user-a",
+        applicationId: "1",
+        changes: { status: "wishlist" },
+        reason: "Invalid legacy label",
+      }),
+    ).rejects.toThrow("Unsupported application status");
+  });
+
+  it("returns the winning proposal after a concurrent idempotency conflict", async () => {
+    const db = { getApplication: vi.fn().mockResolvedValue(application()) } as unknown as DatabaseAdapter;
+    const winner = new MemoryProposalRepository();
+    const existing = await winner.create({
+      userId: "user-a",
+      threadId: null,
+      runId: null,
+      toolInvocationId: null,
+      kind: "update_application",
+      targetType: "application",
+      targetId: "1",
+      payload: { status: "interview" },
+      expectedDiff: [],
+      assumptions: null,
+      baseVersion: application().updatedAt,
+      idempotencyKey: "race-key",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      executedAt: null,
+    });
+    let lookups = 0;
+    const repository: ProposalRepository = {
+      create: vi.fn().mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" })),
+      findByIdempotencyKey: vi.fn(async () => (++lookups === 1 ? null : existing)),
+    };
+
+    await expect(
+      proposeApplicationUpdate({
+        db,
+        repository,
+        userId: "user-a",
+        applicationId: "1",
+        changes: { status: "interview" },
+        reason: "race",
+        idempotencyKey: "race-key",
+      }),
+    ).resolves.toEqual(existing);
+  });
+
   it("deduplicates a repeated idempotency key for the same user", async () => {
     const db = { getApplication: vi.fn().mockResolvedValue(application()) } as unknown as DatabaseAdapter;
     const repository = new MemoryProposalRepository();

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/session";
+import { requireSessionAuth } from "@/lib/session";
 import {
   deleteCredential,
   getCredentialMetadata,
@@ -16,7 +16,7 @@ const credentialSchema = z.object({
 });
 
 async function authenticatedUserId(): Promise<string | null> {
-  const session = await requireAuth({ allowDevBypass: false });
+  const session = await requireSessionAuth({ allowDevBypass: false });
   return session?.userId ?? null;
 }
 
@@ -53,6 +53,8 @@ export async function PUT(request: Request) {
     );
     return NextResponse.json({ credential });
   } catch (error) {
+    const errorCode = error instanceof Error ? error.name.slice(0, 100) : "CredentialSaveError";
+    console.error("Failed to save credential", { provider: parsed.data.provider, errorCode });
     const message = error instanceof Error ? error.message : "Credential configuration failed";
     const status = message.startsWith("Unsupported") ? 400 : 500;
     return NextResponse.json(

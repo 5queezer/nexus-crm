@@ -7,7 +7,31 @@ import {
   getConnectorSecret,
   type ConnectorRepository,
 } from "./connectors";
-import { callMcpTool } from "./mcp-client";
+import { callMcpTool, discoverMcpTools } from "./mcp-client";
+import { canonicalizeMcpCall } from "./mcp-proposal";
+
+export type ProposalExecutionErrorCode =
+  | "NOT_FOUND"
+  | "TARGET_NOT_FOUND"
+  | "EXPIRED"
+  | "STALE"
+  | "NOT_PENDING"
+  | "IN_PROGRESS"
+  | "UNSUPPORTED";
+
+export class ProposalExecutionError extends Error {
+  constructor(
+    public readonly code: ProposalExecutionErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ProposalExecutionError";
+  }
+}
+
+function executionError(code: ProposalExecutionErrorCode, message: string): never {
+  throw new ProposalExecutionError(code, message);
+}
 
 export type VerificationRecord = {
   id: string;
@@ -69,7 +93,7 @@ export const prismaProposalExecutionRepository: ProposalExecutionRepository = {
       where: { id, userId, status: { in: from } },
       data: {
         status,
-        ...(status === "applied" || status === "applied_unverified"
+        ...(status === "applied" || status === "applied_unverified" || status === "outcome_unknown"
           ? { executedAt: new Date() }
           : {}),
       },
@@ -101,7 +125,7 @@ function toUpdateInput(proposal: ExecutionProposalRecord): UpdateApplicationInpu
     } else if (field === "status" && typeof value === "string") input.status = value;
     else if (field === "notes" && (typeof value === "string" || value === null)) input.notes = value;
     else if (field === "rating" && (typeof value === "number" || value === null)) input.rating = value;
-    else throw new Error("Unsupported proposal payload");
+    else executionError("UNSUPPORTED", "Unsupported proposal payload");
   }
   if (proposal.baseVersion) input.expectedUpdatedAt = proposal.baseVersion;
   return input;
@@ -117,22 +141,47 @@ async function approveMcpProposal(input: {
   userId: string;
   proposal: ExecutionProposalRecord;
   call: typeof callMcpTool;
+  discover: typeof discoverMcpTools;
 }) {
   const connector = await getConnectorSecret(
     input.connectorRepository,
     input.userId,
     input.proposal.targetId,
   );
-  if (!connector) throw new Error("Proposal target not found");
+  if (!connector) executionError("TARGET_NOT_FOUND", "Proposal target not found");
   const toolName = input.proposal.payload.toolName;
   const args = input.proposal.payload.arguments;
+  const argumentsHash = input.proposal.payload.argumentsHash;
+  const toolSchemaHash = input.proposal.payload.toolSchemaHash;
+  const connectorVersion = input.proposal.payload.connectorVersion;
   if (
     typeof toolName !== "string" ||
     !args ||
     typeof args !== "object" ||
-    Array.isArray(args)
+    Array.isArray(args) ||
+    typeof argumentsHash !== "string" ||
+    typeof toolSchemaHash !== "string" ||
+    typeof connectorVersion !== "string"
   ) {
-    throw new Error("Unsupported proposal payload");
+    executionError("UNSUPPORTED", "Unsupported proposal payload");
+  }
+  if (connector.updatedAt.toISOString() !== connectorVersion) {
+    await input.repository.transition(input.userId, input.proposal.id, ["pending"], "stale");
+    executionError("STALE", "Proposal is stale");
+  }
+  const available = await input.discover(connector);
+  const selected = available.find((candidate) => candidate.remoteName === toolName);
+  if (!selected) {
+    await input.repository.transition(input.userId, input.proposal.id, ["pending"], "stale");
+    executionError("STALE", "Proposal is stale");
+  }
+  const reviewed = canonicalizeMcpCall(
+    args as Record<string, unknown>,
+    selected.inputSchema,
+  );
+  if (reviewed.argumentsHash !== argumentsHash || reviewed.schemaHash !== toolSchemaHash) {
+    await input.repository.transition(input.userId, input.proposal.id, ["pending"], "stale");
+    executionError("STALE", "Proposal is stale");
   }
   const claimed = await input.repository.transition(
     input.userId,
@@ -140,46 +189,58 @@ async function approveMcpProposal(input: {
     ["pending"],
     "executing",
   );
-  if (!claimed) throw new Error("Proposal is already being processed");
-  try {
-    const externalResult = await input.call(
-      connector,
+  if (!claimed) executionError("IN_PROGRESS", "Proposal is already being processed");
+
+  const armed = await input.repository.transition(
+    input.userId,
+    input.proposal.id,
+    ["executing"],
+    "outcome_unknown",
+  );
+  if (!armed) throw new Error("External outcome could not be armed");
+
+  const externalResult = await input.call(connector, toolName, reviewed.arguments);
+
+  const validShape =
+    externalResult &&
+    typeof externalResult === "object" &&
+    "content" in externalResult &&
+    Array.isArray(externalResult.content);
+  const protocolError =
+    !validShape ||
+    ("isError" in externalResult && externalResult.isError === true);
+  const content = validShape ? externalResult.content : undefined;
+  const verification = await input.repository.saveVerification({
+    proposalId: input.proposal.id,
+    userId: input.userId,
+    success: !protocolError,
+    expected: {
+      connectorId: connector.id,
+      connectorVersion,
       toolName,
-      args as Record<string, unknown>,
-    );
-    const content =
-      externalResult && typeof externalResult === "object" && "content" in externalResult
-        ? (externalResult as { content?: unknown[] }).content
-        : undefined;
-    const verification = await input.repository.saveVerification({
-      proposalId: input.proposal.id,
-      userId: input.userId,
-      success: true,
-      expected: { connectorId: connector.id, toolName },
-      actual: {
-        completed: true,
-        contentItems: Array.isArray(content) ? content.length : 0,
-      },
-      mismatches: null,
-    });
-    await input.repository.transition(
-      input.userId,
-      input.proposal.id,
-      ["executing"],
-      "applied",
-    );
-    const proposal =
-      (await input.repository.find(input.userId, input.proposal.id)) ?? input.proposal;
-    return { proposal, verification, externalResult };
-  } catch (error) {
-    await input.repository.transition(
-      input.userId,
-      input.proposal.id,
-      ["executing"],
-      "failed",
-    );
-    throw error;
-  }
+      argumentsHash,
+      toolSchemaHash,
+    },
+    actual: {
+      completed: true,
+      protocolError,
+      contentItems: Array.isArray(content) ? content.length : 0,
+    },
+    mismatches: protocolError
+      ? [{ field: "isError", expected: false, actual: true }]
+      : null,
+  });
+  const status = verification.success ? "applied" : "applied_unverified";
+  const completed = await input.repository.transition(
+    input.userId,
+    input.proposal.id,
+    ["outcome_unknown"],
+    status,
+  );
+  if (!completed) throw new Error("External outcome could not be finalized");
+  const proposal =
+    (await input.repository.find(input.userId, input.proposal.id)) ?? input.proposal;
+  return { proposal, verification, externalResult };
 }
 
 export async function approveProposal(input: {
@@ -187,44 +248,49 @@ export async function approveProposal(input: {
   db: DatabaseAdapter;
   connectorRepository?: ConnectorRepository;
   callMcp?: typeof callMcpTool;
+  discoverMcp?: typeof discoverMcpTools;
   userId: string;
   proposalId: string;
 }) {
   let proposal = await input.repository.find(input.userId, input.proposalId);
-  if (!proposal) throw new Error("Proposal not found");
+  if (!proposal) executionError("NOT_FOUND", "Proposal not found");
   if (
     (proposal.status === "applied" || proposal.status === "applied_unverified") &&
     proposal.verification
   ) {
     return { proposal, verification: proposal.verification };
   }
-  if (proposal.status !== "pending") throw new Error("Proposal is not pending");
+  if (proposal.status === "outcome_unknown") {
+    return { proposal, verification: proposal.verification };
+  }
+  if (proposal.status !== "pending") executionError("NOT_PENDING", "Proposal is not pending");
   if (proposal.expiresAt.getTime() <= Date.now()) {
     await input.repository.transition(input.userId, proposal.id, ["pending"], "expired");
-    throw new Error("Proposal expired");
+    executionError("EXPIRED", "Proposal expired");
   }
   if (proposal.kind === "mcp_tool" && proposal.targetType === "mcp_connector") {
-    if (!input.connectorRepository) throw new Error("MCP execution is unavailable");
+    if (!input.connectorRepository) executionError("UNSUPPORTED", "MCP execution is unavailable");
     return approveMcpProposal({
       repository: input.repository,
       connectorRepository: input.connectorRepository,
       userId: input.userId,
       proposal,
       call: input.callMcp ?? callMcpTool,
+      discover: input.discoverMcp ?? discoverMcpTools,
     });
   }
   if (proposal.kind !== "update_application" || proposal.targetType !== "application") {
-    throw new Error("Unsupported proposal kind");
+    executionError("UNSUPPORTED", "Unsupported proposal kind");
   }
 
   const current = await input.db.getApplication(proposal.targetId, input.userId);
-  if (!current) throw new Error("Proposal target not found");
+  if (!current) executionError("TARGET_NOT_FOUND", "Proposal target not found");
   if (
     proposal.baseVersion &&
     current.updatedAt.getTime() !== proposal.baseVersion.getTime()
   ) {
     await input.repository.transition(input.userId, proposal.id, ["pending"], "stale");
-    throw new Error("Proposal is stale");
+    executionError("STALE", "Proposal is stale");
   }
 
   const claimed = await input.repository.transition(
@@ -233,7 +299,15 @@ export async function approveProposal(input: {
     ["pending"],
     "executing",
   );
-  if (!claimed) throw new Error("Proposal is already being processed");
+  if (!claimed) executionError("IN_PROGRESS", "Proposal is already being processed");
+
+  const armed = await input.repository.transition(
+    input.userId,
+    proposal.id,
+    ["executing"],
+    "outcome_unknown",
+  );
+  if (!armed) throw new Error("Applied outcome could not be armed");
 
   try {
     await input.db.updateApplication(
@@ -242,13 +316,14 @@ export async function approveProposal(input: {
       toUpdateInput(proposal),
     );
   } catch (error) {
-    const status = error instanceof Error && error.message === "conflict" ? "stale" : "failed";
-    await input.repository.transition(input.userId, proposal.id, ["executing"], status);
+    if (error instanceof Error && error.message === "conflict") {
+      await input.repository.transition(input.userId, proposal.id, ["outcome_unknown"], "stale");
+      executionError("STALE", "Proposal is stale");
+    }
     throw error;
   }
 
-  try {
-    const readBack = await input.db.getApplication(proposal.targetId, input.userId);
+  const readBack = await input.db.getApplication(proposal.targetId, input.userId);
     if (!readBack) throw new Error("Applied target could not be verified");
     const expected = Object.fromEntries(
       proposal.expectedDiff.map((diff) => [diff.field, diff.to]),
@@ -271,13 +346,15 @@ export async function approveProposal(input: {
       mismatches: mismatches.length ? mismatches : null,
     });
     const status = verification.success ? "applied" : "applied_unverified";
-    await input.repository.transition(input.userId, proposal.id, ["executing"], status);
-    proposal = (await input.repository.find(input.userId, proposal.id)) ?? proposal;
-    return { proposal, verification };
-  } catch (error) {
-    await input.repository.transition(input.userId, proposal.id, ["executing"], "failed");
-    throw error;
-  }
+    const finalized = await input.repository.transition(
+      input.userId,
+      proposal.id,
+      ["outcome_unknown"],
+      status,
+    );
+    if (!finalized) throw new Error("Applied outcome could not be finalized");
+  proposal = (await input.repository.find(input.userId, proposal.id)) ?? proposal;
+  return { proposal, verification };
 }
 
 export async function rejectProposal(
@@ -286,9 +363,9 @@ export async function rejectProposal(
   proposalId: string,
 ) {
   const existing = await repository.find(userId, proposalId);
-  if (!existing) throw new Error("Proposal not found");
-  if (existing.status !== "pending") throw new Error("Proposal is not pending");
+  if (!existing) executionError("NOT_FOUND", "Proposal not found");
+  if (existing.status !== "pending") executionError("NOT_PENDING", "Proposal is not pending");
   const rejected = await repository.transition(userId, proposalId, ["pending"], "rejected");
-  if (!rejected) throw new Error("Proposal is already being processed");
+  if (!rejected) executionError("IN_PROGRESS", "Proposal is already being processed");
   return (await repository.find(userId, proposalId))!;
 }

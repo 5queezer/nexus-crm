@@ -93,13 +93,15 @@ model suggests change
         ▼
  apply exact stored payload with expectedUpdatedAt
         ▼
+ outcome_unknown (dispatch may have occurred; never auto-retry)
+        ▼
  read target back and compare expected fields
         │
         ├─ all match ─────────► applied + successful verification
         └─ mismatch ──────────► applied_unverified + mismatch evidence
 ```
 
-Approval is a separate authenticated API request. The executor does not ask the model to regenerate arguments. A conditional status transition claims a pending proposal before execution, and repeated approval of an already completed proposal returns its recorded verification instead of applying it again. After a successful update, clients should invalidate application queries so table, Kanban, and details views show the read-back state.
+Approval is a separate browser-session-authenticated API request. The executor does not ask the model to regenerate arguments. A conditional status transition claims a pending proposal before execution; after dispatch, uncertainty is durably represented as `outcome_unknown`. Repeated approval of an already completed or outcome-unknown proposal returns its recorded state instead of applying it again. After a successful update, clients invalidate application queries so table, Kanban, and details views show the read-back state.
 
 The currently implemented mutation is an application update limited to status, follow-up date, last-contact date, notes, and rating.
 
@@ -111,14 +113,14 @@ Before saving and again before connecting, the server:
 
 - rejects URL credentials and fragments;
 - requires HTTPS (except an explicit localhost development policy used only when invoked by code);
-- resolves DNS and rejects loopback, private, link-local, carrier-grade NAT, multicast, unspecified, and other blocked ranges;
-- disables redirects (`redirect: "error"`);
+- resolves DNS, rejects loopback, private, link-local, carrier-grade NAT, multicast, unspecified, mapped-IPv4, and other blocked ranges, then pins the HTTP connection to a validated public address;
+- preserves the original hostname for TLS SNI/Host verification and disables redirects (`redirect: "error"`);
 - sends authorization only from the server;
 - disables retries and closes the client after use;
-- limits discovery to 5 seconds and 50 tools;
+- limits discovery to 5 seconds and 50 tools and bounds metadata/call-response bytes while streaming;
 - namespaces discovered tool names with the connector name.
 
-Connector discovery is available to the authenticated model through `list_mcp_tools`. `propose_mcp_tool_call` validates the selected user-owned connector and discovered tool, then persists the canonical connector, remote tool name, and arguments. It does not call the remote server. Only the separate owner approval route reconnects and sends the exact stored invocation, records bounded completion evidence, and returns the external result.
+Connector discovery is available to the authenticated model through `list_mcp_tools`. `propose_mcp_tool_call` validates the selected user-owned connector, exact namespaced tool, and canonical arguments against the discovered JSON schema; it stores connector version plus argument/schema hashes and exposes the reviewed arguments in the approval card. It does not call the remote server. Owner approval rediscovers the schema, rejects connector/schema drift as stale, and sends only the exact stored invocation. Changing connector origin clears omitted authorization rather than carrying it to a new host.
 
 ## Persistence model
 

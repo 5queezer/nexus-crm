@@ -55,8 +55,13 @@ export function AiOperator() {
   const [actingProposal, setActingProposal] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const activeThreadRef = useRef<AgentThread | null>(null);
-  activeThreadRef.current = activeThread;
+
+  useEffect(() => {
+    activeThreadRef.current = activeThread;
+  }, [activeThread]);
 
   const configuredProviders = useMemo(
     () => providers.filter((item) => credentials.some((credential) => credential.provider === item.id)),
@@ -108,6 +113,39 @@ export function AiOperator() {
   }, [open, settingsOpen, loadInitial]);
 
   useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    const launcher = launcherRef.current;
+    if (!dialog) return;
+    const focusableSelector = "button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+    focusable()[0]?.focus();
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      if (!elements.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      launcher?.focus();
+    };
+  }, [open]);
+
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth" });
   }, [activeThread?.messages, streaming, proposals]);
 
@@ -115,10 +153,10 @@ export function AiOperator() {
     try {
       const result = await apiJson<{ proposals: ActionProposal[] }>(`/api/agent/proposals?threadId=${encodeURIComponent(threadId)}`);
       setProposals(result.proposals);
-    } catch {
-      setProposals([]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("error_generic"));
     }
-  }, []);
+  }, [t]);
 
   const activeThreadId = activeThread?.id;
   useEffect(() => {
@@ -220,15 +258,15 @@ export function AiOperator() {
   function submit(event: FormEvent) { event.preventDefault(); void sendMessage(message); }
 
   return <>
-    <button onClick={() => setOpen(true)} className="group fixed bottom-5 right-4 z-40 flex h-12 items-center gap-2 rounded-2xl bg-slate-950 px-3.5 text-sm font-semibold text-white shadow-[0_14px_40px_rgba(15,23,42,0.3)] ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400 sm:bottom-6 sm:right-6" aria-label={t("open_operator")}>
+    <button ref={launcherRef} onClick={() => setOpen(true)} className="group fixed bottom-5 right-4 z-40 flex h-12 items-center gap-2 rounded-2xl bg-slate-950 px-3.5 text-sm font-semibold text-white shadow-[0_14px_40px_rgba(15,23,42,0.3)] ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400 sm:bottom-6 sm:right-6" aria-label={t("open_operator")}>
       <span className="relative"><Sparkles className="h-4 w-4" /><span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-emerald-400 ring-2 ring-slate-950 group-hover:ring-indigo-600" /></span><span className="hidden sm:inline">{t("launcher")}</span>
     </button>
 
-    {open && <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={t("title")}>
+    {open && <div ref={dialogRef} className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={t("title")} tabIndex={-1}>
       <button className="absolute inset-0 hidden bg-slate-950/35 backdrop-blur-[2px] lg:block" onClick={() => setOpen(false)} aria-label={t("close")} />
       <section className="absolute inset-0 flex overflow-hidden bg-white shadow-2xl dark:bg-[#0f1011] lg:inset-y-3 lg:left-auto lg:right-3 lg:w-[min(920px,calc(100vw-24px))] lg:rounded-[24px] lg:border lg:border-slate-200/80 dark:lg:border-white/10">
         <aside className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} absolute inset-y-0 left-0 z-20 flex w-[min(82vw,260px)] flex-col border-r border-slate-200 bg-slate-50/95 transition-transform dark:border-white/8 dark:bg-[#0b0c0d] lg:static lg:w-60 lg:translate-x-0`}>
-          <div className="flex h-16 items-center justify-between px-4"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles className="h-3.5 w-3.5" /></span><div><p className="text-xs font-semibold text-slate-900 dark:text-white">{t("title")}</p><p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">{t("workspace")}</p></div></div><button onClick={() => setSidebarOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200/60 dark:hover:bg-white/5 lg:hidden"><X className="h-4 w-4" /></button></div>
+          <div className="flex h-16 items-center justify-between px-4"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles className="h-3.5 w-3.5" /></span><div><p className="text-xs font-semibold text-slate-900 dark:text-white">{t("title")}</p><p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">{t("workspace")}</p></div></div><button aria-label={t("close_history")} onClick={() => setSidebarOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200/60 dark:hover:bg-white/5 lg:hidden"><X className="h-4 w-4" /></button></div>
           <div className="px-3"><button onClick={() => void createThread()} disabled={streaming} className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-xs font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40 dark:bg-white dark:text-slate-950"><Plus className="h-3.5 w-3.5" />{t("new_thread")}</button></div>
           <div className="mt-5 flex items-center gap-2 px-4 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400"><History className="h-3 w-3" />{t("history")}</div>
           <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3">
@@ -240,8 +278,8 @@ export function AiOperator() {
         {sidebarOpen && <button className="absolute inset-0 z-10 bg-slate-950/30 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label={t("close_history")} />}
 
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 px-3 dark:border-white/8 sm:px-5"><button onClick={() => setSidebarOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 lg:hidden"><Menu className="h-4 w-4" /></button><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold tracking-[-0.02em] text-slate-950 dark:text-white">{activeThread?.title || t("new_thread")}</h2><div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{t("secure_byok")}</div></div>
-            {configuredProviders.length > 0 && <div className="relative"><select value={provider} onChange={(event) => setProvider(event.target.value as ProviderId)} className="h-9 appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-8 text-xs font-medium text-slate-700 outline-none dark:border-white/8 dark:bg-white/[0.04] dark:text-slate-300">{configuredProviders.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-2.5 top-3 h-3 w-3 text-slate-400" /></div>}
+          <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 px-3 dark:border-white/8 sm:px-5"><button aria-label={t("open_history")} onClick={() => setSidebarOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 lg:hidden"><Menu className="h-4 w-4" /></button><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold tracking-[-0.02em] text-slate-950 dark:text-white">{activeThread?.title || t("new_thread")}</h2><div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-medium text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{t("secure_byok")}</div></div>
+            {configuredProviders.length > 0 && <div className="relative"><select aria-label={t("provider_label")} value={provider} onChange={(event) => setProvider(event.target.value as ProviderId)} className="h-9 appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-8 text-xs font-medium text-slate-700 outline-none dark:border-white/8 dark:bg-white/[0.04] dark:text-slate-300">{configuredProviders.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-2.5 top-3 h-3 w-3 text-slate-400" /></div>}
             <button onClick={() => setSettingsOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5" aria-label={t("settings_title")}><Settings2 className="h-4 w-4" /></button><button onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5" aria-label={t("close")}><PanelRightClose className="h-4 w-4" /></button>
           </header>
 
@@ -249,7 +287,7 @@ export function AiOperator() {
             {loading && !activeThread ? <div className="flex h-full items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-indigo-500" /></div> : !credentials.length ? <SetupEmpty onSetup={() => setSettingsOpen(true)} /> : !(activeThread?.messages?.length) ? <Welcome providerLabel={currentProvider?.label} model={currentCredential?.defaultModel} onStarter={(key) => void sendMessage(t(key))} /> : <div className="mx-auto max-w-2xl space-y-5">{activeThread.messages.filter((item) => item.role === "user" || item.role === "assistant").map((item) => <ChatMessage key={item.id} message={item} streaming={streaming && item.role === "assistant" && !item.content} />)}{proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} busy={actingProposal === proposal.id} onApprove={() => void actOnProposal(proposal.id, "approve")} onReject={() => void actOnProposal(proposal.id, "reject")} />)}<div ref={endRef} /></div>}
           </main>
 
-          <footer className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-white/8 dark:bg-[#0f1011] sm:p-4">{error && <div role="alert" className="mx-auto mb-2 max-w-2xl rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}<form onSubmit={submit} className="mx-auto max-w-2xl"><div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-sm transition focus-within:border-indigo-400 focus-within:ring-3 focus-within:ring-indigo-500/10 dark:border-white/10 dark:bg-white/[0.035]"><textarea ref={inputRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (message.trim()) void sendMessage(message); } }} disabled={streaming || !credentials.length} rows={1} placeholder={credentials.length ? t("message_placeholder") : t("configure_first")} className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white dark:placeholder:text-slate-600" /><button type="submit" disabled={!message.trim() || streaming || !credentials.length} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-indigo-500 dark:hover:bg-indigo-400">{streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-3.5 w-3.5" />}</button></div><div className="mt-2 flex items-center justify-between px-1 text-[10px] text-slate-400"><span>{t("enter_hint")}</span><span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{t("approval_hint")}</span></div></form></footer>
+          <footer className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-white/8 dark:bg-[#0f1011] sm:p-4">{error && <div role="alert" className="mx-auto mb-2 max-w-2xl rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}<form onSubmit={submit} className="mx-auto max-w-2xl"><div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-sm transition focus-within:border-indigo-400 focus-within:ring-3 focus-within:ring-indigo-500/10 dark:border-white/10 dark:bg-white/[0.035]"><textarea aria-label={t("message_label")} ref={inputRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (message.trim()) void sendMessage(message); } }} disabled={streaming || !credentials.length} rows={1} placeholder={credentials.length ? t("message_placeholder") : t("configure_first")} className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white dark:placeholder:text-slate-600" /><button aria-label={t("send_message")} type="submit" disabled={!message.trim() || streaming || !credentials.length} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-indigo-500 dark:hover:bg-indigo-400">{streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-3.5 w-3.5" />}</button></div><div className="mt-2 flex items-center justify-between px-1 text-[10px] text-slate-400"><span>{t("enter_hint")}</span><span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{t("approval_hint")}</span></div></form></footer>
           {settingsOpen && <OperatorSettings providers={providers} credentials={credentials} onCredentialsChange={(next) => { setCredentials(next); if (!next.some((item) => item.provider === provider) && next[0]) setProvider(next[0].provider); }} onClose={() => setSettingsOpen(false)} />}
         </div>
       </section>
@@ -263,7 +301,21 @@ function Welcome({ providerLabel, model, onStarter }: { providerLabel?: string; 
 
 function ChatMessage({ message, streaming }: { message: AgentMessage; streaming: boolean }) { const t = useTranslations("ai_operator"); const assistant = message.role === "assistant"; return <div className={`flex gap-3 ${assistant ? "" : "justify-end"}`}>{assistant && <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><Sparkles className="h-3 w-3" /></span>}<div className={`max-w-[85%] ${assistant ? "" : "rounded-2xl rounded-br-md bg-slate-950 px-4 py-3 text-white dark:bg-indigo-500"}`}>{assistant && <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.13em] text-indigo-500 dark:text-indigo-300">{t("assistant_label")}</div>}<div className={`whitespace-pre-wrap text-sm leading-6 ${assistant ? "text-slate-700 dark:text-slate-300" : "text-white"}`}>{message.content || (streaming && <span className="inline-flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:150ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:300ms]" /></span>)}</div></div></div>; }
 
-function ProposalCard({ proposal, busy, onApprove, onReject }: { proposal: ActionProposal; busy: boolean; onApprove: () => void; onReject: () => void }) { const t = useTranslations("ai_operator"); const pending = proposal.status === "pending"; return <div className="ml-10 overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50/50 shadow-sm dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]"><div className="flex items-center justify-between border-b border-indigo-100 px-4 py-3 dark:border-indigo-500/15"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"><ShieldCheck className="h-3.5 w-3.5" /></span><div><p className="text-xs font-semibold text-slate-900 dark:text-white">{t("proposal_title")}</p><p className="text-[10px] text-slate-500">{proposal.targetType === "application" ? t("proposal_target", { id: proposal.targetId }) : t("proposal_target_connector", { id: proposal.targetId })}</p></div></div><span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${pending ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" : proposal.status === "applied" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-white/5"}`}>{t(`status_${proposal.status}` as "status_pending")}</span></div><div className="space-y-2 p-4">{proposal.assumptions?.reason && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">{proposal.assumptions.reason}</p>}{proposal.expectedDiff.map((diff) => <div key={diff.field} className="grid grid-cols-[90px_1fr] gap-3 text-xs"><span className="font-medium capitalize text-slate-500">{fieldLabel(diff.field)}</span><span className="min-w-0 text-slate-700 dark:text-slate-300"><span className="line-through opacity-50">{formatValue(diff.from)}</span><ArrowRight className="mx-1.5 inline h-3 w-3 text-indigo-400" /><span className="font-medium">{formatValue(diff.to)}</span></span></div>)}</div>{pending && <div className="flex justify-end gap-2 border-t border-indigo-100 px-4 py-3 dark:border-indigo-500/15"><button onClick={onReject} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-600 hover:bg-white disabled:opacity-50 dark:text-slate-400 dark:hover:bg-white/5"><XCircle className="h-3.5 w-3.5" />{t("reject")}</button><button onClick={onApprove} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{t("approve")}</button></div>}</div>; }
+function ProposalCard({ proposal, busy, onApprove, onReject }: { proposal: ActionProposal; busy: boolean; onApprove: () => void; onReject: () => void }) {
+  const t = useTranslations("ai_operator");
+  const pending = proposal.status === "pending";
+  const mcpPayload = proposal.kind === "mcp_tool" ? proposal.sanitizedPayload : null;
+  return <div className="ml-10 overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50/50 shadow-sm dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]">
+    <div className="flex items-center justify-between border-b border-indigo-100 px-4 py-3 dark:border-indigo-500/15"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"><ShieldCheck className="h-3.5 w-3.5" /></span><div><p className="text-xs font-semibold text-slate-900 dark:text-white">{t("proposal_title")}</p><p className="text-[10px] text-slate-500">{proposal.targetType === "application" ? t("proposal_target", { id: proposal.targetId }) : t("proposal_target_connector", { id: proposal.targetId })}</p></div></div><span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${pending ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" : proposal.status === "applied" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-white/5"}`}>{t(`status_${proposal.status}` as "status_pending")}</span></div>
+    <div className="space-y-2 p-4">
+      {proposal.assumptions?.reason && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">{proposal.assumptions.reason}</p>}
+      {mcpPayload?.toolName && <div className="text-xs"><span className="font-medium text-slate-500">{t("proposal_tool")}</span><span className="ml-3 font-mono font-semibold text-slate-800 dark:text-slate-200">{mcpPayload.toolName}</span></div>}
+      {mcpPayload?.arguments && <div className="text-xs"><div className="mb-1 font-medium text-slate-500">{t("proposal_arguments")}</div><pre className="overflow-x-auto rounded-xl bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">{JSON.stringify(mcpPayload.arguments, null, 2)}</pre></div>}
+      {proposal.expectedDiff.map((diff) => <div key={diff.field} className="grid grid-cols-[90px_1fr] gap-3 text-xs"><span className="font-medium capitalize text-slate-500">{fieldLabel(diff.field)}</span><span className="min-w-0 text-slate-700 dark:text-slate-300"><span className="line-through opacity-50">{formatValue(diff.from)}</span><ArrowRight className="mx-1.5 inline h-3 w-3 text-indigo-400" /><span className="font-medium">{formatValue(diff.to)}</span></span></div>)}
+    </div>
+    {pending && <div className="flex justify-end gap-2 border-t border-indigo-100 px-4 py-3 dark:border-indigo-500/15"><button onClick={onReject} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-600 hover:bg-white disabled:opacity-50 dark:text-slate-400 dark:hover:bg-white/5"><XCircle className="h-3.5 w-3.5" />{t("reject")}</button><button onClick={onApprove} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{t("approve")}</button></div>}
+  </div>;
+}
 
 function formatValue(value: unknown) { if (value === null || value === undefined || value === "") return "—"; if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value); return JSON.stringify(value); }
 function fieldLabel(field: string) { return field.replace(/([A-Z])/g, " $1").trim(); }
