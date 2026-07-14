@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: production-database-recovery
+  group: nexus-production-transition
   cancel-in-progress: false
 
 permissions:
@@ -19,6 +19,7 @@ env:
 jobs:
   recover:
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     steps:
       - name: Normalize recovery environment
         run: |
@@ -73,10 +74,50 @@ jobs:
             exit 1
           fi
 
+          transition_count_container="nexus-transition-count"
+          transition_backup_container="nexus-transition-backup"
+          transition_migration_container="nexus-transition-migration"
+
+          cleanup_transition_containers() {
+            for container in \
+              "${transition_count_container}" \
+              "${transition_backup_container}" \
+              "${transition_migration_container}"
+            do
+              docker rm -f "${container}" >/dev/null 2>&1 || true
+            done
+          }
+
+          compose_run_bounded() {
+            container_name="$1"
+            timeout_seconds="$2"
+            shift 2
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+            if docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
+              --name "${container_name}" \
+              --entrypoint timeout \
+              "${service}" "${timeout_seconds}" "$@"; then
+              run_status=0
+            else
+              run_status=$?
+            fi
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+            return "${run_status}"
+          }
+
+          cleanup_transition_on_exit() {
+            rc=$?
+            trap - EXIT
+            cleanup_transition_containers
+            exit "${rc}"
+          }
+
+          cleanup_transition_containers
+          trap cleanup_transition_on_exit EXIT
+
           db_count() {
-            docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
-              --entrypoint sh "${service}" \
-              -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
+            compose_run_bounded "${transition_count_container}" 120 \
+              sh -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
           }
 
           count_before="$(db_count)"
@@ -93,9 +134,8 @@ jobs:
           database_backup="${backup_dir}/nexus-manual-recovery-${stamp}.dump"
           install -m 700 -d "${backup_dir}"
           umask 077
-          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
-            --entrypoint sh "${service}" \
-            -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
+          compose_run_bounded "${transition_backup_container}" 900 \
+            sh -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
             > "${database_backup}"
           if [ ! -s "${database_backup}" ]; then
             echo "Database backup failed or produced an empty file." >&2
@@ -104,9 +144,8 @@ jobs:
           chmod 600 "${database_backup}"
           echo "Verified pre-migration database backup."
 
-          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
-            --entrypoint sh "${service}" \
-            -c 'export HOME=/tmp npm_config_cache=/tmp/npm-cache; rm -rf /tmp/prisma-cli; mkdir -p /tmp/prisma-cli; npm install --prefix /tmp/prisma-cli --no-save --no-audit --no-fund prisma@6.19.3; exec /tmp/prisma-cli/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma'
+          compose_run_bounded "${transition_migration_container}" 900 \
+            node /app/prisma-cli/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma
 
           count_after="$(db_count)"
           if [ "${count_after}" != "${count_before}" ]; then
@@ -116,5 +155,7 @@ jobs:
           echo "Applications after migration: ${count_after}"
 
           docker compose -f docker-compose.yaml up -d "${service}"
+          cleanup_transition_containers
+          trap - EXIT
           docker ps --filter "name=${service}" --format '{{.Names}} {{.Image}} {{.Status}}'
           REMOTE
