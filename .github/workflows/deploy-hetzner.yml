@@ -27,7 +27,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     if: >-
       github.event_name == 'workflow_dispatch' ||
       vars.HETZNER_AUTO_DEPLOY == 'true'

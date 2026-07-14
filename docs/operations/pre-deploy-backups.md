@@ -77,7 +77,7 @@ The deployment stops before `prisma migrate deploy` and before target-image acti
 
 Before the dump begins, the workflow marks recovery as required and then stops the Nexus service to quiesce browser, API, and MCP writes. If stopping, backup, or migration fails, an EXIT trap removes any transition containers, restores the previous Compose and `.env` files, and restarts the previous image. Temporary environment snapshots are removed on both success and failure.
 
-Partial objects can remain in the backup namespace, but no completion manifest is published for an incomplete recovery set. The backup runtime has a 20-minute default hard deadline, and deployment/recovery jobs have 45-minute GitHub Actions deadlines. Database-facing one-off containers use stable names and in-container deadlines; each transition removes stale named containers before accessing PostgreSQL.
+Partial objects can remain in the backup namespace, but no completion manifest is published for an incomplete recovery set. The backup runtime has a 20-minute default hard deadline, and deployment/recovery jobs have 75-minute GitHub Actions deadlines. Database-facing one-off containers use stable names and in-container deadlines; each transition removes stale named containers before accessing PostgreSQL.
 
 Deployment and manual production recovery share one concurrency group. New pushes and recovery requests wait instead of overlapping or cancelling a production transition already in progress.
 

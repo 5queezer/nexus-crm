@@ -58,7 +58,7 @@ After the database upload and all document generation copies verify, the program
 
 ### 7. Serialize and bound every production transition
 
-The deployment and manual recovery workflows share the `nexus-production-transition` concurrency group with cancellation disabled. Both jobs have a 45-minute Actions deadline. Every database-facing one-off container has a stable name, an in-container `timeout` as PID 1, and deterministic host cleanup; a new transition removes any orphan before touching PostgreSQL. The backup runtime also has a configurable hard deadline (20 minutes by default).
+The deployment and manual recovery workflows share the `nexus-production-transition` concurrency group with cancellation disabled. Both jobs have a 75-minute Actions deadline. Every database-facing one-off container has a stable name, an in-container `timeout` as PID 1, and deterministic host cleanup; a new transition removes any orphan before touching PostgreSQL. The backup runtime also has a configurable hard deadline (20 minutes by default).
 
 ### 8. Restore configuration and the old image on pre-activation failure
 
