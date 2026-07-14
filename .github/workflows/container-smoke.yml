@@ -1,0 +1,48 @@
+name: Container smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/pre-deploy-backup.mjs"
+      - ".github/workflows/deploy-hetzner.yml"
+      - ".github/workflows/container-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/pre-deploy-backup.mjs"
+      - ".github/workflows/deploy-hetzner.yml"
+      - ".github/workflows/container-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  production-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --tag nexus-crm:container-smoke .
+
+      - name: Verify backup runtime and PostgreSQL tools
+        run: |
+          docker run --rm \
+            --entrypoint sh \
+            nexus-crm:container-smoke \
+            -ec '
+              command -v pg_dump
+              command -v psql
+              command -v timeout
+              test -r /app/scripts/pre-deploy-backup.mjs
+              test -r /app/node_modules/prisma/build/index.js
+              node /app/scripts/pre-deploy-backup.mjs --help >/dev/null
+              node /app/node_modules/prisma/build/index.js --version >/dev/null
+            '

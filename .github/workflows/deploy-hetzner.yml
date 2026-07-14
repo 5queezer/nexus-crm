@@ -6,11 +6,13 @@ on:
     paths-ignore:
       - ".github/workflows/deploy-hetzner.yml"
       - ".github/workflows/recover-production-db.yml"
+      - ".github/workflows/container-smoke.yml"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: nexus-production-transition
+  # A newer push must not interrupt a backup or production transition.
+  cancel-in-progress: false
 
 env:
   COOLIFY_APP_DIR: ${{ vars.HETZNER_COOLIFY_APP_DIR }}
@@ -25,6 +27,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     if: >-
       github.event_name == 'workflow_dispatch' ||
       vars.HETZNER_AUTO_DEPLOY == 'true'
@@ -192,6 +195,72 @@ jobs:
           stamp="$(date +%Y%m%d%H%M%S)"
           backup="docker-compose.yaml.before-${DEPLOY_SHA}-${stamp}"
           cp docker-compose.yaml "${backup}"
+          env_backup=""
+          if [ -f .env ]; then
+            env_backup=".env.before-${DEPLOY_SHA}-${stamp}"
+            cp -p .env "${env_backup}"
+            chmod 600 "${env_backup}"
+          fi
+
+          deployment_committed=0
+          app_stopped=0
+          transition_count_container="nexus-transition-count"
+          transition_backup_container="nexus-transition-backup"
+          transition_migration_container="nexus-transition-migration"
+
+          cleanup_transition_containers() {
+            for container in \
+              "${transition_count_container}" \
+              "${transition_backup_container}" \
+              "${transition_migration_container}"
+            do
+              docker rm -f "${container}" >/dev/null 2>&1 || true
+            done
+          }
+
+          compose_run_bounded() {
+            container_name="$1"
+            timeout_seconds="$2"
+            shift 2
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+            if docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
+              --name "${container_name}" \
+              --entrypoint timeout \
+              "${COOLIFY_SERVICE}" "${timeout_seconds}" "$@"; then
+              run_status=0
+            else
+              run_status=$?
+            fi
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+            return "${run_status}"
+          }
+
+          # Kill any bounded transition container left by an interrupted SSH
+          # session before this workflow acquired the shared transition lock.
+          cleanup_transition_containers
+
+          restore_pending_deploy() {
+            rc=$?
+            trap - EXIT
+            cleanup_transition_containers
+            if [ "${deployment_committed}" -ne 1 ]; then
+              echo "Restoring pre-deploy Compose and environment state." >&2
+              cp "${backup}" docker-compose.yaml
+              if [ -n "${env_backup}" ]; then
+                cp -p "${env_backup}" .env
+              fi
+              if [ "${app_stopped}" -eq 1 ]; then
+                if ! docker compose -f docker-compose.yaml up -d "${COOLIFY_SERVICE}"; then
+                  echo "Failed to restart the previous application image." >&2
+                fi
+              fi
+            fi
+            if [ -n "${env_backup}" ]; then
+              rm -f "${env_backup}"
+            fi
+            exit "${rc}"
+          }
+          trap restore_pending_deploy EXIT
 
           python3 - <<'PY'
           import os
@@ -259,10 +328,15 @@ jobs:
           # database work through one-off containers so DATABASE_URL remains in
           # the compose environment and is never printed by GitHub Actions.
           db_count() {
-            docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
-              --entrypoint sh "${COOLIFY_SERVICE}" \
-              -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
+            compose_run_bounded "${transition_count_container}" 120 \
+              sh -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
           }
+
+          # Quiesce application and MCP writes so the PostgreSQL dump and the
+          # generation-pinned document snapshot share one recovery boundary.
+          app_stopped=1
+          docker compose -f docker-compose.yaml stop --timeout 30 "${COOLIFY_SERVICE}"
+          echo "Production writes quiesced for the recovery snapshot."
 
           count_before="$(db_count)"
           case "${count_before}" in
@@ -274,23 +348,34 @@ jobs:
           echo "Applications before migration: ${count_before}"
 
           backup_dir="${COOLIFY_APP_DIR}/database-backups"
-          database_backup="${backup_dir}/nexus-before-${DEPLOY_SHA}-${stamp}.dump"
           install -m 700 -d "${backup_dir}"
-          umask 077
-          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
-            --entrypoint sh "${COOLIFY_SERVICE}" \
-            -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
-            > "${database_backup}"
-          if [ ! -s "${database_backup}" ]; then
-            echo "Database backup failed or produced an empty file." >&2
-            exit 1
-          fi
-          chmod 600 "${database_backup}"
-          echo "Verified pre-migration database backup."
+          backup_id="${stamp}-${DEPLOY_SHA}"
 
-          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
-            --entrypoint sh "${COOLIFY_SERVICE}" \
-            -c 'export HOME=/tmp npm_config_cache=/tmp/npm-cache; rm -rf /tmp/prisma-cli; mkdir -p /tmp/prisma-cli; npm install --prefix /tmp/prisma-cli --no-save --no-audit --no-fund prisma@6.19.3; exec /tmp/prisma-cli/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma'
+          # The target image performs the backup in a one-off container while
+          # production writes are quiesced. DATABASE_URL, GCS_BUCKET,
+          # credentials, and optional BACKUP_GCS_* settings are inherited from
+          # the Compose service and never printed by Actions.
+          if docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
+            --name "${transition_backup_container}" \
+            --user 0:0 \
+            --volume "${backup_dir}:/backups" \
+            --env "BACKUP_ID=${backup_id}" \
+            --env "SOURCE_COMMIT=${DEPLOY_SHA}" \
+            --env "BACKUP_LOCAL_DIR=/backups" \
+            --entrypoint timeout "${COOLIFY_SERVICE}" \
+            1500 node /app/scripts/pre-deploy-backup.mjs; then
+            backup_status=0
+          else
+            backup_status=$?
+          fi
+          docker rm -f "${transition_backup_container}" >/dev/null 2>&1 || true
+          if [ "${backup_status}" -ne 0 ]; then
+            exit "${backup_status}"
+          fi
+          echo "Verified pre-deploy database and document recovery set ${backup_id}."
+
+          compose_run_bounded "${transition_migration_container}" 900 \
+            node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma
 
           count_after="$(db_count)"
           if [ "${count_after}" != "${count_before}" ]; then
@@ -300,6 +385,14 @@ jobs:
           echo "Applications after migration: ${count_after}"
 
           docker compose -f docker-compose.yaml up -d "${COOLIFY_SERVICE}"
+          cleanup_transition_containers
+          deployment_committed=1
+          app_stopped=0
+          if [ -n "${env_backup}" ]; then
+            rm -f "${env_backup}"
+            env_backup=""
+          fi
+          trap - EXIT
           ps_format="{{.Names}} {{.Image}} {{.Status}}"
           docker ps --filter "name=${COOLIFY_SERVICE}" --format "${ps_format}"
           REMOTE
