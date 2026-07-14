@@ -251,6 +251,51 @@ jobs:
             exit 1
           fi
 
+          # The previous production incident occurred because the new image was
+          # activated without applying its committed Prisma migration. Run all
+          # database work through one-off containers so DATABASE_URL remains in
+          # the compose environment and is never printed by GitHub Actions.
+          db_count() {
+            docker compose -f docker-compose.yaml run --rm -T --no-deps \
+              --entrypoint sh "${COOLIFY_SERVICE}" \
+              -c 'exec psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
+          }
+
+          count_before="$(db_count)"
+          case "${count_before}" in
+            ''|*[!0-9]*)
+              echo "Could not verify the pre-migration application count." >&2
+              exit 1
+              ;;
+          esac
+          echo "Applications before migration: ${count_before}"
+
+          backup_dir="${COOLIFY_APP_DIR}/database-backups"
+          database_backup="${backup_dir}/nexus-before-${DEPLOY_SHA}-${stamp}.dump"
+          install -m 700 -d "${backup_dir}"
+          umask 077
+          docker compose -f docker-compose.yaml run --rm -T --no-deps \
+            --entrypoint sh "${COOLIFY_SERVICE}" \
+            -c 'exec pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges' \
+            > "${database_backup}"
+          if [ ! -s "${database_backup}" ]; then
+            echo "Database backup failed or produced an empty file." >&2
+            exit 1
+          fi
+          chmod 600 "${database_backup}"
+          echo "Verified pre-migration database backup."
+
+          docker compose -f docker-compose.yaml run --rm -T --no-deps \
+            --entrypoint sh "${COOLIFY_SERVICE}" \
+            -c 'exec node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma'
+
+          count_after="$(db_count)"
+          if [ "${count_after}" != "${count_before}" ]; then
+            echo "Application count changed during additive migration; refusing to activate image." >&2
+            exit 1
+          fi
+          echo "Applications after migration: ${count_after}"
+
           docker compose -f docker-compose.yaml up -d "${COOLIFY_SERVICE}"
           ps_format="{{.Names}} {{.Image}} {{.Status}}"
           docker ps --filter "name=${COOLIFY_SERVICE}" --format "${ps_format}"
