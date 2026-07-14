@@ -8,16 +8,24 @@ export type McpDestinationPolicyOptions = {
   resolve?: (hostname: string) => Promise<AddressRecord[]>;
 };
 
-export function isPublicAddress(address: string): boolean {
+function addressRange(address: string): string | null {
   try {
     const parsed = ipaddr.parse(address.toLowerCase().split("%")[0]);
     if (parsed instanceof ipaddr.IPv6 && parsed.isIPv4MappedAddress()) {
-      return parsed.toIPv4Address().range() === "unicast";
+      return parsed.toIPv4Address().range();
     }
-    return parsed.range() === "unicast";
+    return parsed.range();
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function isPublicAddress(address: string): boolean {
+  return addressRange(address) === "unicast";
+}
+
+function isLoopbackAddress(address: string): boolean {
+  return addressRange(address) === "loopback";
 }
 
 async function defaultResolver(hostname: string): Promise<AddressRecord[]> {
@@ -40,8 +48,10 @@ export async function resolveMcpDestination(
     const localHost = url.hostname === "localhost" || url.hostname.endsWith(".localhost");
     if (options.allowLocalDevelopment && localHost && url.protocol === "http:") {
       const records = await (options.resolve ?? defaultResolver)(url.hostname);
+      if (!records.length || records.some((record) => !isLoopbackAddress(record.address))) {
+        throw new Error("non-loopback localhost");
+      }
       const selected = records[0];
-      if (!selected) throw new Error("unresolved localhost");
       return { url, address: selected.address, family: selected.family };
     }
     if (url.protocol !== "https:") throw new Error("HTTPS required");

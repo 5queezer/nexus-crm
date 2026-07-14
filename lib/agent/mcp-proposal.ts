@@ -13,6 +13,14 @@ const SENSITIVE_ARGUMENT_KEYS = new Set([
   "privatekey",
 ]);
 
+function isSensitiveArgumentKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SENSITIVE_ARGUMENT_KEYS.has(normalized) ||
+    ["token", "secret", "password", "privatekey", "credential"].some((suffix) =>
+      normalized.endsWith(suffix),
+    );
+}
+
 function assertNoSensitiveFields(value: unknown): void {
   if (Array.isArray(value)) {
     value.forEach(assertNoSensitiveFields);
@@ -20,7 +28,7 @@ function assertNoSensitiveFields(value: unknown): void {
   }
   if (!value || typeof value !== "object") return;
   for (const [key, nested] of Object.entries(value)) {
-    if (SENSITIVE_ARGUMENT_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+    if (isSensitiveArgumentKey(key)) {
       throw new Error("MCP arguments contain a sensitive field");
     }
     assertNoSensitiveFields(nested);

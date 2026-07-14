@@ -27,7 +27,7 @@ import { GET as listConnectors, POST as createConnector } from "../route";
 import { DELETE as deleteConnectorRoute, PUT as updateConnector } from "../[id]/route";
 import { GET as listTools } from "../[id]/tools/route";
 
-const context = { params: Promise.resolve({ id: "connector-1" }) };
+const context = () => ({ params: Promise.resolve({ id: "connector-1" }) });
 
 describe("connector route session authentication", () => {
   beforeEach(() => {
@@ -45,11 +45,16 @@ describe("connector route session authentication", () => {
   it.each([
     ["connector list", () => listConnectors()],
     ["connector creation", () => createConnector(new Request("http://test", { method: "POST" }))],
-    ["connector update", () => updateConnector(new Request("http://test", { method: "PUT" }), context)],
-    ["connector delete", () => deleteConnectorRoute(new Request("http://test"), context)],
-    ["connector tool discovery", () => listTools(new Request("http://test"), context)],
+    ["connector update", () => updateConnector(new Request("http://test", { method: "PUT" }), context())],
+    ["connector delete", () => deleteConnectorRoute(new Request("http://test"), context())],
+    ["connector tool discovery", () => listTools(new Request("http://test"), context())],
   ])("rejects bearer-token authentication for %s", async (_name, invoke) => {
     const response = await invoke();
     expect(response.status).toBe(401);
+    expect(mocks.listConnectorMetadata).not.toHaveBeenCalled();
+    expect(mocks.saveConnector).not.toHaveBeenCalled();
+    expect(mocks.deleteConnector).not.toHaveBeenCalled();
+    expect(mocks.getConnectorSecret).not.toHaveBeenCalled();
+    expect(mocks.discoverMcpTools).not.toHaveBeenCalled();
   });
 });

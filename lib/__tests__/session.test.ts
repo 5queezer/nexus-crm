@@ -39,7 +39,10 @@ describe("requireSessionAuth", () => {
     });
   });
 
-  it("rejects bearer-token authentication", async () => {
+  it("rejects bearer-token authentication even when a browser session is valid", async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { id: "user-a", name: null, email: "a@example.com", image: null },
+    });
     await expect(requireSessionAuth({ allowDevBypass: false })).resolves.toBeNull();
   });
 

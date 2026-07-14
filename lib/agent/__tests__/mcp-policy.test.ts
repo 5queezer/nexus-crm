@@ -78,4 +78,22 @@ describe("MCP destination policy", () => {
     });
     expect(result.hostname).toBe("localhost");
   });
+
+  it("rejects localhost HTTP when resolution is empty, mixed, or non-loopback", async () => {
+    for (const records of [
+      [],
+      [{ address: "8.8.8.8", family: 4 }],
+      [
+        { address: "127.0.0.1", family: 4 },
+        { address: "8.8.8.8", family: 4 },
+      ],
+    ]) {
+      await expect(
+        validateMcpDestination("http://localhost:3001/mcp", {
+          allowLocalDevelopment: true,
+          resolve: async () => records,
+        }),
+      ).rejects.toThrow("Unsafe MCP destination");
+    }
+  });
 });

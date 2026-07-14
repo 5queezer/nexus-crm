@@ -6,7 +6,11 @@ import {
   listConnectorMetadata,
   saveConnector,
 } from "../connectors";
-import { discoverMcpTools, createPinnedTransport } from "../mcp-client";
+import {
+  closeMcpClientAndTransport,
+  discoverMcpTools,
+  createPinnedTransport,
+} from "../mcp-client";
 import { resolveMcpDestination } from "../mcp-policy";
 import { canonicalizeMcpCall } from "../mcp-proposal";
 
@@ -120,10 +124,18 @@ describe("reviewed MCP calls", () => {
     );
     expect(() =>
       canonicalizeMcpCall(
-        { query: "roles", authorization: "Bearer should-not-be-stored" },
-        { type: "object" },
+        { query: "roles", api_key: "must-not-be-stored" },
+        { ...schema, properties: { ...schema.properties, api_key: { type: "string" } } },
       ),
     ).toThrow("MCP arguments contain a sensitive field");
+    for (const sensitive of ["token", "session_token", "client_secret", "db_password"]) {
+      expect(() =>
+        canonicalizeMcpCall(
+          { query: "roles", [sensitive]: "must-not-be-stored" },
+          { ...schema, additionalProperties: true },
+        ),
+      ).toThrow("MCP arguments contain a sensitive field");
+    }
   });
 });
 
@@ -145,6 +157,18 @@ describe("pinned MCP transport", () => {
     } finally {
       await transport.close();
     }
+  });
+});
+
+describe("MCP cleanup", () => {
+  it("closes the pinned transport when client cleanup rejects", async () => {
+    const client = { close: vi.fn().mockRejectedValue(new Error("client close failed")) };
+    const transport = { close: vi.fn().mockResolvedValue(undefined) };
+
+    await expect(closeMcpClientAndTransport(client, transport)).rejects.toThrow(
+      "client close failed",
+    );
+    expect(transport.close).toHaveBeenCalledOnce();
   });
 });
 

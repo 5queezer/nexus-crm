@@ -293,6 +293,7 @@ export async function approveProposal(input: {
     executionError("STALE", "Proposal is stale");
   }
 
+  const updateInput = toUpdateInput(proposal);
   const claimed = await input.repository.transition(
     input.userId,
     proposal.id,
@@ -313,7 +314,7 @@ export async function approveProposal(input: {
     await input.db.updateApplication(
       proposal.targetId,
       input.userId,
-      toUpdateInput(proposal),
+      updateInput,
     );
   } catch (error) {
     if (error instanceof Error && error.message === "conflict") {

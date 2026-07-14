@@ -96,6 +96,17 @@ export function createPinnedTransport(
   };
 }
 
+export async function closeMcpClientAndTransport(
+  client: { close(): Promise<void> },
+  transport: { close(): Promise<void> },
+): Promise<void> {
+  try {
+    await client.close();
+  } finally {
+    await transport.close();
+  }
+}
+
 async function productionClient(connector: McpConnectorSecret) {
   const destination = await resolveMcpDestination(connector.url);
   const transport = createPinnedTransport(destination);
@@ -115,10 +126,7 @@ async function productionClient(connector: McpConnectorSecret) {
     });
     return {
       client,
-      close: async () => {
-        await client.close();
-        await transport.close();
-      },
+      close: () => closeMcpClientAndTransport(client, transport),
     };
   } catch (error) {
     await transport.close();

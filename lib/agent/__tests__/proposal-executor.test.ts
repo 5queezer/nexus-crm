@@ -151,7 +151,24 @@ describe("proposal executor", () => {
     expect(db.updateApplication).not.toHaveBeenCalled();
   });
 
-  it("applies exact stored arguments with optimistic concurrency and verifies read-back", async () => {
+  it("validates application payloads before arming an uncertain outcome", async () => {
+    const repository = new MemoryExecutionRepository(
+      proposal({ payload: { unexpected: "field" } }),
+    );
+    const updateApplication = vi.fn();
+    const db = {
+      getApplication: vi.fn().mockResolvedValue(application()),
+      updateApplication,
+    } as unknown as DatabaseAdapter;
+
+    await expect(
+      approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" }),
+    ).rejects.toThrow("Unsupported proposal payload");
+    expect(repository.value.status).toBe("pending");
+    expect(updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("claims, applies with optimistic concurrency, and verifies read-back", async () => {
     const repository = new MemoryExecutionRepository();
     const before = application();
     const after = application({ status: "interview", updatedAt: new Date("2026-07-12T00:00:00Z") });

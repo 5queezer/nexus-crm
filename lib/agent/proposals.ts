@@ -191,11 +191,17 @@ export async function proposeApplicationUpdate(input: {
       executedAt: null,
     });
   } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? String(error.code)
-        : null;
-    if (code !== "P2002") throw error;
+    const details = error && typeof error === "object"
+      ? error as { code?: unknown; meta?: { target?: unknown } }
+      : null;
+    const target = details?.meta?.target;
+    const idempotencyTarget =
+      target === "ActionProposal_userId_idempotencyKey_key" ||
+      (Array.isArray(target) &&
+        target.length === 2 &&
+        target.includes("userId") &&
+        target.includes("idempotencyKey"));
+    if (String(details?.code ?? "") !== "P2002" || !idempotencyTarget) throw error;
     const winner = await input.repository.findByIdempotencyKey(input.userId, key);
     if (!winner) throw error;
     return winner;

@@ -226,7 +226,10 @@ describe("application update proposals", () => {
     });
     let lookups = 0;
     const repository: ProposalRepository = {
-      create: vi.fn().mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" })),
+      create: vi.fn().mockRejectedValue(Object.assign(new Error("unique"), {
+        code: "P2002",
+        meta: { target: ["userId", "idempotencyKey"] },
+      })),
       findByIdempotencyKey: vi.fn(async () => (++lookups === 1 ? null : existing)),
     };
 
@@ -241,6 +244,31 @@ describe("application update proposals", () => {
         idempotencyKey: "race-key",
       }),
     ).resolves.toEqual(existing);
+  });
+
+  it("rethrows unrelated unique-constraint conflicts", async () => {
+    const db = { getApplication: vi.fn().mockResolvedValue(application()) } as unknown as DatabaseAdapter;
+    const unrelated = Object.assign(new Error("tool invocation conflict"), {
+      code: "P2002",
+      meta: { target: ["toolInvocationId"] },
+    });
+    const repository: ProposalRepository = {
+      create: vi.fn().mockRejectedValue(unrelated),
+      findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+    };
+
+    await expect(
+      proposeApplicationUpdate({
+        db,
+        repository,
+        userId: "user-a",
+        applicationId: "1",
+        changes: { status: "interview" },
+        reason: "unrelated conflict",
+        idempotencyKey: "unique-key",
+      }),
+    ).rejects.toBe(unrelated);
+    expect(repository.findByIdempotencyKey).toHaveBeenCalledTimes(1);
   });
 
   it("deduplicates a repeated idempotency key for the same user", async () => {
