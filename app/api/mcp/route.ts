@@ -15,6 +15,7 @@ import {
   validateSubmissionAnswers,
 } from "@/lib/applications/submission";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
+import { submissionPolicyTransportSchema } from "@/lib/applications/submission-transport";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
@@ -25,7 +26,7 @@ import {
 import { uploadDocumentContent, MAX_DOCUMENT_BASE64_SIZE } from "@/lib/documents/upload";
 import { deleteDocumentWithContent } from "@/lib/documents/service";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
-import type { UpsertCvProfileInput } from "@/lib/db/types";
+import type { SubmissionPolicyInput, UpsertCvProfileInput } from "@/lib/db/types";
 
 const structuredApplicationToolFields = {
   workMode: z.enum(["remote", "hybrid", "onsite", "flexible"]).nullable().optional(),
@@ -65,6 +66,19 @@ const SUBMISSION_ERROR_CODES = new Set([
   "idempotency_conflict",
   "invalid_documents",
   "document_already_submitted",
+  "human_review_required",
+  "identity_consistency_required",
+  "fact_verification_required",
+  "profile_consistency_review_required",
+  "submission_materials_required",
+  "submission_answers_required",
+  "submission_answers_conflict",
+  "submission_documents_invalid",
+  "submission_policy_reason_invalid",
+  "submission_policy_reason_too_long",
+  "application_already_submitted",
+  "duplicate_requisition",
+  "same_company_active_application",
   "verification_failed",
 ]);
 
@@ -340,7 +354,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "record_application_submission",
-    "Atomically preserve the exact submitted answers and document versions, set the application to applied, set appliedAt/follow-up, append a timeline event, and verify the stored package. Idempotency key required.",
+    "Atomically preserve the exact submitted answers, required document versions, and application-integrity attestation; block duplicate/repeat/same-company conflicts unless a reasoned override applies; set the application to applied; append an event; and verify the stored package. Idempotency key and human review required.",
     {
       applicationId: z.string().min(1).describe("Application ID"),
       submittedAt: z.string().datetime().describe("Exact submission time as ISO 8601"),
@@ -357,6 +371,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         kind: z.enum(["text", "boolean", "number", "choice", "salary", "other"]).optional(),
         sensitive: z.boolean().optional(),
       })).max(50).default([]),
+      policy: submissionPolicyTransportSchema,
       candidateSalaryMin: z.number().int().nonnegative().nullable().optional(),
       candidateSalaryMax: z.number().int().nonnegative().nullable().optional(),
       candidateSalaryCurrency: z.string().length(3).nullable().optional(),
@@ -388,6 +403,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           requisitionId: args.requisitionId,
           language: args.language,
           answers,
+          policy: args.policy as SubmissionPolicyInput | undefined,
           candidateSalaryMin: args.candidateSalaryMin,
           candidateSalaryMax: args.candidateSalaryMax,
           candidateSalaryCurrency: args.candidateSalaryCurrency?.toUpperCase() ?? args.candidateSalaryCurrency,

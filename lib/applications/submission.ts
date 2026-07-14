@@ -1,11 +1,136 @@
 import { createHash } from "node:crypto";
 
+import type {
+  SubmissionPolicyInput,
+  ValidatedSubmissionPolicy,
+} from "../db/types";
+
 export interface SubmissionAnswerInput {
   key?: string;
   question: string;
   answer: string;
   kind?: "text" | "boolean" | "number" | "choice" | "salary" | "other";
   sensitive?: boolean;
+}
+
+export function validateSubmissionDocumentIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20) {
+    throw new Error("submission_documents_invalid");
+  }
+  if (value.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+    throw new Error("submission_documents_invalid");
+  }
+  const documentIds = value as string[];
+  if (new Set(documentIds).size !== documentIds.length) {
+    throw new Error("submission_documents_invalid");
+  }
+  return documentIds;
+}
+
+export function validateSubmissionPolicy(input: {
+  policy: SubmissionPolicyInput | null | undefined;
+  answers: SubmissionAnswerInput[];
+  documentIds: unknown;
+}): ValidatedSubmissionPolicy {
+  const policy = input.policy ?? {};
+  if (policy.humanReviewed !== true) throw new Error("human_review_required");
+  if (policy.identityConsistent !== true) throw new Error("identity_consistency_required");
+  if (policy.factsVerified !== true) throw new Error("fact_verification_required");
+  if (
+    policy.profileConsistencyStatus !== "verified" &&
+    policy.profileConsistencyStatus !== "unavailable_reviewed"
+  ) {
+    throw new Error("profile_consistency_review_required");
+  }
+  if (!Array.isArray(input.documentIds) || input.documentIds.length === 0) {
+    throw new Error("submission_materials_required");
+  }
+  const confirmedNoAnswers = policy.confirmedNoAnswers === true;
+  if (confirmedNoAnswers && Array.isArray(input.answers) && input.answers.length > 0) {
+    throw new Error("submission_answers_conflict");
+  }
+  if ((!Array.isArray(input.answers) || input.answers.length === 0) && !confirmedNoAnswers) {
+    throw new Error("submission_answers_required");
+  }
+
+  const normalizeReason = (value: unknown): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") throw new Error("submission_policy_reason_invalid");
+    const normalized = value.trim();
+    if (!normalized) return undefined;
+    if (normalized.length > 1000) throw new Error("submission_policy_reason_too_long");
+    return normalized;
+  };
+  const sameCompanyOverrideReason = normalizeReason(policy.sameCompanyOverrideReason);
+  const resubmissionReason = normalizeReason(policy.resubmissionReason);
+
+  return {
+    humanReviewed: true,
+    identityConsistent: true,
+    factsVerified: true,
+    profileConsistencyStatus: policy.profileConsistencyStatus,
+    confirmedNoAnswers,
+    ...(sameCompanyOverrideReason ? { sameCompanyOverrideReason } : {}),
+    ...(resubmissionReason ? { resubmissionReason } : {}),
+  };
+}
+
+export function normalizeCompanyIdentity(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+function normalizeIdentifier(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLocaleLowerCase("en-US");
+  return normalized || null;
+}
+
+export interface SubmissionConflictApplication {
+  id: string;
+  company: string;
+  status: string;
+  requisitionId: string | null;
+  atsName: string | null;
+}
+
+export function validateSubmissionConflicts(input: {
+  applicationId: string;
+  company: string;
+  requisitionId?: string | null;
+  atsName?: string | null;
+  existingSubmissionCount: number;
+  policy: ValidatedSubmissionPolicy;
+  applications: SubmissionConflictApplication[];
+}): void {
+  if (input.existingSubmissionCount > 0 && !input.policy.resubmissionReason) {
+    throw new Error("application_already_submitted");
+  }
+
+  const company = normalizeCompanyIdentity(input.company);
+  const requisitionId = normalizeIdentifier(input.requisitionId);
+  const atsName = normalizeIdentifier(input.atsName);
+  const sameCompanyApplications = input.applications.filter((application) =>
+    application.id !== input.applicationId
+    && normalizeCompanyIdentity(application.company) === company
+  );
+
+  if (requisitionId && !input.policy.resubmissionReason) {
+    const duplicate = sameCompanyApplications.some((application) => {
+      if (normalizeIdentifier(application.requisitionId) !== requisitionId) return false;
+      const otherAts = normalizeIdentifier(application.atsName);
+      return !atsName || !otherAts || atsName === otherAts;
+    });
+    if (duplicate) throw new Error("duplicate_requisition");
+  }
+
+  if (!input.policy.sameCompanyOverrideReason) {
+    const hasActiveApplication = sameCompanyApplications.some((application) =>
+      application.status === "applied" ||
+      application.status === "interview" ||
+      application.status === "offer",
+    );
+    if (hasActiveApplication) throw new Error("same_company_active_application");
+  }
 }
 
 export interface HealthApplication {
@@ -72,6 +197,40 @@ function stableSerialize(value: unknown): string {
 
 export function submissionRequestHash(value: unknown): string {
   return createHash("sha256").update(stableSerialize(value)).digest("hex");
+}
+
+export function submissionInputRequestHash(input: Record<string, unknown>): string {
+  const hashable = { ...input };
+  delete hashable.idempotencyKey;
+  delete hashable.dryRun;
+  delete hashable.expectedUpdatedAt;
+  delete hashable.source;
+  delete hashable.actor;
+  return submissionRequestHash(hashable);
+}
+
+export function submissionReplayRequestHashes(
+  input: Record<string, unknown>,
+  normalizedPolicy: ValidatedSubmissionPolicy | null,
+): ReadonlySet<string> {
+  const hashes = new Set<string>([submissionInputRequestHash(input)]);
+  if (normalizedPolicy) {
+    hashes.add(submissionInputRequestHash({ ...input, policy: normalizedPolicy }));
+  }
+  if (input.policy == null) {
+    const legacyInput = { ...input };
+    delete legacyInput.policy;
+    hashes.add(submissionInputRequestHash(legacyInput));
+    if (input.source === "rest") {
+      if (legacyInput.atsName === undefined) legacyInput.atsName = null;
+      if (legacyInput.requisitionId === undefined) legacyInput.requisitionId = null;
+      legacyInput.documentIds = Array.isArray(input.documentIds)
+        ? input.documentIds.map(String).slice(0, 20)
+        : [];
+      hashes.add(submissionInputRequestHash(legacyInput));
+    }
+  }
+  return hashes;
 }
 
 export function canonicalizeJobUrl(raw: string | null | undefined): string | null {

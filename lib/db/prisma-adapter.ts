@@ -3,7 +3,14 @@ import { Prisma, type ApplicationSubmission, type ApplicationEvent, type Documen
 import { normalizeStatus } from "@/types";
 import { sanitizeTriageFields } from "./sanitize";
 import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
-import { submissionRequestHash } from "@/lib/applications/submission";
+import {
+  submissionInputRequestHash,
+  submissionReplayRequestHashes,
+  submissionRequestHash,
+  validateSubmissionConflicts,
+  validateSubmissionDocumentIds,
+  validateSubmissionPolicy,
+} from "@/lib/applications/submission";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -96,6 +103,7 @@ function mapSubmission(
     answers: includeAnswers
       ? (row.answers as unknown as ApplicationSubmissionRecord["answers"])
       : [],
+    policy: row.policy as unknown as ApplicationSubmissionRecord["policy"],
     documentIds: row.documentIds as unknown as string[],
     documents: row.documents?.map(mapDoc),
   };
@@ -117,7 +125,7 @@ function submissionEventKey(idempotencyKey: string): string {
 async function loadSubmissionReplay(
   userId: string,
   idempotencyKey: string,
-  requestHash: string,
+  acceptedRequestHashes: ReadonlySet<string>,
 ): Promise<RecordSubmissionResult | null> {
   const submission = await prisma.applicationSubmission.findUnique({
     where: { userId_idempotencyKey: { userId, idempotencyKey } },
@@ -128,7 +136,7 @@ async function loadSubmissionReplay(
     },
   });
   if (!submission) return null;
-  if (submission.requestHash !== requestHash) throw new Error("idempotency_conflict");
+  if (!acceptedRequestHashes.has(submission.requestHash)) throw new Error("idempotency_conflict");
   const [application, event] = await Promise.all([
     prisma.application.findFirst({
       where: { id: submission.applicationId, userId },
@@ -512,17 +520,51 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     input: RecordSubmissionInput,
   ): Promise<RecordSubmissionResult> {
-    const hashable: Record<string, unknown> = { ...input };
-    delete hashable.idempotencyKey;
-    delete hashable.dryRun;
-    delete hashable.expectedUpdatedAt;
-    delete hashable.source;
-    delete hashable.actor;
-    const requestHash = submissionRequestHash(hashable);
-    const initialReplay = await loadSubmissionReplay(userId, input.idempotencyKey, requestHash);
+    const rawRequestHash = submissionInputRequestHash(input as unknown as Record<string, unknown>);
+    let validatedPolicy: ReturnType<typeof validateSubmissionPolicy> | null = null;
+    let policyError: unknown = null;
+    try {
+      validatedPolicy = validateSubmissionPolicy({
+        policy: input.policy,
+        answers: input.answers,
+        documentIds: input.documentIds,
+      });
+    } catch (error) {
+      policyError = error;
+    }
+    const requestHash = validatedPolicy
+      ? submissionInputRequestHash({ ...input, policy: validatedPolicy } as unknown as Record<string, unknown>)
+      : rawRequestHash;
+    const acceptedReplayHashes = submissionReplayRequestHashes(
+      input as unknown as Record<string, unknown>,
+      validatedPolicy,
+    );
+    const initialReplay = await loadSubmissionReplay(userId, input.idempotencyKey, acceptedReplayHashes);
     if (initialReplay) return initialReplay;
+    const policy = validatedPolicy;
+    if (!policy) {
+      throw policyError instanceof Error ? policyError : new Error("human_review_required");
+    }
+    const documentIds = validateSubmissionDocumentIds(input.documentIds);
     try {
       return await prisma.$transaction(async (tx) => {
+      const applicationId = nid(input.applicationId);
+      // Intentionally lock the owner's complete application set in a stable order.
+      // Same-company and duplicate-requisition checks must serialize concurrent
+      // submissions; narrowing this lock would reopen a TOCTOU race.
+      const locked = await tx.$queryRaw<Array<{
+        id: number;
+        company: string;
+        status: string;
+        requisitionId: string | null;
+        atsName: string | null;
+      }>>`
+        SELECT "id", "company", "status", "requisitionId", "atsName"
+        FROM "Application"
+        WHERE "userId" = ${userId}
+        ORDER BY "id"
+        FOR UPDATE
+      `;
       const replay = await tx.applicationSubmission.findUnique({
         where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
         include: {
@@ -532,7 +574,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         },
       });
       if (replay) {
-        if (replay.requestHash !== requestHash) throw new Error("idempotency_conflict");
+        if (!acceptedReplayHashes.has(replay.requestHash)) throw new Error("idempotency_conflict");
         const [application, event] = await Promise.all([
           tx.application.findFirstOrThrow({
             where: { id: replay.applicationId, userId },
@@ -557,14 +599,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           documents: replay.documents.map(mapDoc),
         };
       }
-
-      const applicationId = nid(input.applicationId);
-      const locked = await tx.$queryRaw<Array<{ id: number }>>`
-        SELECT "id" FROM "Application"
-        WHERE "id" = ${applicationId} AND "userId" = ${userId}
-        FOR UPDATE
-      `;
-      if (!locked.length) throw new Error("not_found");
+      if (!locked.some((row) => row.id === applicationId)) throw new Error("not_found");
       const application = await tx.application.findFirst({
         where: { id: applicationId, userId },
         include: { contacts: true },
@@ -577,7 +612,30 @@ export class PrismaAdapter implements DatabaseAdapter {
         throw new Error("conflict");
       }
 
-      const uniqueDocumentIds = Array.from(new Set(input.documentIds));
+      const effectiveAtsName = input.atsName !== undefined
+        ? input.atsName
+        : application.atsName;
+      const effectiveRequisitionId = input.requisitionId !== undefined
+        ? input.requisitionId
+        : application.requisitionId;
+      const existingSubmissionCount = await tx.applicationSubmission.count({
+        where: { userId, applicationId },
+      });
+      validateSubmissionConflicts({
+        applicationId: input.applicationId,
+        company: application.company,
+        requisitionId: effectiveRequisitionId,
+        atsName: effectiveAtsName,
+        existingSubmissionCount,
+        policy,
+        applications: locked.map((candidate) => ({
+          ...candidate,
+          id: sid(candidate.id),
+          status: normalizeStatus(candidate.status),
+        })),
+      });
+
+      const uniqueDocumentIds = documentIds;
       const documents = uniqueDocumentIds.length
         ? await tx.document.findMany({
             where: { id: { in: uniqueDocumentIds.map(nid) }, userId },
@@ -599,8 +657,8 @@ export class PrismaAdapter implements DatabaseAdapter {
           status: "applied",
           appliedAt: input.submittedAt,
           followUpAt: input.followUpAt === undefined ? application.followUpAt : input.followUpAt,
-          atsName: input.atsName ?? application.atsName,
-          requisitionId: input.requisitionId ?? application.requisitionId,
+          atsName: effectiveAtsName,
+          requisitionId: effectiveRequisitionId,
         });
         const predictedDocuments = documents.map((document) =>
           mapDoc({
@@ -622,10 +680,11 @@ export class PrismaAdapter implements DatabaseAdapter {
             requestHash,
             submittedAt: input.submittedAt,
             applicationUrl: input.applicationUrl ?? null,
-            atsName: input.atsName ?? null,
-            requisitionId: input.requisitionId ?? null,
+            atsName: effectiveAtsName,
+            requisitionId: effectiveRequisitionId,
             language: input.language ?? null,
             answers: input.answers,
+            policy,
             candidateSalaryMin: input.candidateSalaryMin ?? null,
             candidateSalaryMax: input.candidateSalaryMax ?? null,
             candidateSalaryCurrency: input.candidateSalaryCurrency ?? null,
@@ -649,10 +708,11 @@ export class PrismaAdapter implements DatabaseAdapter {
           requestHash,
           submittedAt: input.submittedAt,
           applicationUrl: input.applicationUrl ?? null,
-          atsName: input.atsName ?? null,
-          requisitionId: input.requisitionId ?? null,
+          atsName: effectiveAtsName,
+          requisitionId: effectiveRequisitionId,
           language: input.language ?? null,
           answers: input.answers as unknown as Prisma.InputJsonValue,
+          policy: policy as unknown as Prisma.InputJsonValue,
           candidateSalaryMin: input.candidateSalaryMin ?? null,
           candidateSalaryMax: input.candidateSalaryMax ?? null,
           candidateSalaryCurrency: input.candidateSalaryCurrency ?? null,
@@ -718,7 +778,8 @@ export class PrismaAdapter implements DatabaseAdapter {
             submissionId: sid(created.id),
             documentIds: uniqueDocumentIds,
             answerCount: input.answers.length,
-          },
+            policy,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
       const stored = await tx.applicationSubmission.findUniqueOrThrow({
@@ -744,7 +805,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const replay = await loadSubmissionReplay(userId, input.idempotencyKey, requestHash);
+        const replay = await loadSubmissionReplay(userId, input.idempotencyKey, acceptedReplayHashes);
         if (replay) return replay;
       }
       throw error;

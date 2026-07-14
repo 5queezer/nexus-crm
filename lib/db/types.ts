@@ -1,3 +1,35 @@
+// ── Submission policy contract ───────────────────────────────────────────────
+
+export type ProfileConsistencyStatus = "verified" | "unavailable_reviewed";
+
+export interface SubmissionPolicyInput {
+  humanReviewed?: boolean;
+  identityConsistent?: boolean;
+  factsVerified?: boolean;
+  profileConsistencyStatus?: ProfileConsistencyStatus | string;
+  confirmedNoAnswers?: boolean;
+  sameCompanyOverrideReason?: string;
+  resubmissionReason?: string;
+}
+
+export interface SubmissionPolicyRecord {
+  humanReviewed?: boolean;
+  identityConsistent?: boolean;
+  factsVerified?: boolean;
+  profileConsistencyStatus?: ProfileConsistencyStatus;
+  confirmedNoAnswers?: boolean;
+  sameCompanyOverrideReason?: string;
+  resubmissionReason?: string;
+}
+
+export interface ValidatedSubmissionPolicy extends SubmissionPolicyRecord {
+  humanReviewed: true;
+  identityConsistent: true;
+  factsVerified: true;
+  profileConsistencyStatus: ProfileConsistencyStatus;
+  confirmedNoAnswers: boolean;
+}
+
 // ── Record types (returned from adapter) ─────────────────────────────────────
 
 export interface ApplicationRecord {
@@ -103,6 +135,7 @@ export interface ApplicationSubmissionRecord {
   requisitionId: string | null;
   language: string | null;
   answers: SubmissionAnswerRecord[];
+  policy: SubmissionPolicyRecord;
   candidateSalaryMin: number | null;
   candidateSalaryMax: number | null;
   candidateSalaryCurrency: string | null;
@@ -325,13 +358,14 @@ export interface RecordSubmissionInput {
   requisitionId?: string | null;
   language?: string | null;
   answers: SubmissionAnswerRecord[];
+  policy?: SubmissionPolicyInput | null;
   candidateSalaryMin?: number | null;
   candidateSalaryMax?: number | null;
   candidateSalaryCurrency?: string | null;
   candidateSalaryPeriod?: string | null;
   candidateSalaryType?: string | null;
   candidateSalaryFlexible?: boolean;
-  documentIds: string[];
+  documentIds: unknown;
   source?: string | null;
   actor?: string | null;
   dryRun?: boolean;

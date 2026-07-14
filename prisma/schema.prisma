@@ -119,6 +119,7 @@ model ApplicationSubmission {
   requisitionId           String?
   language                String?
   answers                 Json
+  policy                  Json        @default("{}")
   candidateSalaryMin      Int?
   candidateSalaryMax      Int?
   candidateSalaryCurrency String?

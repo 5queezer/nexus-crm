@@ -2,9 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { validateSubmissionAnswers } from "@/lib/applications/submission";
+import type { SubmissionPolicyInput } from "@/lib/db/types";
 
 const SALARY_PERIODS = new Set(["hour", "day", "month", "year"]);
 const SALARY_TYPES = new Set(["base", "total", "contract_rate"]);
+const SUBMISSION_CONFLICT_CODES = new Set([
+  "conflict",
+  "idempotency_conflict",
+  "application_already_submitted",
+  "duplicate_requisition",
+  "same_company_active_application",
+  "document_already_submitted",
+]);
+const SUBMISSION_CLIENT_ERROR_CODES = new Set([
+  "application_deleting",
+  "invalid_documents",
+  "human_review_required",
+  "identity_consistency_required",
+  "fact_verification_required",
+  "profile_consistency_review_required",
+  "submission_materials_required",
+  "submission_answers_required",
+  "submission_answers_conflict",
+  "submission_documents_invalid",
+  "submission_policy_reason_invalid",
+  "submission_policy_reason_too_long",
+]);
 
 export async function GET(
   request: NextRequest,
@@ -43,11 +66,16 @@ export async function POST(
       return NextResponse.json({ error: "submittedAt must be a valid ISO timestamp" }, { status: 400 });
     }
     if (!Array.isArray(body.answers)) {
-      return NextResponse.json({ error: "answers must be an array" }, { status: 400 });
+      return NextResponse.json({ error: "submission_answers_invalid" }, { status: 400 });
     }
-    const answers = validateSubmissionAnswers(
-      body.answers as Parameters<typeof validateSubmissionAnswers>[0],
-    );
+    let answers;
+    try {
+      answers = validateSubmissionAnswers(
+        body.answers as Parameters<typeof validateSubmissionAnswers>[0],
+      );
+    } catch {
+      return NextResponse.json({ error: "submission_answers_invalid" }, { status: 400 });
+    }
     const salaryMin = body.candidateSalaryMin == null ? null : Number(body.candidateSalaryMin);
     const salaryMax = body.candidateSalaryMax == null ? null : Number(body.candidateSalaryMax);
     if (
@@ -109,23 +137,35 @@ export async function POST(
         return NextResponse.json({ error: "applicationUrl must use HTTP or HTTPS" }, { status: 400 });
       }
     }
+    const atsName = body.atsName === undefined
+      ? undefined
+      : body.atsName === null ? null : String(body.atsName).slice(0, 100);
+    const requisitionId = body.requisitionId === undefined
+      ? undefined
+      : body.requisitionId === null ? null : String(body.requisitionId).slice(0, 255);
+    const policy = body.policy === undefined
+      ? undefined
+      : body.policy === null ? null : body.policy as SubmissionPolicyInput;
     const result = await getDb().recordApplicationSubmission(auth.userId, {
       applicationId: id,
       idempotencyKey: body.idempotencyKey,
       submittedAt,
       followUpAt,
       applicationUrl: applicationUrl?.slice(0, 2000) ?? null,
-      atsName: body.atsName == null ? null : String(body.atsName).slice(0, 100),
-      requisitionId: body.requisitionId == null ? null : String(body.requisitionId).slice(0, 255),
+      atsName,
+      requisitionId,
       language: body.language == null ? null : String(body.language).slice(0, 20),
       answers,
+      policy,
       candidateSalaryMin: salaryMin,
       candidateSalaryMax: salaryMax,
       candidateSalaryCurrency: salaryCurrency,
       candidateSalaryPeriod: salaryPeriod,
       candidateSalaryType: salaryType,
       candidateSalaryFlexible: body.candidateSalaryFlexible === true,
-      documentIds: Array.isArray(body.documentIds) ? body.documentIds.map(String).slice(0, 20) : [],
+      // Preserve raw document input for exact legacy replay hashing. Both adapters
+      // validate it strictly before any new write.
+      documentIds: body.documentIds,
       expectedUpdatedAt,
       dryRun: body.dryRun === true,
       source: "rest",
@@ -133,8 +173,17 @@ export async function POST(
     });
     return NextResponse.json(result, { status: result.dryRun || result.replayed ? 200 : 201 });
   } catch (error) {
-    const code = error instanceof Error ? error.message : "submission_failed";
-    const status = code === "not_found" ? 404 : code === "conflict" || code.includes("idempotency") ? 409 : 400;
-    return NextResponse.json({ error: code }, { status });
+    const rawCode = error instanceof Error ? error.message : "submission_failed";
+    if (rawCode === "not_found") {
+      return NextResponse.json({ error: rawCode }, { status: 404 });
+    }
+    if (SUBMISSION_CONFLICT_CODES.has(rawCode)) {
+      return NextResponse.json({ error: rawCode }, { status: 409 });
+    }
+    if (SUBMISSION_CLIENT_ERROR_CODES.has(rawCode)) {
+      return NextResponse.json({ error: rawCode }, { status: 400 });
+    }
+    const code = rawCode === "verification_failed" ? rawCode : "submission_failed";
+    return NextResponse.json({ error: code }, { status: 500 });
   }
 }

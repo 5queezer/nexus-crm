@@ -3,8 +3,74 @@ import {
   canonicalizeJobUrl,
   computeApplicationHealth,
   requireOccurredAtForIdempotency,
+  submissionInputRequestHash,
+  submissionReplayRequestHashes,
   validateSubmissionAnswers,
+  validateSubmissionDocumentIds,
+  validateSubmissionConflicts,
+  validateSubmissionPolicy,
 } from "../submission";
+
+describe("submissionReplayRequestHashes", () => {
+  it("accepts the pre-policy REST hash that represented omitted ATS metadata as null", () => {
+    const current: Record<string, unknown> = {
+      applicationId: "app-1",
+      idempotencyKey: "legacy-key",
+      source: "rest",
+      answers: [{ question: "Why?", answer: "Because" }],
+      documentIds: ["doc-1"],
+      atsName: undefined,
+      requisitionId: undefined,
+      policy: undefined,
+    };
+    const legacy: Record<string, unknown> = { ...current, atsName: null, requisitionId: null };
+    delete legacy.policy;
+
+    expect(submissionReplayRequestHashes(current, null)).toContain(
+      submissionInputRequestHash(legacy),
+    );
+  });
+
+  it.each([
+    [["doc-1", "doc-1"], ["doc-1", "doc-1"]],
+    [Array.from({ length: 21 }, (_, index) => `doc-${index}`), Array.from({ length: 20 }, (_, index) => `doc-${index}`)],
+    [[7, true], ["7", "true"]],
+  ])("accepts the former REST document coercion in legacy replay hashes", (rawDocumentIds, legacyDocumentIds) => {
+    const current: Record<string, unknown> = {
+      applicationId: "app-1",
+      idempotencyKey: "legacy-key",
+      source: "rest",
+      answers: [{ question: "Why?", answer: "Because" }],
+      documentIds: rawDocumentIds,
+      atsName: undefined,
+      requisitionId: undefined,
+      policy: undefined,
+    };
+    const legacy: Record<string, unknown> = {
+      ...current,
+      atsName: null,
+      requisitionId: null,
+      documentIds: legacyDocumentIds,
+    };
+    delete legacy.policy;
+
+    expect(submissionReplayRequestHashes(current, null)).toContain(
+      submissionInputRequestHash(legacy),
+    );
+  });
+});
+
+describe("validateSubmissionDocumentIds", () => {
+  it("rejects duplicate document IDs for new writes", () => {
+    expect(() => validateSubmissionDocumentIds(["doc-1", "doc-1", "doc-2"]))
+      .toThrow("submission_documents_invalid");
+  });
+
+  it("rejects an oversized package instead of silently dropping documents", () => {
+    expect(() => validateSubmissionDocumentIds(Array.from({ length: 21 }, (_, index) => `doc-${index}`)))
+      .toThrow("submission_documents_invalid");
+  });
+});
 
 describe("canonicalizeJobUrl", () => {
   it("normalizes scheme/host, removes fragments, tracking parameters, and trailing slash", () => {
@@ -58,6 +124,169 @@ describe("validateSubmissionAnswers", () => {
       answer: "x".repeat(20_000),
     }));
     expect(() => validateSubmissionAnswers(answers)).toThrowError(/750000-byte/);
+  });
+});
+
+describe("validateSubmissionPolicy", () => {
+  const validPolicy = {
+    humanReviewed: true,
+    identityConsistent: true,
+    factsVerified: true,
+    profileConsistencyStatus: "verified" as const,
+  };
+
+  it("normalizes a complete policy and bounded override reasons", () => {
+    expect(validateSubmissionPolicy({
+      policy: {
+        ...validPolicy,
+        confirmedNoAnswers: false,
+        sameCompanyOverrideReason: "  Recruiter redirected me  ",
+        resubmissionReason: " Employer requested correction ",
+      },
+      answers: [{ question: "Why us?", answer: "Exact answer" }],
+      documentIds: ["doc-1"],
+    })).toEqual({
+      ...validPolicy,
+      confirmedNoAnswers: false,
+      sameCompanyOverrideReason: "Recruiter redirected me",
+      resubmissionReason: "Employer requested correction",
+    });
+  });
+
+  it.each([
+    [{ ...validPolicy, humanReviewed: false }, "human_review_required"],
+    [{ ...validPolicy, identityConsistent: false }, "identity_consistency_required"],
+    [{ ...validPolicy, factsVerified: false }, "fact_verification_required"],
+    [{ ...validPolicy, profileConsistencyStatus: "pending" }, "profile_consistency_review_required"],
+  ])("rejects incomplete attestations", (policy, expected) => {
+    expect(() => validateSubmissionPolicy({
+      policy,
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: ["doc-1"],
+    })).toThrow(expected);
+  });
+
+  it("requires submitted material", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: validPolicy,
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: [],
+    })).toThrow("submission_materials_required");
+  });
+
+  it("requires answers or an explicit no-answer confirmation", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: validPolicy,
+      answers: [],
+      documentIds: ["doc-1"],
+    })).toThrow("submission_answers_required");
+
+    expect(validateSubmissionPolicy({
+      policy: { ...validPolicy, profileConsistencyStatus: "unavailable_reviewed", confirmedNoAnswers: true },
+      answers: [],
+      documentIds: ["doc-1"],
+    })).toMatchObject({
+      profileConsistencyStatus: "unavailable_reviewed",
+      confirmedNoAnswers: true,
+    });
+  });
+
+  it("rejects a no-answer confirmation when answers are present", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: { ...validPolicy, confirmedNoAnswers: true },
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: ["doc-1"],
+    })).toThrow("submission_answers_conflict");
+  });
+
+  it("rejects non-string override reasons with a controlled code", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: { ...validPolicy, resubmissionReason: 42 } as unknown as typeof validPolicy,
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: ["doc-1"],
+    })).toThrow("submission_policy_reason_invalid");
+  });
+
+  it("rejects oversized override reasons", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: { ...validPolicy, resubmissionReason: "x".repeat(1001) },
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: ["doc-1"],
+    })).toThrow("submission_policy_reason_too_long");
+  });
+});
+
+describe("validateSubmissionConflicts", () => {
+  const base = {
+    applicationId: "app-1",
+    company: " Example   Corp ",
+    requisitionId: "REQ-7",
+    atsName: "Greenhouse",
+    existingSubmissionCount: 0,
+    policy: {
+      humanReviewed: true as const,
+      identityConsistent: true as const,
+      factsVerified: true as const,
+      profileConsistencyStatus: "verified" as const,
+      confirmedNoAnswers: false,
+    },
+    applications: [] as Array<{
+      id: string;
+      company: string;
+      status: string;
+      requisitionId: string | null;
+      atsName: string | null;
+    }>,
+  };
+
+  it("blocks a second submission unless a resubmission reason is present", () => {
+    expect(() => validateSubmissionConflicts({ ...base, existingSubmissionCount: 1 }))
+      .toThrow("application_already_submitted");
+    expect(() => validateSubmissionConflicts({
+      ...base,
+      existingSubmissionCount: 1,
+      policy: { ...base.policy, resubmissionReason: "Employer requested correction" },
+    })).not.toThrow();
+  });
+
+  it("blocks the same requisition across normalized company records", () => {
+    const applications = [{
+      id: "app-2",
+      company: "example corp",
+      status: "rejected",
+      requisitionId: " req-7 ",
+      atsName: "greenhouse",
+    }];
+    expect(() => validateSubmissionConflicts({ ...base, applications }))
+      .toThrow("duplicate_requisition");
+  });
+
+  it("does not collide equal requisition IDs from different ATS namespaces", () => {
+    const applications = [{
+      id: "app-2",
+      company: "Example Corp",
+      status: "rejected",
+      requisitionId: "REQ-7",
+      atsName: "Lever",
+    }];
+    expect(() => validateSubmissionConflicts({ ...base, applications })).not.toThrow();
+  });
+
+  it("blocks a parallel active same-company process unless explicitly overridden", () => {
+    const applications = [{
+      id: "app-2",
+      company: "EXAMPLE CORP",
+      status: "interview",
+      requisitionId: "REQ-8",
+      atsName: "Greenhouse",
+    }];
+    expect(() => validateSubmissionConflicts({ ...base, applications }))
+      .toThrow("same_company_active_application");
+    expect(() => validateSubmissionConflicts({
+      ...base,
+      applications,
+      policy: { ...base.policy, sameCompanyOverrideReason: "Recruiter redirected me" },
+    })).not.toThrow();
   });
 });
 
