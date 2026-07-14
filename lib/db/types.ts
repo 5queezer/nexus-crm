@@ -365,7 +365,7 @@ export interface RecordSubmissionInput {
   candidateSalaryPeriod?: string | null;
   candidateSalaryType?: string | null;
   candidateSalaryFlexible?: boolean;
-  documentIds: string[];
+  documentIds: unknown;
   source?: string | null;
   actor?: string | null;
   dryRun?: boolean;

@@ -163,7 +163,9 @@ export async function POST(
       candidateSalaryPeriod: salaryPeriod,
       candidateSalaryType: salaryType,
       candidateSalaryFlexible: body.candidateSalaryFlexible === true,
-      documentIds: body.documentIds as string[],
+      // Preserve raw document input for exact legacy replay hashing. Both adapters
+      // validate it strictly before any new write.
+      documentIds: body.documentIds,
       expectedUpdatedAt,
       dryRun: body.dryRun === true,
       source: "rest",

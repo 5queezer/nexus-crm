@@ -636,13 +636,13 @@ describe("FirestoreAdapter — submission transaction", () => {
   );
 
   it("replays legacy REST packages before rejecting their formerly truncated document shape", async () => {
-    const raw = { ...legacyInput(), source: "rest" };
-    raw.documentIds = Array.from({ length: 21 }, () => "doc-1");
+    const rawDocumentIds = Array.from({ length: 21 }, () => "doc-1");
+    const raw = { ...legacyInput(), source: "rest", documentIds: rawDocumentIds };
     const previouslyNormalized = {
       ...raw,
       atsName: null,
       requisitionId: null,
-      documentIds: raw.documentIds.slice(0, 20),
+      documentIds: rawDocumentIds.slice(0, 20),
     };
     seedLegacySubmission(previouslyNormalized);
     const adapter = new FirestoreAdapter();

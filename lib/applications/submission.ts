@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 
 import type {
-  ProfileConsistencyStatus,
   SubmissionPolicyInput,
   ValidatedSubmissionPolicy,
 } from "../db/types";
@@ -32,14 +31,16 @@ export function validateSubmissionDocumentIds(value: unknown): string[] {
 export function validateSubmissionPolicy(input: {
   policy: SubmissionPolicyInput | null | undefined;
   answers: SubmissionAnswerInput[];
-  documentIds: string[];
+  documentIds: unknown;
 }): ValidatedSubmissionPolicy {
   const policy = input.policy ?? {};
   if (policy.humanReviewed !== true) throw new Error("human_review_required");
   if (policy.identityConsistent !== true) throw new Error("identity_consistency_required");
   if (policy.factsVerified !== true) throw new Error("fact_verification_required");
-  if (!new Set<ProfileConsistencyStatus>(["verified", "unavailable_reviewed"])
-    .has(policy.profileConsistencyStatus as ProfileConsistencyStatus)) {
+  if (
+    policy.profileConsistencyStatus !== "verified" &&
+    policy.profileConsistencyStatus !== "unavailable_reviewed"
+  ) {
     throw new Error("profile_consistency_review_required");
   }
   if (!Array.isArray(input.documentIds) || input.documentIds.length === 0) {
@@ -68,7 +69,7 @@ export function validateSubmissionPolicy(input: {
     humanReviewed: true,
     identityConsistent: true,
     factsVerified: true,
-    profileConsistencyStatus: policy.profileConsistencyStatus as ProfileConsistencyStatus,
+    profileConsistencyStatus: policy.profileConsistencyStatus,
     confirmedNoAnswers,
     ...(sameCompanyOverrideReason ? { sameCompanyOverrideReason } : {}),
     ...(resubmissionReason ? { resubmissionReason } : {}),
@@ -124,7 +125,9 @@ export function validateSubmissionConflicts(input: {
 
   if (!input.policy.sameCompanyOverrideReason) {
     const hasActiveApplication = sameCompanyApplications.some((application) =>
-      ["applied", "interview", "offer"].includes(application.status),
+      application.status === "applied" ||
+      application.status === "interview" ||
+      application.status === "offer",
     );
     if (hasActiveApplication) throw new Error("same_company_active_application");
   }

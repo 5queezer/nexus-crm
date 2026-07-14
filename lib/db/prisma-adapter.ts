@@ -549,8 +549,18 @@ export class PrismaAdapter implements DatabaseAdapter {
     try {
       return await prisma.$transaction(async (tx) => {
       const applicationId = nid(input.applicationId);
-      const locked = await tx.$queryRaw<Array<{ id: number }>>`
-        SELECT "id" FROM "Application"
+      // Intentionally lock the owner's complete application set in a stable order.
+      // Same-company and duplicate-requisition checks must serialize concurrent
+      // submissions; narrowing this lock would reopen a TOCTOU race.
+      const locked = await tx.$queryRaw<Array<{
+        id: number;
+        company: string;
+        status: string;
+        requisitionId: string | null;
+        atsName: string | null;
+      }>>`
+        SELECT "id", "company", "status", "requisitionId", "atsName"
+        FROM "Application"
         WHERE "userId" = ${userId}
         ORDER BY "id"
         FOR UPDATE
@@ -608,21 +618,9 @@ export class PrismaAdapter implements DatabaseAdapter {
       const effectiveRequisitionId = input.requisitionId !== undefined
         ? input.requisitionId
         : application.requisitionId;
-      const [existingSubmissionCount, ownerApplications] = await Promise.all([
-        tx.applicationSubmission.count({
-          where: { userId, applicationId },
-        }),
-        tx.application.findMany({
-          where: { userId },
-          select: {
-            id: true,
-            company: true,
-            status: true,
-            requisitionId: true,
-            atsName: true,
-          },
-        }),
-      ]);
+      const existingSubmissionCount = await tx.applicationSubmission.count({
+        where: { userId, applicationId },
+      });
       validateSubmissionConflicts({
         applicationId: input.applicationId,
         company: application.company,
@@ -630,7 +628,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         atsName: effectiveAtsName,
         existingSubmissionCount,
         policy,
-        applications: ownerApplications.map((candidate) => ({
+        applications: locked.map((candidate) => ({
           ...candidate,
           id: sid(candidate.id),
           status: normalizeStatus(candidate.status),

@@ -634,6 +634,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const effectiveRequisitionId = input.requisitionId !== undefined
         ? input.requisitionId
         : (typeof appData.requisitionId === "string" ? appData.requisitionId : null);
+      // Reading the owner's complete application set into this transaction is
+      // intentional: it makes same-company and duplicate-requisition checks race-safe
+      // and mirrors Prisma's owner-wide serialization boundary.
       const [existingApplicationSubmissions, ownerApplications] = await Promise.all([
         transaction.get(
           this.submissions
