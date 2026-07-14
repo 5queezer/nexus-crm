@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { validateSubmissionAnswers } from "@/lib/applications/submission";
+import {
+  validateSubmissionAnswers,
+  validateSubmissionPolicy,
+} from "@/lib/applications/submission";
 
 const SALARY_PERIODS = new Set(["hour", "day", "month", "year"]);
 const SALARY_TYPES = new Set(["base", "total", "contract_rate"]);
@@ -48,6 +51,14 @@ export async function POST(
     const answers = validateSubmissionAnswers(
       body.answers as Parameters<typeof validateSubmissionAnswers>[0],
     );
+    const documentIds = Array.isArray(body.documentIds)
+      ? Array.from(new Set(body.documentIds.map(String))).slice(0, 20)
+      : [];
+    const policy = validateSubmissionPolicy({
+      policy: body.policy as Parameters<typeof validateSubmissionPolicy>[0]["policy"],
+      answers,
+      documentIds,
+    });
     const salaryMin = body.candidateSalaryMin == null ? null : Number(body.candidateSalaryMin);
     const salaryMax = body.candidateSalaryMax == null ? null : Number(body.candidateSalaryMax);
     if (
@@ -119,13 +130,14 @@ export async function POST(
       requisitionId: body.requisitionId == null ? null : String(body.requisitionId).slice(0, 255),
       language: body.language == null ? null : String(body.language).slice(0, 20),
       answers,
+      policy,
       candidateSalaryMin: salaryMin,
       candidateSalaryMax: salaryMax,
       candidateSalaryCurrency: salaryCurrency,
       candidateSalaryPeriod: salaryPeriod,
       candidateSalaryType: salaryType,
       candidateSalaryFlexible: body.candidateSalaryFlexible === true,
-      documentIds: Array.isArray(body.documentIds) ? body.documentIds.map(String).slice(0, 20) : [],
+      documentIds,
       expectedUpdatedAt,
       dryRun: body.dryRun === true,
       source: "rest",
@@ -134,7 +146,14 @@ export async function POST(
     return NextResponse.json(result, { status: result.dryRun || result.replayed ? 200 : 201 });
   } catch (error) {
     const code = error instanceof Error ? error.message : "submission_failed";
-    const status = code === "not_found" ? 404 : code === "conflict" || code.includes("idempotency") ? 409 : 400;
+    const conflictCodes = new Set([
+      "conflict",
+      "idempotency_conflict",
+      "application_already_submitted",
+      "duplicate_requisition",
+      "same_company_active_application",
+    ]);
+    const status = code === "not_found" ? 404 : conflictCodes.has(code) ? 409 : 400;
     return NextResponse.json({ error: code }, { status });
   }
 }

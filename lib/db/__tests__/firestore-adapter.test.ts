@@ -526,6 +526,12 @@ describe("FirestoreAdapter — submission transaction", () => {
       submittedAt,
       followUpAt: new Date("2026-07-17T07:00:00Z"),
       answers: [{ question: "Why Pleo?", answer }],
+      policy: {
+        humanReviewed: true,
+        identityConsistent: true,
+        factsVerified: true,
+        profileConsistencyStatus: "verified" as const,
+      },
       candidateSalaryMin: 75_000,
       candidateSalaryMax: 75_000,
       candidateSalaryCurrency: "EUR",
@@ -546,6 +552,13 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(created.verified).toBe(true);
     expect(created.application.status).toBe("applied");
     expect(created.submission.answers).toEqual([{ question: "Why Pleo?", answer: "Exact submitted answer" }]);
+    expect(created.submission.policy).toMatchObject({
+      humanReviewed: true,
+      identityConsistent: true,
+      factsVerified: true,
+      profileConsistencyStatus: "verified",
+      confirmedNoAnswers: false,
+    });
     expect(created.documents[0].state).toBe("submitted");
     expect(stores.applicationSubmissions.size).toBe(1);
     expect(stores.applicationEvents.size).toBe(1);
@@ -554,6 +567,80 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(replay.replayed).toBe(true);
     expect(stores.applicationSubmissions.size).toBe(1);
     expect(stores.applicationEvents.size).toBe(1);
+  });
+
+  it("blocks a new-key repeat submission without an audited reason", async () => {
+    const adapter = new FirestoreAdapter();
+    await adapter.recordApplicationSubmission(userId, input());
+
+    await expect(adapter.recordApplicationSubmission(userId, {
+      ...input(),
+      idempotencyKey: "pleo-submit-repeat-2026-07-13",
+      documentIds: ["doc-1"],
+    })).rejects.toThrow("application_already_submitted");
+    expect(stores.applicationSubmissions.size).toBe(1);
+  });
+
+  it("blocks an active same-company process in dry-run without writes", async () => {
+    stores.applications.set("app-2", {
+      userId,
+      company: "  PLEO ",
+      role: "Staff Engineer",
+      status: "interview",
+      appliedAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+      createdAt: mockTimestamp,
+    });
+    const adapter = new FirestoreAdapter();
+
+    await expect(adapter.recordApplicationSubmission(userId, { ...input(), dryRun: true }))
+      .rejects.toThrow("same_company_active_application");
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
+    expect(stores.documents.get("doc-1")!.state).toBe("current");
+  });
+
+  it("allows and persists a reasoned same-company override", async () => {
+    stores.applications.set("app-2", {
+      userId,
+      company: "Pleo",
+      role: "Staff Engineer",
+      status: "applied",
+      appliedAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+      createdAt: mockTimestamp,
+    });
+    const adapter = new FirestoreAdapter();
+    const created = await adapter.recordApplicationSubmission(userId, {
+      ...input(),
+      policy: { ...input().policy, sameCompanyOverrideReason: "Recruiter redirected me" },
+    });
+
+    expect(created.submission.policy.sameCompanyOverrideReason).toBe("Recruiter redirected me");
+    expect(created.event?.metadata).toMatchObject({
+      policy: { sameCompanyOverrideReason: "Recruiter redirected me" },
+    });
+  });
+
+  it("blocks a duplicate requisition on another same-company record", async () => {
+    stores.applications.set("app-2", {
+      userId,
+      company: "Pleo",
+      role: "Other title",
+      status: "rejected",
+      requisitionId: "REQ-42",
+      atsName: "Greenhouse",
+      updatedAt: mockTimestamp,
+      createdAt: mockTimestamp,
+    });
+    const adapter = new FirestoreAdapter();
+
+    await expect(adapter.recordApplicationSubmission(userId, {
+      ...input(),
+      requisitionId: " req-42 ",
+      atsName: "greenhouse",
+    })).rejects.toThrow("duplicate_requisition");
+    expect(stores.applicationSubmissions.size).toBe(0);
   });
 
   it("rejects reuse of a historical submission artifact without partial writes", async () => {

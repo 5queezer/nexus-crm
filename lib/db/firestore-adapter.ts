@@ -3,7 +3,11 @@ import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
 import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
-import { submissionRequestHash } from "@/lib/applications/submission";
+import {
+  submissionRequestHash,
+  validateSubmissionConflicts,
+  validateSubmissionPolicy,
+} from "@/lib/applications/submission";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -164,6 +168,7 @@ function mapSubmission(
     requisitionId: data.requisitionId ?? null,
     language: data.language ?? null,
     answers: includeAnswers && Array.isArray(data.answers) ? data.answers : [],
+    policy: data.policy && typeof data.policy === "object" ? data.policy : {},
     candidateSalaryMin: data.candidateSalaryMin ?? null,
     candidateSalaryMax: data.candidateSalaryMax ?? null,
     candidateSalaryCurrency: data.candidateSalaryCurrency ?? null,
@@ -569,7 +574,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
     userId: string,
     input: RecordSubmissionInput,
   ): Promise<RecordSubmissionResult> {
-    const hashable: Record<string, unknown> = { ...input };
+    const policy = validateSubmissionPolicy({
+      policy: input.policy,
+      answers: input.answers,
+      documentIds: input.documentIds,
+    });
+    const normalizedInput = { ...input, policy };
+    const hashable: Record<string, unknown> = { ...normalizedInput };
     delete hashable.idempotencyKey;
     delete hashable.dryRun;
     delete hashable.expectedUpdatedAt;
@@ -602,6 +613,33 @@ export class FirestoreAdapter implements DatabaseAdapter {
         }
       }
 
+      const [existingApplicationSubmissions, ownerApplications] = await Promise.all([
+        transaction.get(
+          this.submissions
+            .where("applicationId", "==", input.applicationId)
+            .where("userId", "==", userId),
+        ),
+        transaction.get(this.apps.where("userId", "==", userId)),
+      ]);
+      validateSubmissionConflicts({
+        applicationId: input.applicationId,
+        company: String(appData.company ?? ""),
+        requisitionId: input.requisitionId ?? appData.requisitionId ?? null,
+        atsName: input.atsName ?? appData.atsName ?? null,
+        existingSubmissionCount: existingApplicationSubmissions.docs.length,
+        policy,
+        applications: ownerApplications.docs.map((snapshot) => {
+          const data = snapshot.data();
+          return {
+            id: snapshot.id,
+            company: String(data.company ?? ""),
+            status: normalizeStatus(String(data.status ?? "inbound")),
+            requisitionId: typeof data.requisitionId === "string" ? data.requisitionId : null,
+            atsName: typeof data.atsName === "string" ? data.atsName : null,
+          };
+        }),
+      });
+
       const uniqueDocumentIds = Array.from(new Set(input.documentIds));
       const documentSnapshots: FirebaseFirestore.DocumentSnapshot[] = [];
       for (const documentId of uniqueDocumentIds) {
@@ -627,6 +665,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         requisitionId: input.requisitionId ?? null,
         language: input.language ?? null,
         answers: input.answers,
+        policy,
         candidateSalaryMin: input.candidateSalaryMin ?? null,
         candidateSalaryMax: input.candidateSalaryMax ?? null,
         candidateSalaryCurrency: input.candidateSalaryCurrency ?? null,
@@ -651,6 +690,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           submissionId,
           documentIds: uniqueDocumentIds,
           answerCount: input.answers.length,
+          policy,
         },
         createdAt: now,
       };

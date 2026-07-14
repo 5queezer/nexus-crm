@@ -3,7 +3,11 @@ import { Prisma, type ApplicationSubmission, type ApplicationEvent, type Documen
 import { normalizeStatus } from "@/types";
 import { sanitizeTriageFields } from "./sanitize";
 import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
-import { submissionRequestHash } from "@/lib/applications/submission";
+import {
+  submissionRequestHash,
+  validateSubmissionConflicts,
+  validateSubmissionPolicy,
+} from "@/lib/applications/submission";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -96,6 +100,7 @@ function mapSubmission(
     answers: includeAnswers
       ? (row.answers as unknown as ApplicationSubmissionRecord["answers"])
       : [],
+    policy: row.policy as unknown as ApplicationSubmissionRecord["policy"],
     documentIds: row.documentIds as unknown as string[],
     documents: row.documents?.map(mapDoc),
   };
@@ -512,7 +517,13 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     input: RecordSubmissionInput,
   ): Promise<RecordSubmissionResult> {
-    const hashable: Record<string, unknown> = { ...input };
+    const policy = validateSubmissionPolicy({
+      policy: input.policy,
+      answers: input.answers,
+      documentIds: input.documentIds,
+    });
+    const normalizedInput = { ...input, policy };
+    const hashable: Record<string, unknown> = { ...normalizedInput };
     delete hashable.idempotencyKey;
     delete hashable.dryRun;
     delete hashable.expectedUpdatedAt;
@@ -561,10 +572,11 @@ export class PrismaAdapter implements DatabaseAdapter {
       const applicationId = nid(input.applicationId);
       const locked = await tx.$queryRaw<Array<{ id: number }>>`
         SELECT "id" FROM "Application"
-        WHERE "id" = ${applicationId} AND "userId" = ${userId}
+        WHERE "userId" = ${userId}
+        ORDER BY "id"
         FOR UPDATE
       `;
-      if (!locked.length) throw new Error("not_found");
+      if (!locked.some((row) => row.id === applicationId)) throw new Error("not_found");
       const application = await tx.application.findFirst({
         where: { id: applicationId, userId },
         include: { contacts: true },
@@ -576,6 +588,35 @@ export class PrismaAdapter implements DatabaseAdapter {
       ) {
         throw new Error("conflict");
       }
+
+      const [existingSubmissionCount, ownerApplications] = await Promise.all([
+        tx.applicationSubmission.count({
+          where: { userId, applicationId },
+        }),
+        tx.application.findMany({
+          where: { userId },
+          select: {
+            id: true,
+            company: true,
+            status: true,
+            requisitionId: true,
+            atsName: true,
+          },
+        }),
+      ]);
+      validateSubmissionConflicts({
+        applicationId: input.applicationId,
+        company: application.company,
+        requisitionId: input.requisitionId ?? application.requisitionId,
+        atsName: input.atsName ?? application.atsName,
+        existingSubmissionCount,
+        policy,
+        applications: ownerApplications.map((candidate) => ({
+          ...candidate,
+          id: sid(candidate.id),
+          status: normalizeStatus(candidate.status),
+        })),
+      });
 
       const uniqueDocumentIds = Array.from(new Set(input.documentIds));
       const documents = uniqueDocumentIds.length
@@ -626,6 +667,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             requisitionId: input.requisitionId ?? null,
             language: input.language ?? null,
             answers: input.answers,
+            policy,
             candidateSalaryMin: input.candidateSalaryMin ?? null,
             candidateSalaryMax: input.candidateSalaryMax ?? null,
             candidateSalaryCurrency: input.candidateSalaryCurrency ?? null,
@@ -653,6 +695,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           requisitionId: input.requisitionId ?? null,
           language: input.language ?? null,
           answers: input.answers as unknown as Prisma.InputJsonValue,
+          policy: policy as unknown as Prisma.InputJsonValue,
           candidateSalaryMin: input.candidateSalaryMin ?? null,
           candidateSalaryMax: input.candidateSalaryMax ?? null,
           candidateSalaryCurrency: input.candidateSalaryCurrency ?? null,
@@ -718,7 +761,8 @@ export class PrismaAdapter implements DatabaseAdapter {
             submissionId: sid(created.id),
             documentIds: uniqueDocumentIds,
             answerCount: input.answers.length,
-          },
+            policy,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
       const stored = await tx.applicationSubmission.findUniqueOrThrow({
