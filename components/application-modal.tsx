@@ -380,7 +380,7 @@ export function ApplicationModal({ application, onClose }: ApplicationModalProps
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 backdrop-blur-md sm:items-center sm:p-4">
-      <div className="w-full max-w-3xl max-h-[95vh] overflow-y-auto rounded-t-[1.75rem] border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/95 sm:max-h-[90vh] sm:rounded-[1.75rem]">
+      <div className="nexus-scroll w-full max-w-3xl max-h-[95vh] overflow-y-auto rounded-t-[1.75rem] border border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/95 sm:max-h-[90vh] sm:rounded-[1.75rem]">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/90 sm:px-6">
           <div>

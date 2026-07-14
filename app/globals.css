@@ -51,4 +51,39 @@
   .nexus-chip {
     @apply inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-white/8 dark:bg-white/4 dark:text-slate-300;
   }
+
+  .nexus-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(203 213 225 / 0.5) transparent;
+  }
+
+  .nexus-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .nexus-scroll::-webkit-scrollbar-track {
+    background: transparent;
+    margin-block: 4px;
+  }
+
+  .nexus-scroll::-webkit-scrollbar-thumb {
+    background: rgb(203 213 225 / 0.5);
+    border-radius: 9999px;
+  }
+
+  .nexus-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(148 163 184 / 0.7);
+  }
+
+  .dark .nexus-scroll {
+    scrollbar-color: rgb(255 255 255 / 0.08) transparent;
+  }
+
+  .dark .nexus-scroll::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.08);
+  }
+
+  .dark .nexus-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 0.18);
+  }
 }
