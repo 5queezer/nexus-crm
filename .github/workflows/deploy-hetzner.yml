@@ -259,7 +259,7 @@ jobs:
           # database work through one-off containers so DATABASE_URL remains in
           # the compose environment and is never printed by GitHub Actions.
           db_count() {
-            docker compose -f docker-compose.yaml run --rm -T --no-deps \
+            docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
               --entrypoint sh "${COOLIFY_SERVICE}" \
               -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
           }
@@ -277,7 +277,7 @@ jobs:
           database_backup="${backup_dir}/nexus-before-${DEPLOY_SHA}-${stamp}.dump"
           install -m 700 -d "${backup_dir}"
           umask 077
-          docker compose -f docker-compose.yaml run --rm -T --no-deps \
+          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
             --entrypoint sh "${COOLIFY_SERVICE}" \
             -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
             > "${database_backup}"
@@ -288,7 +288,7 @@ jobs:
           chmod 600 "${database_backup}"
           echo "Verified pre-migration database backup."
 
-          docker compose -f docker-compose.yaml run --rm -T --no-deps \
+          docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
             --entrypoint sh "${COOLIFY_SERVICE}" \
             -c 'exec node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma'
 
