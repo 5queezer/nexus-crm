@@ -73,6 +73,7 @@ const SUBMISSION_ERROR_CODES = new Set([
   "submission_answers_required",
   "submission_answers_conflict",
   "submission_documents_invalid",
+  "submission_policy_reason_invalid",
   "submission_policy_reason_too_long",
   "application_already_submitted",
   "duplicate_requisition",

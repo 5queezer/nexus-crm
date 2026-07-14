@@ -59,7 +59,7 @@ Reasons are trimmed, bounded, included in the idempotency request hash, stored i
 
 ### Decision 4: Preserve exact replay semantics
 
-The adapter computes raw and normalized hash candidates, checks for an existing idempotency record before surfacing policy-validation failures, and checks again inside the transactional lock boundary. An exact replay returns the original result even if the pipeline changed afterward. Pre-policy submissions retain exact legacy replay compatibility, including the former REST representation of omitted ATS metadata. Reusing the key with a different policy or payload remains an `idempotency_conflict`.
+The adapter computes raw and normalized hash candidates, checks for an existing idempotency record before surfacing policy-validation failures, and checks again inside the transactional lock boundary. An exact replay returns the original result even if the pipeline changed afterward. Pre-policy submissions retain exact legacy replay compatibility, including the former REST representation of omitted ATS metadata and the former REST document coercion/stringification/truncation. The route therefore preserves raw document input until the adapter replay lookup; strict document validation applies immediately afterward to every new write. Reusing the key with a different policy or payload remains an `idempotency_conflict`.
 
 ### Decision 5: Do not block generic application status editing in this slice
 

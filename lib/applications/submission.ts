@@ -49,8 +49,10 @@ export function validateSubmissionPolicy(input: {
     throw new Error("submission_answers_required");
   }
 
-  const normalizeReason = (value: string | undefined): string | undefined => {
-    const normalized = value?.trim();
+  const normalizeReason = (value: unknown): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") throw new Error("submission_policy_reason_invalid");
+    const normalized = value.trim();
     if (!normalized) return undefined;
     if (normalized.length > 1000) throw new Error("submission_policy_reason_too_long");
     return normalized;
@@ -215,6 +217,9 @@ export function submissionReplayRequestHashes(
     if (input.source === "rest") {
       if (legacyInput.atsName === undefined) legacyInput.atsName = null;
       if (legacyInput.requisitionId === undefined) legacyInput.requisitionId = null;
+      legacyInput.documentIds = Array.isArray(input.documentIds)
+        ? input.documentIds.map(String).slice(0, 20)
+        : [];
       hashes.add(submissionInputRequestHash(legacyInput));
     }
   }

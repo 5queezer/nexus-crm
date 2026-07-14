@@ -631,6 +631,24 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(stores.applicationSubmissions.size).toBe(1);
   });
 
+  it("replays legacy REST packages before rejecting their formerly truncated document shape", async () => {
+    const raw = { ...legacyInput(), source: "rest" };
+    raw.documentIds = Array.from({ length: 21 }, () => "doc-1");
+    const previouslyNormalized = {
+      ...raw,
+      atsName: null,
+      requisitionId: null,
+      documentIds: raw.documentIds.slice(0, 20),
+    };
+    seedLegacySubmission(previouslyNormalized);
+    const adapter = new FirestoreAdapter();
+
+    const replay = await adapter.recordApplicationSubmission(userId, raw);
+
+    expect(replay.replayed).toBe(true);
+    expect(stores.applicationSubmissions.size).toBe(1);
+  });
+
   it("returns idempotency_conflict before policy errors for a changed legacy retry", async () => {
     seedLegacySubmission();
     const adapter = new FirestoreAdapter();

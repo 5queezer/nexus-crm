@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import {
-  validateSubmissionAnswers,
-  validateSubmissionDocumentIds,
-} from "@/lib/applications/submission";
+import { validateSubmissionAnswers } from "@/lib/applications/submission";
 import type { SubmissionPolicyInput } from "@/lib/db/types";
 
 const SALARY_PERIODS = new Set(["hour", "day", "month", "year"]);
@@ -15,11 +12,11 @@ const SUBMISSION_CONFLICT_CODES = new Set([
   "application_already_submitted",
   "duplicate_requisition",
   "same_company_active_application",
+  "document_already_submitted",
 ]);
 const SUBMISSION_CLIENT_ERROR_CODES = new Set([
   "application_deleting",
   "invalid_documents",
-  "document_already_submitted",
   "human_review_required",
   "identity_consistency_required",
   "fact_verification_required",
@@ -28,6 +25,7 @@ const SUBMISSION_CLIENT_ERROR_CODES = new Set([
   "submission_answers_required",
   "submission_answers_conflict",
   "submission_documents_invalid",
+  "submission_policy_reason_invalid",
   "submission_policy_reason_too_long",
 ]);
 
@@ -73,7 +71,6 @@ export async function POST(
     const answers = validateSubmissionAnswers(
       body.answers as Parameters<typeof validateSubmissionAnswers>[0],
     );
-    const documentIds = validateSubmissionDocumentIds(body.documentIds);
     const salaryMin = body.candidateSalaryMin == null ? null : Number(body.candidateSalaryMin);
     const salaryMax = body.candidateSalaryMax == null ? null : Number(body.candidateSalaryMax);
     if (
@@ -161,7 +158,7 @@ export async function POST(
       candidateSalaryPeriod: salaryPeriod,
       candidateSalaryType: salaryType,
       candidateSalaryFlexible: body.candidateSalaryFlexible === true,
-      documentIds,
+      documentIds: body.documentIds as string[],
       expectedUpdatedAt,
       dryRun: body.dryRun === true,
       source: "rest",

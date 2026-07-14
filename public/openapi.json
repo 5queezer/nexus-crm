@@ -219,13 +219,6 @@
           "documents": { "type": "array", "items": { "$ref": "#/components/schemas/Document" } }
         }
       },
-      "RecordSubmissionResponse": {
-        "type": "object",
-        "required": ["data"],
-        "properties": {
-          "data": { "$ref": "#/components/schemas/RecordSubmissionResult" }
-        }
-      },
       "UserRecord": {
         "type": "object",
         "description": "A registered user.",
@@ -506,34 +499,66 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["idempotencyKey", "submittedAt", "answers", "policy", "documentIds"],
-                "properties": {
-                  "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
-                  "submittedAt": { "type": "string", "format": "date-time" },
-                  "followUpAt": { "type": ["string", "null"], "format": "date-time" },
-                  "applicationUrl": { "type": ["string", "null"], "format": "uri" },
-                  "atsName": { "type": ["string", "null"] },
-                  "requisitionId": { "type": ["string", "null"] },
-                  "language": { "type": ["string", "null"] },
-                  "answers": { "type": "array", "maxItems": 50, "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
-                  "policy": { "$ref": "#/components/schemas/SubmissionPolicyInput" },
-                  "candidateSalaryMin": { "type": ["number", "null"] },
-                  "candidateSalaryMax": { "type": ["number", "null"] },
-                  "candidateSalaryCurrency": { "type": ["string", "null"] },
-                  "candidateSalaryPeriod": { "type": ["string", "null"] },
-                  "candidateSalaryType": { "type": ["string", "null"] },
-                  "candidateSalaryFlexible": { "type": "boolean" },
-                  "documentIds": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-                  "expectedUpdatedAt": { "type": "string", "format": "date-time" },
-                  "dryRun": { "type": "boolean", "default": false }
-                }
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "title": "NewSubmissionRequest",
+                    "required": ["idempotencyKey", "submittedAt", "answers", "policy", "documentIds"],
+                    "properties": {
+                      "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
+                      "submittedAt": { "type": "string", "format": "date-time" },
+                      "followUpAt": { "type": ["string", "null"], "format": "date-time" },
+                      "applicationUrl": { "type": ["string", "null"], "format": "uri" },
+                      "atsName": { "type": ["string", "null"] },
+                      "requisitionId": { "type": ["string", "null"] },
+                      "language": { "type": ["string", "null"] },
+                      "answers": { "type": "array", "maxItems": 50, "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
+                      "policy": { "$ref": "#/components/schemas/SubmissionPolicyInput" },
+                      "candidateSalaryMin": { "type": ["number", "null"] },
+                      "candidateSalaryMax": { "type": ["number", "null"] },
+                      "candidateSalaryCurrency": { "type": ["string", "null"] },
+                      "candidateSalaryPeriod": { "type": ["string", "null"] },
+                      "candidateSalaryType": { "type": ["string", "null"] },
+                      "candidateSalaryFlexible": { "type": "boolean" },
+                      "documentIds": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                      "expectedUpdatedAt": { "type": "string", "format": "date-time" },
+                      "dryRun": { "type": "boolean", "default": false }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "title": "ExactLegacySubmissionReplayRequest",
+                    "description": "Compatibility shape only for an exact idempotent replay of a submission created before policy enforcement. Every supplied value must match the historical request after the former REST coercions.",
+                    "required": ["idempotencyKey", "submittedAt", "answers"],
+                    "properties": {
+                      "policy": { "not": {} },
+                      "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
+                      "submittedAt": { "type": "string", "format": "date-time" },
+                      "followUpAt": { "type": ["string", "null"], "format": "date-time" },
+                      "applicationUrl": { "type": ["string", "null"], "format": "uri" },
+                      "atsName": { "type": ["string", "null"] },
+                      "requisitionId": { "type": ["string", "null"] },
+                      "language": { "type": ["string", "null"] },
+                      "answers": { "type": "array", "maxItems": 50, "items": { "$ref": "#/components/schemas/SubmissionAnswer" } },
+                      "candidateSalaryMin": { "type": ["number", "null"] },
+                      "candidateSalaryMax": { "type": ["number", "null"] },
+                      "candidateSalaryCurrency": { "type": ["string", "null"] },
+                      "candidateSalaryPeriod": { "type": ["string", "null"] },
+                      "candidateSalaryType": { "type": ["string", "null"] },
+                      "candidateSalaryFlexible": { "type": "boolean" },
+                      "documentIds": { "type": "array", "items": {} },
+                      "expectedUpdatedAt": { "type": "string", "format": "date-time" },
+                      "dryRun": { "type": "boolean", "default": false }
+                    }
+                  }
+                ]
               }
             }
           }
         },
         "responses": {
-          "201": { "description": "Recorded submission package, including the immutable policy snapshot.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSubmissionResponse" } } } },
+          "200": { "description": "Exact replay or dry-run result.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSubmissionResult" } } } },
+          "201": { "description": "Newly recorded submission package, including the immutable policy snapshot.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSubmissionResult" } } } },
           "400": { "description": "Invalid answers, documents, salary fields, or missing/failed integrity attestation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" },

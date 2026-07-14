@@ -30,6 +30,34 @@ describe("submissionReplayRequestHashes", () => {
       submissionInputRequestHash(legacy),
     );
   });
+
+  it.each([
+    [["doc-1", "doc-1"], ["doc-1", "doc-1"]],
+    [Array.from({ length: 21 }, (_, index) => `doc-${index}`), Array.from({ length: 20 }, (_, index) => `doc-${index}`)],
+    [[7, true], ["7", "true"]],
+  ])("accepts the former REST document coercion in legacy replay hashes", (rawDocumentIds, legacyDocumentIds) => {
+    const current: Record<string, unknown> = {
+      applicationId: "app-1",
+      idempotencyKey: "legacy-key",
+      source: "rest",
+      answers: [{ question: "Why?", answer: "Because" }],
+      documentIds: rawDocumentIds,
+      atsName: undefined,
+      requisitionId: undefined,
+      policy: undefined,
+    };
+    const legacy: Record<string, unknown> = {
+      ...current,
+      atsName: null,
+      requisitionId: null,
+      documentIds: legacyDocumentIds,
+    };
+    delete legacy.policy;
+
+    expect(submissionReplayRequestHashes(current, null)).toContain(
+      submissionInputRequestHash(legacy),
+    );
+  });
 });
 
 describe("validateSubmissionDocumentIds", () => {
@@ -171,6 +199,14 @@ describe("validateSubmissionPolicy", () => {
       answers: [{ question: "Q", answer: "A" }],
       documentIds: ["doc-1"],
     })).toThrow("submission_answers_conflict");
+  });
+
+  it("rejects non-string override reasons with a controlled code", () => {
+    expect(() => validateSubmissionPolicy({
+      policy: { ...validPolicy, resubmissionReason: 42 } as unknown as typeof validPolicy,
+      answers: [{ question: "Q", answer: "A" }],
+      documentIds: ["doc-1"],
+    })).toThrow("submission_policy_reason_invalid");
   });
 
   it("rejects oversized override reasons", () => {
