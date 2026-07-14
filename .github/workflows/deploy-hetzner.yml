@@ -258,7 +258,7 @@ jobs:
           db_count() {
             docker compose -f docker-compose.yaml run --rm -T --no-deps \
               --entrypoint sh "${COOLIFY_SERVICE}" \
-              -c 'exec psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
+              -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
           }
 
           count_before="$(db_count)"
@@ -276,7 +276,7 @@ jobs:
           umask 077
           docker compose -f docker-compose.yaml run --rm -T --no-deps \
             --entrypoint sh "${COOLIFY_SERVICE}" \
-            -c 'exec pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges' \
+            -c 'PG_DATABASE_URL="$(node /app/prisma/libpq-url.mjs)"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
             > "${database_backup}"
           if [ ! -s "${database_backup}" ]; then
             echo "Database backup failed or produced an empty file." >&2
