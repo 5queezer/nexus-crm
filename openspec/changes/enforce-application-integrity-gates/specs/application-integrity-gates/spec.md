@@ -70,7 +70,7 @@ Nexus SHALL reject a second new submission for the same application unless the p
 
 #### Scenario: Exact replay of a pre-policy submission
 - **WHEN** a submission created before integrity-policy persistence is retried with its original idempotency key, omitted or explicit-null policy, and a payload equivalent under the former REST coercion rules
-- **THEN** Nexus reconstructs the legacy request hash, including former document stringification and 20-item truncation, and returns the original submission without requiring a retroactive policy attestation
+- **THEN** Nexus reconstructs the legacy request hash, including former document stringification, 20-item truncation, and non-array-to-empty normalization, and returns the original submission without requiring a retroactive policy attestation
 - **AND** strict current document validation applies if no matching replay exists
 - **AND** an altered payload or malformed policy under that key returns `idempotency_conflict` before new-submission policy errors
 

@@ -83,6 +83,19 @@ describe("POST /api/applications/:id/submissions", () => {
     );
   });
 
+  it("returns 200 and preserves non-array legacy REST document input until replay lookup", async () => {
+    mockRequireAuth.mockResolvedValue({ userId: "user-1", user: { email: "user@example.com" } });
+    mockRecordApplicationSubmission.mockResolvedValue(result({ replayed: true }));
+
+    const response = await POST(request({ policy: null, documentIds: "legacy-non-array" }), params);
+
+    expect(response.status).toBe(200);
+    expect(mockRecordApplicationSubmission).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ documentIds: "legacy-non-array", policy: null }),
+    );
+  });
+
   it("maps malformed answers to a controlled 400", async () => {
     mockRequireAuth.mockResolvedValue({ userId: "user-1", user: { email: "user@example.com" } });
 
@@ -101,6 +114,20 @@ describe("POST /api/applications/:id/submissions", () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "document_already_submitted" });
   });
+
+  it("returns controlled and sanitized server failures", async () => {
+    mockRequireAuth.mockResolvedValue({ userId: "user-1", user: { email: "user@example.com" } });
+    mockRecordApplicationSubmission.mockRejectedValueOnce(new Error("verification_failed"));
+
+    const controlled = await POST(request(), params);
+    expect(controlled.status).toBe(500);
+    await expect(controlled.json()).resolves.toEqual({ error: "verification_failed" });
+
+    mockRecordApplicationSubmission.mockRejectedValueOnce(new Error("database exploded"));
+    const sanitized = await POST(request(), params);
+    expect(sanitized.status).toBe(500);
+    await expect(sanitized.json()).resolves.toEqual({ error: "submission_failed" });
+  });
 });
 
 type ResponseSchema = { $ref?: string };
@@ -108,7 +135,7 @@ type OperationResponse = { content?: { "application/json"?: { schema?: ResponseS
 type RequestVariant = {
   title?: string;
   required?: string[];
-  properties?: { policy?: { type?: string } };
+  properties?: { policy?: { type?: string }; documentIds?: { type?: string } };
 };
 type OpenApiContract = {
   paths: Record<string, {
@@ -140,6 +167,9 @@ describe("published submission OpenAPI contract", () => {
     ]);
     expect(variants?.[0].required).toContain("policy");
     expect(variants?.[1].properties?.policy?.type).toBe("null");
+    expect(variants?.[1].properties?.documentIds?.type).toBeUndefined();
+    expect(operation.responses?.["500"].content?.["application/json"]?.schema?.$ref)
+      .toBe("#/components/schemas/ErrorResponse");
   });
 });
 

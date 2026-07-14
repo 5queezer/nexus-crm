@@ -546,7 +546,7 @@
                       "candidateSalaryPeriod": { "type": ["string", "null"] },
                       "candidateSalaryType": { "type": ["string", "null"] },
                       "candidateSalaryFlexible": { "type": "boolean" },
-                      "documentIds": { "type": "array", "items": {} },
+                      "documentIds": { "description": "Historical REST accepted any JSON value. Arrays were stringified and truncated to 20 items; non-arrays were normalized to an empty array. Compatibility applies only to an exact replay." },
                       "expectedUpdatedAt": { "type": "string", "format": "date-time" },
                       "dryRun": { "type": "boolean", "default": false }
                     }
@@ -562,7 +562,8 @@
           "400": { "description": "Invalid answers (`submission_answers_invalid`), documents, salary fields, or missing/failed integrity attestation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" },
-          "409": { "description": "Idempotency, optimistic-concurrency, duplicate requisition/job/application, same-company active-process, repeat-submission, or document-reuse conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+          "409": { "description": "Idempotency, optimistic-concurrency, duplicate requisition/job/application, same-company active-process, repeat-submission, or document-reuse conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Submission verification failed (`verification_failed`) or an unexpected failure was sanitized as `submission_failed`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
