@@ -620,16 +620,20 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(created.application.requisitionId).toBe("REQ-42");
   });
 
-  it("replays a legacy package without requiring a new policy attestation", async () => {
-    const legacy = legacyInput();
-    seedLegacySubmission(legacy);
-    const adapter = new FirestoreAdapter();
+  it.each([undefined, null])(
+    "replays a legacy package with policy %s without requiring a new attestation",
+    async (policy) => {
+      const stored = legacyInput();
+      seedLegacySubmission(stored);
+      const retry = { ...stored, policy };
+      const adapter = new FirestoreAdapter();
 
-    const replay = await adapter.recordApplicationSubmission(userId, legacy);
+      const replay = await adapter.recordApplicationSubmission(userId, retry);
 
-    expect(replay.replayed).toBe(true);
-    expect(stores.applicationSubmissions.size).toBe(1);
-  });
+      expect(replay.replayed).toBe(true);
+      expect(stores.applicationSubmissions.size).toBe(1);
+    },
+  );
 
   it("replays legacy REST packages before rejecting their formerly truncated document shape", async () => {
     const raw = { ...legacyInput(), source: "rest" };

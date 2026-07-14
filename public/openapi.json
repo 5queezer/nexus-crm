@@ -520,7 +520,7 @@
                       "candidateSalaryPeriod": { "type": ["string", "null"] },
                       "candidateSalaryType": { "type": ["string", "null"] },
                       "candidateSalaryFlexible": { "type": "boolean" },
-                      "documentIds": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                      "documentIds": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" } },
                       "expectedUpdatedAt": { "type": "string", "format": "date-time" },
                       "dryRun": { "type": "boolean", "default": false }
                     }
@@ -531,7 +531,7 @@
                     "description": "Compatibility shape only for an exact idempotent replay of a submission created before policy enforcement. Every supplied value must match the historical request after the former REST coercions.",
                     "required": ["idempotencyKey", "submittedAt", "answers"],
                     "properties": {
-                      "policy": { "not": {} },
+                      "policy": { "type": "null", "description": "May be omitted or null only for an exact pre-policy replay." },
                       "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128 },
                       "submittedAt": { "type": "string", "format": "date-time" },
                       "followUpAt": { "type": ["string", "null"], "format": "date-time" },
@@ -559,7 +559,7 @@
         "responses": {
           "200": { "description": "Exact replay or dry-run result.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSubmissionResult" } } } },
           "201": { "description": "Newly recorded submission package, including the immutable policy snapshot.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSubmissionResult" } } } },
-          "400": { "description": "Invalid answers, documents, salary fields, or missing/failed integrity attestation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "400": { "description": "Invalid answers (`submission_answers_invalid`), documents, salary fields, or missing/failed integrity attestation.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "description": "Idempotency, optimistic-concurrency, duplicate requisition/job/application, same-company active-process, repeat-submission, or document-reuse conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }

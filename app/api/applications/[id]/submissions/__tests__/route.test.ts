@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { z } from "zod/v3";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 const { mockRecordApplicationSubmission, mockRequireAuth } = vi.hoisted(() => ({
   mockRecordApplicationSubmission: vi.fn(),
@@ -14,6 +16,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/session", () => ({ requireAuth: mockRequireAuth }));
 
 import { POST } from "../route";
+import { submissionPolicyTransportSchema } from "@/lib/applications/submission-transport";
 
 const params = { params: Promise.resolve({ id: "app-1" }) };
 const policy = {
@@ -80,6 +83,15 @@ describe("POST /api/applications/:id/submissions", () => {
     );
   });
 
+  it("maps malformed answers to a controlled 400", async () => {
+    mockRequireAuth.mockResolvedValue({ userId: "user-1", user: { email: "user@example.com" } });
+
+    const response = await POST(request({ answers: [{ question: " ", answer: "x" }] }), params);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "submission_answers_invalid" });
+  });
+
   it("maps submitted-document reuse to 409", async () => {
     mockRequireAuth.mockResolvedValue({ userId: "user-1", user: { email: "user@example.com" } });
     mockRecordApplicationSubmission.mockRejectedValue(new Error("document_already_submitted"));
@@ -96,7 +108,7 @@ type OperationResponse = { content?: { "application/json"?: { schema?: ResponseS
 type RequestVariant = {
   title?: string;
   required?: string[];
-  properties?: { policy?: { not?: Record<string, never> } };
+  properties?: { policy?: { type?: string } };
 };
 type OpenApiContract = {
   paths: Record<string, {
@@ -127,6 +139,23 @@ describe("published submission OpenAPI contract", () => {
       "ExactLegacySubmissionReplayRequest",
     ]);
     expect(variants?.[0].required).toContain("policy");
-    expect(variants?.[1].properties?.policy?.not).toEqual({});
+    expect(variants?.[1].properties?.policy?.type).toBe("null");
+  });
+});
+
+describe("published MCP submission policy transport schema", () => {
+  it("keeps policy machine-permissive for adapter-first replay resolution", () => {
+    const schema = zodToJsonSchema(
+      z.object({ policy: submissionPolicyTransportSchema }),
+      { strictUnions: true },
+    ) as { properties?: Record<string, Record<string, unknown>> };
+    const policySchema = schema.properties?.policy;
+
+    expect(policySchema).toBeDefined();
+    expect(policySchema).not.toHaveProperty("type");
+    expect(policySchema).not.toHaveProperty("anyOf");
+    expect(submissionPolicyTransportSchema.safeParse(null).success).toBe(true);
+    expect(submissionPolicyTransportSchema.safeParse("malformed").success).toBe(true);
+    expect(submissionPolicyTransportSchema.safeParse({ humanReviewed: true }).success).toBe(true);
   });
 });

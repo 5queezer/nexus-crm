@@ -22,7 +22,11 @@ export function validateSubmissionDocumentIds(value: unknown): string[] {
   if (value.some((item) => typeof item !== "string" || item.trim().length === 0)) {
     throw new Error("submission_documents_invalid");
   }
-  return Array.from(new Set(value as string[]));
+  const documentIds = value as string[];
+  if (new Set(documentIds).size !== documentIds.length) {
+    throw new Error("submission_documents_invalid");
+  }
+  return documentIds;
 }
 
 export function validateSubmissionPolicy(input: {

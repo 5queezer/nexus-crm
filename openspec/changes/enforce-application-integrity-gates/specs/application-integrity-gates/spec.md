@@ -35,6 +35,11 @@ Nexus SHALL require at least one owned document for every submission. Nexus SHAL
 - **THEN** Nexus rejects the request with `submission_materials_required`
 - **AND** writes nothing
 
+#### Scenario: Duplicate document IDs in a new package
+- **WHEN** a caller supplies the same document ID more than once for a request that is not an exact replay
+- **THEN** Nexus rejects the request with `submission_documents_invalid`
+- **AND** writes nothing
+
 #### Scenario: Submission omits answers without confirmation
 - **WHEN** a caller provides no answers and does not confirm that the form contained none
 - **THEN** Nexus rejects the request with `submission_answers_required`
@@ -64,7 +69,7 @@ Nexus SHALL reject a second new submission for the same application unless the p
 - **AND** does not apply new conflict checks or create writes
 
 #### Scenario: Exact replay of a pre-policy submission
-- **WHEN** a submission created before integrity-policy persistence is retried with its original idempotency key and a payload equivalent under the former REST coercion rules
+- **WHEN** a submission created before integrity-policy persistence is retried with its original idempotency key, omitted or explicit-null policy, and a payload equivalent under the former REST coercion rules
 - **THEN** Nexus reconstructs the legacy request hash, including former document stringification and 20-item truncation, and returns the original submission without requiring a retroactive policy attestation
 - **AND** strict current document validation applies if no matching replay exists
 - **AND** an altered payload or malformed policy under that key returns `idempotency_conflict` before new-submission policy errors

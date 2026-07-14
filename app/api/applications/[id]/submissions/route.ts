@@ -66,11 +66,16 @@ export async function POST(
       return NextResponse.json({ error: "submittedAt must be a valid ISO timestamp" }, { status: 400 });
     }
     if (!Array.isArray(body.answers)) {
-      return NextResponse.json({ error: "answers must be an array" }, { status: 400 });
+      return NextResponse.json({ error: "submission_answers_invalid" }, { status: 400 });
     }
-    const answers = validateSubmissionAnswers(
-      body.answers as Parameters<typeof validateSubmissionAnswers>[0],
-    );
+    let answers;
+    try {
+      answers = validateSubmissionAnswers(
+        body.answers as Parameters<typeof validateSubmissionAnswers>[0],
+      );
+    } catch {
+      return NextResponse.json({ error: "submission_answers_invalid" }, { status: 400 });
+    }
     const salaryMin = body.candidateSalaryMin == null ? null : Number(body.candidateSalaryMin);
     const salaryMax = body.candidateSalaryMax == null ? null : Number(body.candidateSalaryMax);
     if (

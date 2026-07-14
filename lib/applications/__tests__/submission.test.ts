@@ -61,11 +61,9 @@ describe("submissionReplayRequestHashes", () => {
 });
 
 describe("validateSubmissionDocumentIds", () => {
-  it("deduplicates valid document IDs without truncating the package", () => {
-    expect(validateSubmissionDocumentIds(["doc-1", "doc-1", "doc-2"])).toEqual([
-      "doc-1",
-      "doc-2",
-    ]);
+  it("rejects duplicate document IDs for new writes", () => {
+    expect(() => validateSubmissionDocumentIds(["doc-1", "doc-1", "doc-2"]))
+      .toThrow("submission_documents_invalid");
   });
 
   it("rejects an oversized package instead of silently dropping documents", () => {
