@@ -42,7 +42,7 @@ jobs:
               command -v psql
               command -v timeout
               test -r /app/scripts/pre-deploy-backup.mjs
-              test -r /app/node_modules/prisma/build/index.js
+              test -r /app/prisma-cli/node_modules/prisma/build/index.js
               node /app/scripts/pre-deploy-backup.mjs --help >/dev/null
-              node /app/node_modules/prisma/build/index.js --version >/dev/null
+              node /app/prisma-cli/node_modules/prisma/build/index.js --version >/dev/null
             '

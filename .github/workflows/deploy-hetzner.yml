@@ -375,7 +375,7 @@ jobs:
           echo "Verified pre-deploy database and document recovery set ${backup_id}."
 
           compose_run_bounded "${transition_migration_container}" 900 \
-            node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma
+            node /app/prisma-cli/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma
 
           count_after="$(db_count)"
           if [ "${count_after}" != "${count_before}" ]; then

@@ -3,6 +3,7 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
+RUN npm install --prefix /tmp/prisma-cli --no-save --no-audit --no-fund prisma@6.19.3
 COPY . .
 RUN npx prisma generate
 RUN npm run build
@@ -21,6 +22,7 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /tmp/prisma-cli ./prisma-cli
 COPY --from=builder /app/scripts/pre-deploy-backup.mjs ./scripts/pre-deploy-backup.mjs
 USER nextjs
 ENV PORT=8080
