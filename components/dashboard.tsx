@@ -15,6 +15,7 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
 import { WorkspaceToolbar } from "./workspace-toolbar";
+import { AiOperator } from "./ai-operator/ai-operator";
 import { Application, ApplicationStatus, STATUS_ORDER } from "@/types";
 import { format } from "date-fns";
 
@@ -477,6 +478,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           setOnboardingComplete(true);
           queryClient.invalidateQueries({ queryKey: ["applications"] });
         }} />
+        <AiOperator />
       </div>
     );
   }
@@ -593,6 +595,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
       {/* Keyboard Shortcut Hint Bar */}
       {selectedIds.size === 0 && <KeyboardShortcutBar />}
+      <AiOperator />
     </div>
   );
 }
