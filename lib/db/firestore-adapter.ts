@@ -4,8 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
 import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
 import {
+  submissionInputRequestHash,
+  submissionReplayRequestHashes,
   submissionRequestHash,
   validateSubmissionConflicts,
+  validateSubmissionDocumentIds,
   validateSubmissionPolicy,
 } from "@/lib/applications/submission";
 import type { DatabaseAdapter } from "./adapter";
@@ -574,19 +577,25 @@ export class FirestoreAdapter implements DatabaseAdapter {
     userId: string,
     input: RecordSubmissionInput,
   ): Promise<RecordSubmissionResult> {
-    const policy = validateSubmissionPolicy({
-      policy: input.policy,
-      answers: input.answers,
-      documentIds: input.documentIds,
-    });
-    const normalizedInput = { ...input, policy };
-    const hashable: Record<string, unknown> = { ...normalizedInput };
-    delete hashable.idempotencyKey;
-    delete hashable.dryRun;
-    delete hashable.expectedUpdatedAt;
-    delete hashable.source;
-    delete hashable.actor;
-    const requestHash = submissionRequestHash(hashable);
+    const rawRequestHash = submissionInputRequestHash(input as unknown as Record<string, unknown>);
+    let validatedPolicy: ReturnType<typeof validateSubmissionPolicy> | null = null;
+    let policyError: unknown = null;
+    try {
+      validatedPolicy = validateSubmissionPolicy({
+        policy: input.policy,
+        answers: input.answers,
+        documentIds: input.documentIds,
+      });
+    } catch (error) {
+      policyError = error;
+    }
+    const normalizedRequestHash = validatedPolicy
+      ? submissionInputRequestHash({ ...input, policy: validatedPolicy } as unknown as Record<string, unknown>)
+      : rawRequestHash;
+    const acceptedReplayHashes = submissionReplayRequestHashes(
+      input as unknown as Record<string, unknown>,
+      validatedPolicy,
+    );
     const submissionId = submissionRequestHash({ userId, key: input.idempotencyKey }).slice(0, 40);
     const eventId = `submission-${submissionId}`;
 
@@ -595,11 +604,17 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const existingSubmission = await transaction.get(submissionRef);
       if (existingSubmission.exists) {
         const existingData = existingSubmission.data()!;
-        if (existingData.userId !== userId || existingData.requestHash !== requestHash) {
+        if (existingData.userId !== userId || !acceptedReplayHashes.has(existingData.requestHash)) {
           throw new Error("idempotency_conflict");
         }
         return { replayed: true, dryRun: false };
       }
+      const policy = validatedPolicy;
+      if (!policy) {
+        throw policyError instanceof Error ? policyError : new Error("human_review_required");
+      }
+      const requestHash = normalizedRequestHash;
+      const documentIds = validateSubmissionDocumentIds(input.documentIds);
 
       const appRef = this.apps.doc(input.applicationId);
       const appSnapshot = await transaction.get(appRef);
@@ -613,6 +628,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
         }
       }
 
+      const effectiveAtsName = input.atsName !== undefined
+        ? input.atsName
+        : (typeof appData.atsName === "string" ? appData.atsName : null);
+      const effectiveRequisitionId = input.requisitionId !== undefined
+        ? input.requisitionId
+        : (typeof appData.requisitionId === "string" ? appData.requisitionId : null);
       const [existingApplicationSubmissions, ownerApplications] = await Promise.all([
         transaction.get(
           this.submissions
@@ -624,8 +645,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
       validateSubmissionConflicts({
         applicationId: input.applicationId,
         company: String(appData.company ?? ""),
-        requisitionId: input.requisitionId ?? appData.requisitionId ?? null,
-        atsName: input.atsName ?? appData.atsName ?? null,
+        requisitionId: effectiveRequisitionId,
+        atsName: effectiveAtsName,
         existingSubmissionCount: existingApplicationSubmissions.docs.length,
         policy,
         applications: ownerApplications.docs.map((snapshot) => {
@@ -640,7 +661,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         }),
       });
 
-      const uniqueDocumentIds = Array.from(new Set(input.documentIds));
+      const uniqueDocumentIds = documentIds;
       const documentSnapshots: FirebaseFirestore.DocumentSnapshot[] = [];
       for (const documentId of uniqueDocumentIds) {
         const snapshot = await transaction.get(this.docs.doc(documentId));
@@ -661,8 +682,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
         requestHash,
         submittedAt: toTimestamp(input.submittedAt),
         applicationUrl: input.applicationUrl ?? null,
-        atsName: input.atsName ?? null,
-        requisitionId: input.requisitionId ?? null,
+        atsName: effectiveAtsName,
+        requisitionId: effectiveRequisitionId,
         language: input.language ?? null,
         answers: input.answers,
         policy,
@@ -728,6 +749,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
         status: "applied",
         appliedAt: toTimestamp(input.submittedAt),
         ...(input.followUpAt !== undefined ? { followUpAt: toTimestamp(input.followUpAt) } : {}),
+        ...(input.atsName !== undefined ? { atsName: input.atsName } : {}),
+        ...(input.requisitionId !== undefined ? { requisitionId: input.requisitionId } : {}),
       });
       return {
         replayed: false,

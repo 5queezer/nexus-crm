@@ -3,10 +3,48 @@ import {
   canonicalizeJobUrl,
   computeApplicationHealth,
   requireOccurredAtForIdempotency,
+  submissionInputRequestHash,
+  submissionReplayRequestHashes,
   validateSubmissionAnswers,
+  validateSubmissionDocumentIds,
   validateSubmissionConflicts,
   validateSubmissionPolicy,
 } from "../submission";
+
+describe("submissionReplayRequestHashes", () => {
+  it("accepts the pre-policy REST hash that represented omitted ATS metadata as null", () => {
+    const current: Record<string, unknown> = {
+      applicationId: "app-1",
+      idempotencyKey: "legacy-key",
+      source: "rest",
+      answers: [{ question: "Why?", answer: "Because" }],
+      documentIds: ["doc-1"],
+      atsName: undefined,
+      requisitionId: undefined,
+      policy: undefined,
+    };
+    const legacy: Record<string, unknown> = { ...current, atsName: null, requisitionId: null };
+    delete legacy.policy;
+
+    expect(submissionReplayRequestHashes(current, null)).toContain(
+      submissionInputRequestHash(legacy),
+    );
+  });
+});
+
+describe("validateSubmissionDocumentIds", () => {
+  it("deduplicates valid document IDs without truncating the package", () => {
+    expect(validateSubmissionDocumentIds(["doc-1", "doc-1", "doc-2"])).toEqual([
+      "doc-1",
+      "doc-2",
+    ]);
+  });
+
+  it("rejects an oversized package instead of silently dropping documents", () => {
+    expect(() => validateSubmissionDocumentIds(Array.from({ length: 21 }, (_, index) => `doc-${index}`)))
+      .toThrow("submission_documents_invalid");
+  });
+});
 
 describe("canonicalizeJobUrl", () => {
   it("normalizes scheme/host, removes fragments, tracking parameters, and trailing slash", () => {

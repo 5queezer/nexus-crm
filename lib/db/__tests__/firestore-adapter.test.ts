@@ -231,6 +231,11 @@ vi.mock("@/types", () => ({
 // ── Import adapter after mocks ──────────────────────────────────────────────
 
 import { FirestoreAdapter } from "../firestore-adapter";
+import type { RecordSubmissionInput } from "../types";
+import {
+  submissionInputRequestHash,
+  submissionRequestHash,
+} from "../../applications/submission";
 
 // ── Test seed helpers ───────────────────────────────────────────────────────
 
@@ -519,7 +524,7 @@ describe("FirestoreAdapter — submission transaction", () => {
     });
   });
 
-  function input(answer = "Exact submitted answer") {
+  function input(answer = "Exact submitted answer"): RecordSubmissionInput {
     return {
       applicationId: "app-1",
       idempotencyKey: "pleo-submit-2026-07-13",
@@ -542,6 +547,39 @@ describe("FirestoreAdapter — submission transaction", () => {
       source: "test",
       actor: "user@example.com",
     };
+  }
+
+  function legacyInput(answer = "Exact submitted answer"): RecordSubmissionInput {
+    const legacy: RecordSubmissionInput = { ...input(answer) };
+    delete legacy.policy;
+    return legacy;
+  }
+
+  function hashInput(value: RecordSubmissionInput) {
+    return submissionInputRequestHash(value as unknown as Record<string, unknown>);
+  }
+
+  function seedLegacySubmission(value = legacyInput()) {
+    const id = submissionRequestHash({ userId, key: value.idempotencyKey }).slice(0, 40);
+    stores.applicationSubmissions.set(id, {
+      userId,
+      applicationId: value.applicationId,
+      idempotencyKey: value.idempotencyKey,
+      requestHash: (() => {
+        const legacyHashInput = { ...value };
+        delete legacyHashInput.policy;
+        return hashInput(legacyHashInput);
+      })(),
+      submittedAt: { toDate: () => value.submittedAt },
+      answers: value.answers,
+      documentIds: value.documentIds,
+      createdAt: mockTimestamp,
+    });
+    stores.documents.get("doc-1")!.state = "submitted";
+    stores.documents.get("doc-1")!.submissionId = id;
+    stores.documents.get("doc-1")!.submittedAt = { toDate: () => value.submittedAt };
+    stores.applications.get("app-1")!.status = "applied";
+    stores.applications.get("app-1")!.appliedAt = { toDate: () => value.submittedAt };
   }
 
   it("atomically records, verifies, and idempotently replays a package", async () => {
@@ -567,6 +605,38 @@ describe("FirestoreAdapter — submission transaction", () => {
     expect(replay.replayed).toBe(true);
     expect(stores.applicationSubmissions.size).toBe(1);
     expect(stores.applicationEvents.size).toBe(1);
+  });
+
+  it("preserves existing ATS and requisition metadata when submission input omits them", async () => {
+    stores.applications.get("app-1")!.atsName = "Greenhouse";
+    stores.applications.get("app-1")!.requisitionId = "REQ-42";
+    const adapter = new FirestoreAdapter();
+
+    const created = await adapter.recordApplicationSubmission(userId, input());
+
+    expect(created.submission.atsName).toBe("Greenhouse");
+    expect(created.submission.requisitionId).toBe("REQ-42");
+    expect(created.application.atsName).toBe("Greenhouse");
+    expect(created.application.requisitionId).toBe("REQ-42");
+  });
+
+  it("replays a legacy package without requiring a new policy attestation", async () => {
+    const legacy = legacyInput();
+    seedLegacySubmission(legacy);
+    const adapter = new FirestoreAdapter();
+
+    const replay = await adapter.recordApplicationSubmission(userId, legacy);
+
+    expect(replay.replayed).toBe(true);
+    expect(stores.applicationSubmissions.size).toBe(1);
+  });
+
+  it("returns idempotency_conflict before policy errors for a changed legacy retry", async () => {
+    seedLegacySubmission();
+    const adapter = new FirestoreAdapter();
+
+    await expect(adapter.recordApplicationSubmission(userId, legacyInput("Changed")))
+      .rejects.toThrow("idempotency_conflict");
   });
 
   it("blocks a new-key repeat submission without an audited reason", async () => {

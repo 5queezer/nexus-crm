@@ -59,7 +59,7 @@ Reasons are trimmed, bounded, included in the idempotency request hash, stored i
 
 ### Decision 4: Preserve exact replay semantics
 
-The adapter checks for an existing idempotency record before evaluating current conflicts. An exact replay returns the original result even if the pipeline changed afterward. Reusing the key with a different policy or payload remains an `idempotency_conflict`.
+The adapter computes raw and normalized hash candidates, checks for an existing idempotency record before surfacing policy-validation failures, and checks again inside the transactional lock boundary. An exact replay returns the original result even if the pipeline changed afterward. Pre-policy submissions retain exact legacy replay compatibility, including the former REST representation of omitted ATS metadata. Reusing the key with a different policy or payload remains an `idempotency_conflict`.
 
 ### Decision 5: Do not block generic application status editing in this slice
 

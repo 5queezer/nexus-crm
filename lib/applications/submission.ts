@@ -14,6 +14,17 @@ export interface SubmissionAnswerInput {
   sensitive?: boolean;
 }
 
+export function validateSubmissionDocumentIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20) {
+    throw new Error("submission_documents_invalid");
+  }
+  if (value.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+    throw new Error("submission_documents_invalid");
+  }
+  return Array.from(new Set(value as string[]));
+}
+
 export function validateSubmissionPolicy(input: {
   policy: SubmissionPolicyInput | null | undefined;
   answers: SubmissionAnswerInput[];
@@ -174,6 +185,37 @@ function stableSerialize(value: unknown): string {
 
 export function submissionRequestHash(value: unknown): string {
   return createHash("sha256").update(stableSerialize(value)).digest("hex");
+}
+
+export function submissionInputRequestHash(input: Record<string, unknown>): string {
+  const hashable = { ...input };
+  delete hashable.idempotencyKey;
+  delete hashable.dryRun;
+  delete hashable.expectedUpdatedAt;
+  delete hashable.source;
+  delete hashable.actor;
+  return submissionRequestHash(hashable);
+}
+
+export function submissionReplayRequestHashes(
+  input: Record<string, unknown>,
+  normalizedPolicy: ValidatedSubmissionPolicy | null,
+): ReadonlySet<string> {
+  const hashes = new Set<string>([submissionInputRequestHash(input)]);
+  if (normalizedPolicy) {
+    hashes.add(submissionInputRequestHash({ ...input, policy: normalizedPolicy }));
+  }
+  if (input.policy == null) {
+    const legacyInput = { ...input };
+    delete legacyInput.policy;
+    hashes.add(submissionInputRequestHash(legacyInput));
+    if (input.source === "rest") {
+      if (legacyInput.atsName === undefined) legacyInput.atsName = null;
+      if (legacyInput.requisitionId === undefined) legacyInput.requisitionId = null;
+      hashes.add(submissionInputRequestHash(legacyInput));
+    }
+  }
+  return hashes;
 }
 
 export function canonicalizeJobUrl(raw: string | null | undefined): string | null {

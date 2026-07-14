@@ -58,6 +58,11 @@ Nexus SHALL reject a second new submission for the same application unless the p
 - **THEN** Nexus returns the original submission as a replay
 - **AND** does not apply new conflict checks or create writes
 
+#### Scenario: Exact replay of a pre-policy submission
+- **WHEN** a submission created before integrity-policy persistence is retried with its original idempotency key and legacy request hash
+- **THEN** Nexus returns the original submission without requiring a retroactive policy attestation
+- **AND** an altered payload or malformed policy under that key returns `idempotency_conflict` before new-submission policy errors
+
 #### Scenario: Duplicate requisition on another record
 - **WHEN** another application for the same normalized company has the same ATS requisition ID and the caller supplies no resubmission reason
 - **THEN** Nexus rejects the request with `duplicate_requisition`

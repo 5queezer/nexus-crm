@@ -358,7 +358,7 @@ export interface RecordSubmissionInput {
   requisitionId?: string | null;
   language?: string | null;
   answers: SubmissionAnswerRecord[];
-  policy: SubmissionPolicyInput;
+  policy?: SubmissionPolicyInput | null;
   candidateSalaryMin?: number | null;
   candidateSalaryMax?: number | null;
   candidateSalaryCurrency?: string | null;

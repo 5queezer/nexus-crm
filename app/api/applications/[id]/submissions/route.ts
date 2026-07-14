@@ -3,11 +3,32 @@ import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import {
   validateSubmissionAnswers,
-  validateSubmissionPolicy,
+  validateSubmissionDocumentIds,
 } from "@/lib/applications/submission";
+import type { SubmissionPolicyInput } from "@/lib/db/types";
 
 const SALARY_PERIODS = new Set(["hour", "day", "month", "year"]);
 const SALARY_TYPES = new Set(["base", "total", "contract_rate"]);
+const SUBMISSION_CONFLICT_CODES = new Set([
+  "conflict",
+  "idempotency_conflict",
+  "application_already_submitted",
+  "duplicate_requisition",
+  "same_company_active_application",
+]);
+const SUBMISSION_CLIENT_ERROR_CODES = new Set([
+  "application_deleting",
+  "invalid_documents",
+  "document_already_submitted",
+  "human_review_required",
+  "identity_consistency_required",
+  "fact_verification_required",
+  "profile_consistency_review_required",
+  "submission_materials_required",
+  "submission_answers_required",
+  "submission_documents_invalid",
+  "submission_policy_reason_too_long",
+]);
 
 export async function GET(
   request: NextRequest,
@@ -51,14 +72,7 @@ export async function POST(
     const answers = validateSubmissionAnswers(
       body.answers as Parameters<typeof validateSubmissionAnswers>[0],
     );
-    const documentIds = Array.isArray(body.documentIds)
-      ? Array.from(new Set(body.documentIds.map(String))).slice(0, 20)
-      : [];
-    const policy = validateSubmissionPolicy({
-      policy: body.policy as Parameters<typeof validateSubmissionPolicy>[0]["policy"],
-      answers,
-      documentIds,
-    });
+    const documentIds = validateSubmissionDocumentIds(body.documentIds);
     const salaryMin = body.candidateSalaryMin == null ? null : Number(body.candidateSalaryMin);
     const salaryMax = body.candidateSalaryMax == null ? null : Number(body.candidateSalaryMax);
     if (
@@ -120,14 +134,23 @@ export async function POST(
         return NextResponse.json({ error: "applicationUrl must use HTTP or HTTPS" }, { status: 400 });
       }
     }
+    const atsName = body.atsName === undefined
+      ? undefined
+      : body.atsName === null ? null : String(body.atsName).slice(0, 100);
+    const requisitionId = body.requisitionId === undefined
+      ? undefined
+      : body.requisitionId === null ? null : String(body.requisitionId).slice(0, 255);
+    const policy = body.policy === undefined
+      ? undefined
+      : body.policy === null ? null : body.policy as SubmissionPolicyInput;
     const result = await getDb().recordApplicationSubmission(auth.userId, {
       applicationId: id,
       idempotencyKey: body.idempotencyKey,
       submittedAt,
       followUpAt,
       applicationUrl: applicationUrl?.slice(0, 2000) ?? null,
-      atsName: body.atsName == null ? null : String(body.atsName).slice(0, 100),
-      requisitionId: body.requisitionId == null ? null : String(body.requisitionId).slice(0, 255),
+      atsName,
+      requisitionId,
       language: body.language == null ? null : String(body.language).slice(0, 20),
       answers,
       policy,
@@ -145,15 +168,17 @@ export async function POST(
     });
     return NextResponse.json(result, { status: result.dryRun || result.replayed ? 200 : 201 });
   } catch (error) {
-    const code = error instanceof Error ? error.message : "submission_failed";
-    const conflictCodes = new Set([
-      "conflict",
-      "idempotency_conflict",
-      "application_already_submitted",
-      "duplicate_requisition",
-      "same_company_active_application",
-    ]);
-    const status = code === "not_found" ? 404 : conflictCodes.has(code) ? 409 : 400;
-    return NextResponse.json({ error: code }, { status });
+    const rawCode = error instanceof Error ? error.message : "submission_failed";
+    if (rawCode === "not_found") {
+      return NextResponse.json({ error: rawCode }, { status: 404 });
+    }
+    if (SUBMISSION_CONFLICT_CODES.has(rawCode)) {
+      return NextResponse.json({ error: rawCode }, { status: 409 });
+    }
+    if (SUBMISSION_CLIENT_ERROR_CODES.has(rawCode)) {
+      return NextResponse.json({ error: rawCode }, { status: 400 });
+    }
+    const code = rawCode === "verification_failed" ? rawCode : "submission_failed";
+    return NextResponse.json({ error: code }, { status: 500 });
   }
 }

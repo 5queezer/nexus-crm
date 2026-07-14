@@ -13,7 +13,6 @@ import {
   requireOccurredAtForIdempotency,
   validateEventMetadata,
   validateSubmissionAnswers,
-  validateSubmissionPolicy,
 } from "@/lib/applications/submission";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
@@ -26,7 +25,7 @@ import {
 import { uploadDocumentContent, MAX_DOCUMENT_BASE64_SIZE } from "@/lib/documents/upload";
 import { deleteDocumentWithContent } from "@/lib/documents/service";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
-import type { UpsertCvProfileInput } from "@/lib/db/types";
+import type { SubmissionPolicyInput, UpsertCvProfileInput } from "@/lib/db/types";
 
 const structuredApplicationToolFields = {
   workMode: z.enum(["remote", "hybrid", "onsite", "flexible"]).nullable().optional(),
@@ -72,6 +71,7 @@ const SUBMISSION_ERROR_CODES = new Set([
   "profile_consistency_review_required",
   "submission_materials_required",
   "submission_answers_required",
+  "submission_documents_invalid",
   "submission_policy_reason_too_long",
   "application_already_submitted",
   "duplicate_requisition",
@@ -368,22 +368,16 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         kind: z.enum(["text", "boolean", "number", "choice", "salary", "other"]).optional(),
         sensitive: z.boolean().optional(),
       })).max(50).default([]),
-      policy: z.object({
-        humanReviewed: z.boolean().describe("Final external form and package were reviewed by Christian"),
-        identityConsistent: z.boolean().describe("Name, email, phone, location, and LinkedIn identity are consistent"),
-        factsVerified: z.boolean().describe("Chronology, education, certificates, languages, claims, and metrics are verified"),
-        profileConsistencyStatus: z.enum(["verified", "unavailable_reviewed"]),
-        confirmedNoAnswers: z.boolean().optional(),
-        sameCompanyOverrideReason: z.string().min(1).max(1000).optional(),
-        resubmissionReason: z.string().min(1).max(1000).optional(),
-      }).describe("Required application-integrity attestation; overrides require an audited reason"),
+      policy: z.unknown().optional().describe(
+        "Required for new submissions; object fields: humanReviewed, identityConsistent, factsVerified, profileConsistencyStatus, and optional audited override reasons. Omit only for an exact legacy replay.",
+      ),
       candidateSalaryMin: z.number().int().nonnegative().nullable().optional(),
       candidateSalaryMax: z.number().int().nonnegative().nullable().optional(),
       candidateSalaryCurrency: z.string().length(3).nullable().optional(),
       candidateSalaryPeriod: z.enum(["hour", "day", "month", "year"]).nullable().optional(),
       candidateSalaryType: z.enum(["base", "total", "contract_rate"]).nullable().optional(),
       candidateSalaryFlexible: z.boolean().optional(),
-      documentIds: z.array(z.string().min(1)).min(1).max(20),
+      documentIds: z.array(z.string().min(1)).max(20).default([]),
       expectedUpdatedAt: z.string().datetime().optional().describe("Optimistic concurrency timestamp"),
       dryRun: z.boolean().default(false),
     },
@@ -396,11 +390,6 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           args.candidateSalaryMin > args.candidateSalaryMax
         ) throw new Error("salary_range_invalid");
         const answers = validateSubmissionAnswers(args.answers);
-        const policy = validateSubmissionPolicy({
-          policy: args.policy,
-          answers,
-          documentIds: args.documentIds,
-        });
         const result = await getDb().recordApplicationSubmission(auth.userId, {
           applicationId: args.applicationId,
           submittedAt: new Date(args.submittedAt),
@@ -413,7 +402,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           requisitionId: args.requisitionId,
           language: args.language,
           answers,
-          policy,
+          policy: args.policy as SubmissionPolicyInput | undefined,
           candidateSalaryMin: args.candidateSalaryMin,
           candidateSalaryMax: args.candidateSalaryMax,
           candidateSalaryCurrency: args.candidateSalaryCurrency?.toUpperCase() ?? args.candidateSalaryCurrency,
