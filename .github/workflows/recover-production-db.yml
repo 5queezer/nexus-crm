@@ -106,7 +106,7 @@ jobs:
 
           docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
             --entrypoint sh "${service}" \
-            -c 'export HOME=/tmp npm_config_cache=/tmp/npm-cache; exec npx --yes prisma@6.19.3 migrate deploy --schema=/app/prisma/schema.prisma'
+            -c 'export HOME=/tmp npm_config_cache=/tmp/npm-cache; rm -rf /tmp/prisma-cli; mkdir -p /tmp/prisma-cli; npm install --prefix /tmp/prisma-cli --no-save --no-audit --no-fund prisma@6.19.3; exec /tmp/prisma-cli/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma'
 
           count_after="$(db_count)"
           if [ "${count_after}" != "${count_before}" ]; then
