@@ -35,8 +35,6 @@ export function buildFocusQueue(
   now = new Date(),
 ): FocusQueueGroup[] {
   const today = startOfLocalDay(now);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
   const dueSoonEnd = new Date(today);
   dueSoonEnd.setDate(dueSoonEnd.getDate() + 8);
   const newWeekStart = new Date(today);
@@ -71,7 +69,7 @@ export function buildFocusQueue(
       if (
         !Number.isNaN(createdAt.getTime()) &&
         createdAt >= newWeekStart &&
-        createdAt < tomorrow
+        createdAt <= now
       ) {
         groups.newThisWeek.push(application);
       } else {

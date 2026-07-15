@@ -77,6 +77,40 @@ describe("buildFocusQueue", () => {
     expect(new Set(ids).size).toBe(6);
   });
 
+  it("includes exact new-this-week boundaries but excludes timestamps after now", () => {
+    const now = new Date(2026, 6, 14, 12, 0, 0, 0);
+    const weekStart = new Date(2026, 6, 8, 0, 0, 0, 0);
+    const queue = buildFocusQueue(
+      [
+        app("week-start", { createdAt: weekStart.toISOString() }),
+        app("now", { createdAt: now.toISOString() }),
+        app("future", {
+          createdAt: new Date(now.getTime() + 1).toISOString(),
+        }),
+        app("before-week", {
+          createdAt: new Date(weekStart.getTime() - 1).toISOString(),
+        }),
+      ],
+      now,
+    );
+
+    expect(
+      queue
+        .find((group) => group.id === "newThisWeek")
+        ?.applications.map((item) => item.id),
+    ).toEqual(["now", "week-start"]);
+    expect(
+      queue
+        .find((group) => group.id === "recent")
+        ?.applications.map((item) => item.id),
+    ).toEqual(["before-week", "future"]);
+    const assignedIds = queue.flatMap((group) =>
+      group.applications.map((item) => item.id),
+    );
+    expect(assignedIds).toHaveLength(4);
+    expect(new Set(assignedIds).size).toBe(4);
+  });
+
   it("keeps UTC-midnight API serialization on the intended local day in negative offsets", () => {
     const now = new Date(2026, 6, 14, 12);
     const serializedDateOnly = "2026-07-14T00:00:00.000Z";

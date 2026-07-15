@@ -73,17 +73,18 @@ export function HeaderUtilityMenuPanel({
 
       <div role="none" className="py-1">
         {shareUrl && (
-          <a
-            href={shareUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
             role="menuitem"
-            onClick={onRequestClose}
-            className="flex min-h-10 items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/[0.07]"
+            onClick={() => {
+              onRequestClose?.();
+              window.open(shareUrl, "_blank", "noopener,noreferrer");
+            }}
+            className="flex min-h-12 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/[0.07]"
           >
             <span>{tn("share")}</span>
             <ExternalLink className="h-4 w-4 text-slate-400" />
-          </a>
+          </button>
         )}
         <ThemeSwitcher
           variant="menu"
@@ -106,7 +107,7 @@ export function HeaderUtilityMenuPanel({
             onRequestClose?.();
             void onLogout();
           }}
-          className="flex min-h-10 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+          className="flex min-h-12 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
         >
           <span>{tn("logout")}</span>
           <LogOut className="h-4 w-4" />
@@ -206,7 +207,7 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtility
           if (!open) updatePosition();
           setOpen((value) => !value);
         }}
-        className="flex min-h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white/70 p-1 pr-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/8 dark:bg-white/4 dark:text-slate-400 dark:hover:bg-white/[0.07] dark:hover:text-white"
+        className="nexus-target flex items-center gap-1 rounded-xl border border-slate-200 bg-white/70 p-1 pr-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/8 dark:bg-white/4 dark:text-slate-400 dark:hover:bg-white/[0.07] dark:hover:text-white"
       >
         {user.image ? (
           // eslint-disable-next-line @next/next/no-img-element

@@ -22,7 +22,8 @@
     "documents": "Documents",
     "analytics": "Analytics",
     "resume_ai": "Resume AI",
-    "share": "Share"
+    "share": "Share",
+    "menu": "Open navigation menu"
   },
   "stats": {
     "total": "Total",
@@ -65,7 +66,11 @@
     "show_less": "Show less",
     "more": "More",
     "more_actions": "More actions",
-    "opportunity_actions": "Actions for {company}"
+    "opportunity_actions": "Actions for {company}",
+    "open_job": "Open listing",
+    "select": "Select",
+    "deselect": "Deselect",
+    "select_opportunity": "Select {company}"
   },
   "table": {
     "company": "Account",
@@ -169,7 +174,9 @@
     "documents_share_hint": "Copy share link",
     "documents_empty": "No documents attached.",
     "documents_error": "Failed to manage document.",
-    "documents_upload_error": "Upload failed."
+    "documents_upload_error": "Upload failed.",
+    "close": "Close opportunity editor",
+    "secondary_details": "Additional details"
   },
   "status": {
     "inbound": "New Lead",
@@ -184,11 +191,15 @@
     "sort_rating_desc": "Priority (high → low)",
     "sort_updated_desc": "Recently updated",
     "sort_created_desc": "Newest first",
-    "sort_company_asc": "Account A–Z"
+    "sort_company_asc": "Account A–Z",
+    "open": "Open opportunity",
+    "change_status": "Change status"
   },
   "dashboard": {
     "applications": "Opportunities",
+    "loading": "Loading opportunities…",
     "loading_error": "Failed to load opportunities.",
+    "retry": "Try again",
     "triage_title": "Triage Summary",
     "triage_this_week": "Incoming this week",
     "triage_perfect": "Perfect fit",
@@ -453,7 +464,8 @@
     "no_results": "No matching opportunities found.",
     "navigate": "navigate",
     "select": "open",
-    "filter_status": "filter by status"
+    "filter_status": "filter by status",
+    "focus_view": "Switch to focus view"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
@@ -471,6 +483,7 @@
     "toggle_select": "Toggle selection",
     "clear_selection": "Clear selection",
     "views": "Views",
+    "focus_view": "Switch to focus view",
     "table_view": "Switch to table view",
     "kanban_view": "Switch to kanban view",
     "other": "Other",

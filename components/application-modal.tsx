@@ -641,7 +641,7 @@ export function ApplicationModal({
               />
 
               <div>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="nexus-target flex w-fit cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"
                     checked={form.remote}

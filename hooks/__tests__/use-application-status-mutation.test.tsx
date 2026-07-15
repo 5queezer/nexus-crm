@@ -103,6 +103,7 @@ describe("useApplicationStatusMutation concurrency", () => {
   it("serializes rapid same-application writes so delayed completions preserve final intent", async () => {
     const firstRequest = deferred<Response>();
     const secondRequest = deferred<Response>();
+    let serverStatus: ApplicationStatus = "inbound";
     const fetchMock = vi
       .fn()
       .mockReturnValueOnce(firstRequest.promise)
@@ -131,14 +132,79 @@ describe("useApplicationStatusMutation concurrency", () => {
     ).toBe("interview");
 
     await act(async () => {
+      serverStatus = "applied";
       firstRequest.resolve({
         ok: true,
-        json: async () => application("a", "applied"),
+        json: async () => application("a", serverStatus),
       } as Response);
       await firstMutation;
     });
 
+    expect(serverStatus).toBe("applied");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.map(([, init]) =>
+        JSON.parse((init as RequestInit).body as string),
+      ),
+    ).toEqual([{ status: "applied" }, { status: "interview" }]);
+
+    await act(async () => {
+      serverStatus = "interview";
+      secondRequest.resolve({
+        ok: true,
+        json: async () => application("a", serverStatus),
+      } as Response);
+      await secondMutation;
+    });
+
+    expect(serverStatus).toBe("interview");
+    expect(
+      queryClient
+        .getQueryData<Application[]>(["applications"])
+        ?.find((item) => item.id === "a")?.status,
+    ).toBe("interview");
+  });
+
+  it("does not let an older failed write roll back a newer pending intent", async () => {
+    const firstRequest = deferred<Response>();
+    const secondRequest = deferred<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    let firstMutation!: Promise<Application | undefined>;
+    let secondMutation!: Promise<Application>;
+    await act(async () => {
+      firstMutation = mutationHandleRef
+        .current!({ id: "a", status: "applied" })
+        .catch(() => undefined);
+      secondMutation = mutationHandleRef.current!({
+        id: "a",
+        status: "interview",
+      });
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      queryClient
+        .getQueryData<Application[]>(["applications"])
+        ?.find((item) => item.id === "a")?.status,
+    ).toBe("interview");
+
+    await act(async () => {
+      firstRequest.reject(new Error("older write failed"));
+      await firstMutation;
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      queryClient
+        .getQueryData<Application[]>(["applications"])
+        ?.find((item) => item.id === "a")?.status,
+    ).toBe("interview");
     expect(
       fetchMock.mock.calls.map(([, init]) =>
         JSON.parse((init as RequestInit).body as string),

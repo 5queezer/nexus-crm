@@ -946,7 +946,10 @@ export function Dashboard({
         </>
       )}
 
-      <AiOperator key="ai-operator" />
+      <AiOperator
+        key="ai-operator"
+        hideCompactLauncher={selectedIds.size > 0}
+      />
     </div>
   );
 }

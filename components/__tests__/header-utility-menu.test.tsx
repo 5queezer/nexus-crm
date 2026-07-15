@@ -50,6 +50,7 @@ describe("HeaderUtilityMenuPanel", () => {
     expect(html).toContain("Abmelden");
     expect(html).toContain("theme-menu-control");
     expect(html).toContain("language-menu-control");
+    expect(html.match(/min-h-12/g)).toHaveLength(4);
     expect(html.match(/role="none"/g)).toHaveLength(4);
   });
 
@@ -72,6 +73,7 @@ describe("HeaderUtilityMenuPanel", () => {
 
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("nexus-target");
     expect(html).not.toContain('role="menu"');
   });
 });

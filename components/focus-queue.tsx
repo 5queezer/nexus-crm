@@ -209,7 +209,7 @@ function FocusRow({
           onChange={(event) =>
             onStatus(event.target.value as ApplicationStatus)
           }
-          className="nexus-focus-ring h-12 max-w-12 rounded-xl border-0 bg-transparent px-1 text-transparent sm:max-w-36 sm:px-2 sm:text-sm sm:text-slate-700 dark:sm:text-slate-200"
+          className="nexus-focus-ring h-12 max-w-28 rounded-xl border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200 sm:max-w-36 sm:text-sm"
           aria-label={t("change_status", { company: application.company })}
         >
           {STATUS_ORDER.map((status) => (
