@@ -202,23 +202,47 @@ export async function exchangeAuthCode(params: {
 
 // ── Refresh Token ────────────────────────────────────────────────────────────
 
+export type RefreshTokenResult =
+  | { access_token: string; refresh_token: string; token_type: string; expires_in: number; scope: string }
+  | { error: "invalid_grant" | "invalid_scope"; error_description: string };
+
 export async function exchangeRefreshToken(params: {
   refreshToken: string;
   clientId: string;
-}): Promise<{ access_token: string; refresh_token: string; token_type: string; expires_in: number; scope: string } | null> {
+  requestedScopes?: string[];
+}): Promise<RefreshTokenResult> {
   const hash = sha256(params.refreshToken);
   const stored = await prisma.mcpRefreshToken.findUnique({
     where: { tokenHash: hash },
   });
 
-  if (!stored) return null;
-  if (stored.expiresAt < new Date()) return null;
-  if (stored.clientId !== params.clientId) return null;
+  if (!stored) return { error: "invalid_grant", error_description: "Invalid or expired refresh token" };
+  if (stored.expiresAt < new Date()) return { error: "invalid_grant", error_description: "Invalid or expired refresh token" };
+  if (stored.clientId !== params.clientId) return { error: "invalid_grant", error_description: "Invalid or expired refresh token" };
+
+  const grantedScopes = effectiveMcpScopes(stored.scopes, stored.sensitiveConsentVersion);
+
+  // OAuth 2.1 / RFC 6749 §6: a refresh request MAY narrow scope but MUST NOT
+  // widen it. A client that needs a scope beyond the stored grant (e.g. it now
+  // wants mcp:submissions on a mcp:tools-only grant) must run a full
+  // authorization so the user can re-consent — it cannot acquire the scope by
+  // refreshing. Reject the widening attempt with invalid_scope instead of
+  // silently returning the narrow scope, which a client reads as success and
+  // which leaves later calls failing with insufficient_scope.
+  let issuedScopes = grantedScopes;
+  if (params.requestedScopes && params.requestedScopes.length > 0) {
+    const beyondGrant = params.requestedScopes.filter((scope) => !grantedScopes.includes(scope));
+    if (beyondGrant.length > 0) {
+      return {
+        error: "invalid_scope",
+        error_description: `Requested scope exceeds the granted scope (${beyondGrant.join(" ")}); re-authorization is required to obtain it`,
+      };
+    }
+    issuedScopes = params.requestedScopes;
+  }
 
   // Rotate: delete old refresh token, issue new pair
   await prisma.mcpRefreshToken.delete({ where: { id: stored.id } });
-
-  const grantedScopes = effectiveMcpScopes(stored.scopes, stored.sensitiveConsentVersion);
   const newAccessToken = generateToken("mcp_at");
   const newRefreshToken = generateToken("mcp_rt");
 
@@ -227,7 +251,7 @@ export async function exchangeRefreshToken(params: {
       tokenHash: sha256(newAccessToken),
       clientId: stored.clientId,
       userId: stored.userId,
-      scopes: grantedScopes,
+      scopes: issuedScopes,
       sensitiveConsentVersion: stored.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_MS),
     },
@@ -238,7 +262,11 @@ export async function exchangeRefreshToken(params: {
       tokenHash: sha256(newRefreshToken),
       clientId: stored.clientId,
       userId: stored.userId,
-      scopes: grantedScopes,
+      // Narrowing applies only to the issued access token. The rotated refresh
+      // token must preserve the original grant (RFC 6749 §6) so a later refresh
+      // that omits `scope` — or re-requests the full scope the user already
+      // consented to — is not permanently burned down to the narrowed set.
+      scopes: stored.scopes,
       sensitiveConsentVersion: stored.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
     },
@@ -249,7 +277,7 @@ export async function exchangeRefreshToken(params: {
     refresh_token: newRefreshToken,
     token_type: "Bearer",
     expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
-    scope: grantedScopes.join(" "),
+    scope: issuedScopes.join(" "),
   };
 }
 
