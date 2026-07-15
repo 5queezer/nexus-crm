@@ -479,20 +479,16 @@ export function Dashboard({
       ids: string[];
       status: ApplicationStatus;
     }) => {
-      await Promise.all(
-        ids.map((id) =>
-          fetch(`/api/applications/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status }),
-          }),
-        ),
+      const results = await Promise.allSettled(
+        ids.map((id) => statusMutation.mutateAsync({ id, status })),
       );
+      const failure = results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+      if (failure) throw failure.reason;
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
-      clearSelection();
-    },
+    onSettled: clearSelection,
   });
 
   const bulkDeleteMutation = useMutation({
