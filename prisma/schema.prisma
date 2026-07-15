@@ -154,28 +154,36 @@ model ApplicationEvent {
 }
 
 model User {
-  id                     String                  @id
-  email                  String                  @unique
+  id                     String                    @id
+  email                  String                    @unique
   name                   String?
   image                  String?
-  emailVerified          Boolean                 @default(false)
-  isAdmin                Boolean                 @default(false)
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  emailVerified          Boolean                   @default(false)
+  isAdmin                Boolean                   @default(false)
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
   sessions               Session[]
   accounts               Account[]
   applications           Application[]
   documents              Document[]
   apiTokens              UserApiToken[]
   shareLinks             ShareLink[]
-  auditLogsAsActor       AdminAuditLog[]         @relation("auditActor")
-  auditLogsAsTarget      AdminAuditLog[]         @relation("auditTarget")
+  auditLogsAsActor       AdminAuditLog[]           @relation("auditActor")
+  auditLogsAsTarget      AdminAuditLog[]           @relation("auditTarget")
   emailIntegration       EmailIntegration?
   scannedEmails          ScannedEmail[]
   mcpAccessTokens        McpAccessToken[]
   cvProfile              CvProfile?
   applicationSubmissions ApplicationSubmission[]
   applicationEvents      ApplicationEvent[]
+  llmCredentials         LlmCredential[]
+  agentThreads           AgentThread[]
+  agentMessages          AgentMessage[]
+  agentRuns              AgentRun[]
+  agentToolInvocations   AgentToolInvocation[]
+  actionProposals        ActionProposal[]
+  verificationResults    AgentVerificationResult[]
+  mcpConnections         AgentMcpConnection[]
 }
 
 model UserApiToken {
@@ -276,6 +284,161 @@ model ScannedEmail {
 
   @@unique([userId, messageId])
   @@index([userId, status])
+}
+
+model LlmCredential {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        String
+  encryptedApiKey String
+  keyHint         String
+  defaultModel    String
+  status          String    @default("configured")
+  lastValidatedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId, status])
+}
+
+model AgentThread {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  messages  AgentMessage[]
+  runs      AgentRun[]
+  proposals ActionProposal[]
+
+  @@index([userId, updatedAt])
+}
+
+model AgentMessage {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId  String
+  thread    AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  runId     String?
+  run       AgentRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
+  role      String
+  content   String
+  metadata  Json?
+  createdAt DateTime    @default(now())
+
+  @@index([userId, threadId, createdAt])
+  @@index([runId])
+}
+
+model AgentRun {
+  id              String                @id @default(cuid())
+  userId          String
+  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId        String
+  thread          AgentThread           @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  provider        String
+  model           String
+  status          String                @default("running")
+  finishReason    String?
+  inputTokens     Int?
+  outputTokens    Int?
+  errorCode       String?
+  startedAt       DateTime              @default(now())
+  finishedAt      DateTime?
+  messages        AgentMessage[]
+  toolInvocations AgentToolInvocation[]
+  proposals       ActionProposal[]
+
+  @@index([userId, threadId, startedAt])
+  @@index([userId, status])
+}
+
+model AgentToolInvocation {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runId         String
+  run           AgentRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  toolName      String
+  kind          String
+  status        String          @default("running")
+  input         Json?
+  outputSummary Json?
+  errorCode     String?
+  durationMs    Int?
+  createdAt     DateTime        @default(now())
+  completedAt   DateTime?
+  proposal      ActionProposal?
+
+  @@index([userId, runId, createdAt])
+  @@index([userId, status])
+}
+
+model ActionProposal {
+  id               String                   @id @default(cuid())
+  userId           String
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId         String?
+  thread           AgentThread?             @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  runId            String?
+  run              AgentRun?                @relation(fields: [runId], references: [id], onDelete: SetNull)
+  toolInvocationId String?                  @unique
+  toolInvocation   AgentToolInvocation?     @relation(fields: [toolInvocationId], references: [id], onDelete: SetNull)
+  kind             String
+  targetType       String
+  targetId         String
+  payload          Json
+  expectedDiff     Json
+  assumptions      Json?
+  baseVersion      DateTime?
+  idempotencyKey   String
+  status           String                   @default("pending")
+  expiresAt        DateTime
+  executedAt       DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  verification     AgentVerificationResult?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status, createdAt])
+  @@index([threadId, createdAt])
+}
+
+model AgentVerificationResult {
+  id         String         @id @default(cuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposalId String         @unique
+  proposal   ActionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  success    Boolean
+  expected   Json
+  actual     Json
+  mismatches Json?
+  createdAt  DateTime       @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model AgentMcpConnection {
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                   String
+  url                    String
+  encryptedAuthorization String?
+  enabled                Boolean   @default(true)
+  lastCheckedAt          DateTime?
+  lastStatus             String?
+  lastErrorCode          String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId, enabled])
 }
 
 model Verification {

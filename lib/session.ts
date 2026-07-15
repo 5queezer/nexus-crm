@@ -17,7 +17,7 @@ export type SessionAuthResult = {
   /** Use for read-only list/get operations. Null means global read access. */
   readScopeUserId: string | null;
   user: SessionUser;
-  authType?: "session" | "api_token" | "mcp_oauth";
+  authType: "session" | "api_token" | "mcp_oauth" | "dev_bypass";
   scopes?: string[];
 };
 
@@ -88,6 +88,7 @@ export async function requireAuth(options: { allowDevBypass?: boolean } = {}): P
         image: null,
         isAdmin: true,
       },
+      authType: "dev_bypass",
     };
   }
 
@@ -118,6 +119,7 @@ async function authenticateBearer(raw: string): Promise<SessionAuthResult | null
       image: user.image ?? null,
       isAdmin: user.isAdmin,
     },
+    authType: "api_token",
   };
 }
 
@@ -150,7 +152,16 @@ async function authenticateSession(): Promise<SessionAuthResult | null> {
       image: (session.user as { image?: string | null }).image ?? null,
       isAdmin,
     },
+    authType: "session",
   };
+}
+
+/** Requires browser-session authentication and rejects API/OAuth bearer credentials. */
+export async function requireSessionAuth(
+  options: { allowDevBypass?: boolean } = {},
+): Promise<SessionAuthResult | null> {
+  const result = await requireAuth(options);
+  return result?.authType === "session" ? result : null;
 }
 
 export async function requireAdmin(): Promise<SessionAuthResult | null> {

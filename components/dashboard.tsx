@@ -15,6 +15,7 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
 import { WorkspaceToolbar } from "./workspace-toolbar";
+import { AiOperator } from "./ai-operator/ai-operator";
 import { Application, ApplicationStatus, STATUS_ORDER } from "@/types";
 import { format } from "date-fns";
 
@@ -484,23 +485,17 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isModalOpen, isCommandPaletteOpen, isShortcutDialogOpen, viewMode, focusedIndex, visibleApplications, selectedIds]);
 
-  // Show onboarding for new users
-  if (!isLoading && !onboardingComplete && applications.length === 0) {
-    return (
-      <div className="nexus-shell">
-        <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
-        <OnboardingWizard onComplete={() => {
-          setOnboardingComplete(true);
-          queryClient.invalidateQueries({ queryKey: ["applications"] });
-        }} />
-      </div>
-    );
-  }
+  const showOnboarding = !isLoading && !onboardingComplete && applications.length === 0;
 
   return (
     <div className="nexus-shell">
       <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
-
+      {showOnboarding ? (
+        <OnboardingWizard onComplete={() => {
+          setOnboardingComplete(true);
+          queryClient.invalidateQueries({ queryKey: ["applications"] });
+        }} />
+      ) : <>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
@@ -609,6 +604,8 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
       {/* Keyboard Shortcut Hint Bar */}
       {selectedIds.size === 0 && <KeyboardShortcutBar />}
+      </>}
+      <AiOperator />
     </div>
   );
 }
