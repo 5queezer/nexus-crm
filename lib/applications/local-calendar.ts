@@ -1,4 +1,25 @@
+const ISO_DATE_PREFIX_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/;
+
+function isValidCivilDate(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12 || day < 1) return false;
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  return day <= daysInMonth[month - 1];
+}
 
 /**
  * Parses calendar-only application fields without allowing UTC midnight
@@ -13,6 +34,12 @@ export function parseLocalCalendarDate(
   value: string | null | undefined,
 ): Date | null {
   if (!value) return null;
+  const datePrefixMatch = ISO_DATE_PREFIX_PATTERN.exec(value);
+  if (datePrefixMatch) {
+    const [, year, month, day] = datePrefixMatch;
+    if (!isValidCivilDate(Number(year), Number(month), Number(day))) return null;
+  }
+
   const calendarMatch = DATE_ONLY_PATTERN.exec(value);
   if (calendarMatch) {
     const [, year, month, day] = calendarMatch;

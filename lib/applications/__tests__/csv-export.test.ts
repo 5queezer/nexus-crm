@@ -94,6 +94,18 @@ describe("CSV export dates", () => {
 
     expect(csv.split("\n")[1]).toContain('"","","","Normal notes"');
   });
+
+  it("exports impossible timestamp date prefixes as empty cells", () => {
+    const csv = applicationsToCsv([
+      application({
+        appliedAt: "2026-02-29T12:00:00.000Z",
+        lastContact: "2026-04-31T08:00:00-07:00",
+        followUpAt: "2026-02-31T00:00:00.000Z",
+      }),
+    ]);
+
+    expect(csv.split("\n")[1]).toContain('"","","","Normal notes"');
+  });
 });
 
 describe("CSV export safety", () => {
