@@ -31,13 +31,15 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       vars.HETZNER_AUTO_DEPLOY == 'true'
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
 
     permissions:
       contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Normalize deploy env
         run: |
@@ -48,12 +50,12 @@ jobs:
             >> "$GITHUB_ENV"
 
       - name: Set up QEMU for ARM64 builds
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build ARM64 image in GitHub Actions
         env:
@@ -143,10 +145,13 @@ jobs:
 
           # A previous interrupted deploy may have left the generated compose
           # file invalid. Recover the newest valid snapshot before inspecting it.
-          if ! docker compose -f docker-compose.yaml config --quiet >/dev/null 2>&1; then
+          if ! docker compose -f docker-compose.yaml \
+            config --quiet >/dev/null 2>&1; then
             recovered=""
-            for candidate in $(ls -1t docker-compose.yaml.before-* 2>/dev/null || true); do
-              if docker compose -f "${candidate}" config --quiet >/dev/null 2>&1; then
+            for candidate in $(ls -1t \
+              docker-compose.yaml.before-* 2>/dev/null || true); do
+              if docker compose -f "${candidate}" \
+                config --quiet >/dev/null 2>&1; then
                 cp "${candidate}" docker-compose.yaml
                 recovered="${candidate}"
                 echo "Recovered docker-compose.yaml from ${candidate}."
@@ -154,7 +159,7 @@ jobs:
               fi
             done
             if [ -z "${recovered}" ]; then
-              echo "docker-compose.yaml is invalid and no valid backup exists." >&2
+              echo "docker-compose.yaml is invalid and has no valid backup."
               exit 1
             fi
           fi

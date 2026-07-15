@@ -1,6 +1,7 @@
 FROM node:22-alpine AS builder
 RUN apk add --no-cache openssl
 WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY package*.json ./
 RUN npm ci
 RUN npm install --prefix /tmp/prisma-cli --no-save --no-audit --no-fund prisma@6.19.3
@@ -12,6 +13,7 @@ FROM node:22-alpine AS runner
 RUN apk add --no-cache openssl postgresql-client
 WORKDIR /app
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 RUN mkdir -p /app/uploads && chown nextjs:nodejs /app/uploads
