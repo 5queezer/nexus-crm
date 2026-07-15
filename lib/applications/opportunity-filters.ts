@@ -1,4 +1,4 @@
-import type { Application, ApplicationStatus } from "@/types";
+import { getSourceCategory, type Application, type ApplicationStatus } from "@/types";
 
 export interface OpportunityFilters {
   search: string;
@@ -49,7 +49,7 @@ export function opportunityMatchesFilters(
   return (
     opportunityMatchesSearch(application, filters.search) &&
     (!filters.status || application.status === filters.status) &&
-    (!filters.source || application.source === filters.source) &&
+    (!filters.source || getSourceCategory(application.source) === filters.source) &&
     (!filters.remoteOnly || application.remote) &&
     (!filters.highPriorityOnly ||
       (application.triageQuality != null && application.triageQuality >= 4))

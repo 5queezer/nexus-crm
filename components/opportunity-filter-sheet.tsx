@@ -24,6 +24,7 @@ export function OpportunityFilterSheet({
 }: OpportunityFilterSheetProps) {
   const t = useTranslations("workspace");
   const ts = useTranslations("status");
+  const tAnalytics = useTranslations("analytics");
   const [draft, setDraft] = useState(filters);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -116,7 +117,7 @@ export function OpportunityFilterSheet({
               <option value="">{t("all_sources")}</option>
               {sources.map((source) => (
                 <option key={source} value={source}>
-                  {source}
+                  {tAnalytics(`source_labels.${source}`)}
                 </option>
               ))}
             </select>

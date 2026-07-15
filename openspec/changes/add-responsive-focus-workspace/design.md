@@ -10,11 +10,13 @@ Dashboard stores `null` for untouched mode. A hydration-safe media query resolve
 
 ### One committed filter model
 
-Dashboard owns a serializable model containing search, exact status/source, remote-only, and Triage 4–5. Search commits immediately. Compact secondary filters edit a draft in a modal sheet and apply atomically. Table keeps sorting and pagination only.
+Dashboard owns a serializable model containing search, exact status, normalized source category, remote-only, and Triage 4–5. Search commits immediately. Compact secondary filters edit a draft in a modal sheet and apply atomically. Table keeps sorting and pagination only.
 
 ### Focus is deterministic and inspectable
 
-Each filtered active application enters the first matching group: overdue, high priority, due soon, new this week, or recent. Local calendar boundaries determine date membership. Each group uses the specified deterministic ordering and stable ID tie-breakers. Visible headings and reason text explain placement.
+Each filtered active application enters the first matching group in this precedence order: overdue, high priority, due soon, new this week, or recent. “New this week” is a rolling seven-local-calendar-day window: today plus the preceding six local days, not a calendar week. Future-created records are excluded from that group.
+
+Ordering is deterministic within every group: overdue and due-soon records use earliest follow-up first; high priority uses Triage score descending and then earliest follow-up; new-this-week uses newest creation first; and recent uses newest update first. Stable application ID breaks every remaining tie. Visible headings and reason text explain placement.
 
 ### Fixed-surface ownership
 

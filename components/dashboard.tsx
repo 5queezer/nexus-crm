@@ -117,13 +117,16 @@ function exportToCsv(
 }
 
 function subscribeCompactViewport(callback: () => void) {
+  if (typeof window.matchMedia !== "function") return () => {};
   const media = window.matchMedia("(max-width: 1023px)");
   media.addEventListener("change", callback);
   return () => media.removeEventListener("change", callback);
 }
 
 function getCompactViewport(): boolean | null {
-  return window.matchMedia("(max-width: 1023px)").matches;
+  return typeof window.matchMedia === "function"
+    ? window.matchMedia("(max-width: 1023px)").matches
+    : false;
 }
 
 function getServerCompactViewport(): boolean | null {
@@ -672,6 +675,7 @@ export function Dashboard({
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <DashboardLoadingState message={t("loading")} />
         </main>
+        <AiOperator key="ai-operator" />
       </div>
     );
   }
@@ -691,28 +695,13 @@ export function Dashboard({
             onRetry={() => void refetch()}
           />
         </main>
+        <AiOperator key="ai-operator" />
       </div>
     );
   }
 
   // Onboarding is only eligible after the initial request succeeds.
-  if (!onboardingComplete && applications.length === 0) {
-    return (
-      <div className="nexus-shell">
-        <AppHeader
-          user={user}
-          shareUrl={shareUrl}
-          title={customTitle || undefined}
-        />
-        <OnboardingWizard
-          onComplete={() => {
-            setOnboardingComplete(true);
-            queryClient.invalidateQueries({ queryKey: ["applications"] });
-          }}
-        />
-      </div>
-    );
-  }
+  const showOnboarding = !onboardingComplete && applications.length === 0;
 
   return (
     <div className="nexus-shell">
@@ -722,6 +711,15 @@ export function Dashboard({
         title={customTitle || undefined}
       />
 
+      {showOnboarding ? (
+        <OnboardingWizard
+          onComplete={() => {
+            setOnboardingComplete(true);
+            queryClient.invalidateQueries({ queryKey: ["applications"] });
+          }}
+        />
+      ) : (
+        <>
       <main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
         {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
@@ -945,8 +943,10 @@ export function Dashboard({
 
       {/* Keyboard Shortcut Hint Bar */}
       {selectedIds.size === 0 && <KeyboardShortcutBar />}
+        </>
+      )}
 
-      <AiOperator />
+      <AiOperator key="ai-operator" />
     </div>
   );
 }

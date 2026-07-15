@@ -23,7 +23,7 @@ The workspace SHALL resolve an untouched active view to Focus below 1024px and T
 
 ### Requirement: Explainable Focus queue
 
-Focus SHALL include every committed-filter result exactly once in the first matching group: overdue, high priority, due soon, new this week, or recent. Membership SHALL use local calendar boundaries and ordering SHALL be deterministic.
+Focus SHALL include every committed-filter result exactly once in the first matching group, in this precedence order: overdue, high priority, due soon, new this week, or recent. “New this week” SHALL mean the rolling seven-local-calendar-day window containing today and the preceding six local days, excluding future-created records. Ordering SHALL be earliest follow-up first for overdue and due soon, Triage score descending then earliest follow-up for high priority, newest creation first for new this week, and newest update first for recent, with stable application ID as the final tie-breaker.
 
 #### Scenario: Opportunity matches multiple groups
 
@@ -34,12 +34,18 @@ Focus SHALL include every committed-filter result exactly once in the first matc
 #### Scenario: Stable ranking
 
 - **WHEN** ranking inputs do not change
-- **THEN** repeated selection returns the same order
-- **AND** stable ID breaks otherwise equal recent ties
+- **THEN** repeated selection returns the same group and record order
+- **AND** stable ID breaks otherwise equal ties in every group
+
+#### Scenario: Rolling new-this-week membership
+
+- **WHEN** an otherwise unmatched opportunity was created on today or one of the preceding six local calendar days
+- **THEN** it appears in New this week
+- **AND** an opportunity created before that window or in the future does not
 
 ### Requirement: Shared committed filters
 
-Focus and Table SHALL consume the same search, exact status/source, remote-only, and Triage 4–5 predicates. URL status/source seeds SHALL initialize those exact filters.
+Focus and Table SHALL consume the same search, exact status, normalized source-category, remote-only, and Triage 4–5 predicates. URL status/source seeds SHALL initialize the status and normalized source-category filters.
 
 #### Scenario: User changes view with filters applied
 
