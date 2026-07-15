@@ -262,7 +262,11 @@ export async function exchangeRefreshToken(params: {
       tokenHash: sha256(newRefreshToken),
       clientId: stored.clientId,
       userId: stored.userId,
-      scopes: issuedScopes,
+      // Narrowing applies only to the issued access token. The rotated refresh
+      // token must preserve the original grant (RFC 6749 §6) so a later refresh
+      // that omits `scope` — or re-requests the full scope the user already
+      // consented to — is not permanently burned down to the narrowed set.
+      scopes: stored.scopes,
       sensitiveConsentVersion: stored.sensitiveConsentVersion,
       expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
     },

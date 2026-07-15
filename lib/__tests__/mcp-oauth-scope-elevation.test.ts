@@ -1,22 +1,53 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
+// Minimal row shapes for the in-memory Prisma double.
+type AuthCodeRow = {
+  code: string;
+  clientId: string;
+  userId: string;
+  redirectUri: string;
+  codeChallenge: string;
+  scopes: string[];
+  sensitiveConsentVersion: number;
+  expiresAt: Date;
+  used: boolean;
+  createdAt: Date;
+};
+
+type TokenRow = {
+  id: string;
+  tokenHash: string;
+  clientId: string;
+  userId: string;
+  scopes: string[];
+  sensitiveConsentVersion: number;
+  expiresAt: Date;
+};
+
 // In-memory Prisma double for the MCP OAuth tables. Mirrors the Prisma schema
 // defaults that matter for these flows (McpAuthCode.used defaults to false).
 const store = vi.hoisted(() => ({
-  authCodes: [] as any[],
-  accessTokens: [] as any[],
-  refreshTokens: [] as any[],
+  authCodes: [] as AuthCodeRow[],
+  accessTokens: [] as TokenRow[],
+  refreshTokens: [] as TokenRow[],
 }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     mcpAuthCode: {
-      create: async ({ data }: any) => {
-        store.authCodes.push({ used: false, createdAt: new Date(), ...data });
-        return data;
+      create: async ({ data }: { data: Partial<AuthCodeRow> & { code: string } }) => {
+        const row: AuthCodeRow = { used: false, createdAt: new Date(), ...data } as AuthCodeRow;
+        store.authCodes.push(row);
+        return row;
       },
-      updateMany: async ({ where, data }: any) => {
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { code: string; clientId: string; redirectUri: string; expiresAt: { gt: Date } };
+        data: Partial<AuthCodeRow>;
+      }) => {
         let count = 0;
         for (const c of store.authCodes) {
           if (
@@ -32,25 +63,27 @@ vi.mock("@/lib/prisma", () => ({
         }
         return { count };
       },
-      findUnique: async ({ where }: any) =>
+      findUnique: async ({ where }: { where: { code: string } }) =>
         store.authCodes.find((c) => c.code === where.code) ?? null,
     },
     mcpAccessToken: {
-      create: async ({ data }: any) => {
-        store.accessTokens.push({ ...data });
-        return data;
+      create: async ({ data }: { data: Omit<TokenRow, "id"> }) => {
+        const row: TokenRow = { id: `at_${store.accessTokens.length}`, ...data };
+        store.accessTokens.push(row);
+        return row;
       },
-      findUnique: async ({ where }: any) =>
+      findUnique: async ({ where }: { where: { tokenHash: string } }) =>
         store.accessTokens.find((t) => t.tokenHash === where.tokenHash) ?? null,
     },
     mcpRefreshToken: {
-      create: async ({ data }: any) => {
-        store.refreshTokens.push({ id: `rt_${store.refreshTokens.length}`, ...data });
-        return data;
+      create: async ({ data }: { data: Omit<TokenRow, "id"> }) => {
+        const row: TokenRow = { id: `rt_${store.refreshTokens.length}`, ...data };
+        store.refreshTokens.push(row);
+        return row;
       },
-      findUnique: async ({ where }: any) =>
+      findUnique: async ({ where }: { where: { tokenHash: string } }) =>
         store.refreshTokens.find((t) => t.tokenHash === where.tokenHash) ?? null,
-      delete: async ({ where }: any) => {
+      delete: async ({ where }: { where: { id: string } }) => {
         const i = store.refreshTokens.findIndex((t) => t.id === where.id);
         if (i >= 0) store.refreshTokens.splice(i, 1);
       },
@@ -70,7 +103,7 @@ function seedRefreshToken(opts: {
   clientId?: string;
 }) {
   store.refreshTokens.push({
-    id: "rt_seed",
+    id: `rt_seed_${store.refreshTokens.length}`,
     tokenHash: sha256(opts.token),
     clientId: opts.clientId ?? "client-1",
     userId: "user-a",
@@ -182,5 +215,40 @@ describe("MCP OAuth scope elevation", () => {
       clientId: "client-1",
     });
     expect("scope" in kept && kept.scope).toBe("mcp:tools mcp:submissions");
+  });
+
+  // Narrowing the issued access token must not burn down the underlying grant:
+  // the rotated refresh token keeps the original scope, so the client can later
+  // re-request the full scope it already consented to.
+  it("preserves the original grant when a narrowed refresh is rotated", async () => {
+    seedRefreshToken({
+      token: "mcp_rt_grant",
+      scopes: ["mcp:tools", "mcp:submissions"],
+      sensitiveConsentVersion: 1,
+    });
+
+    // First refresh narrows to mcp:tools only.
+    const narrowed = await exchangeRefreshToken({
+      refreshToken: "mcp_rt_grant",
+      clientId: "client-1",
+      requestedScopes: ["mcp:tools"],
+    });
+    expect("access_token" in narrowed).toBe(true);
+    if (!("refresh_token" in narrowed)) throw new Error("expected rotated refresh token");
+
+    // The access token is narrowed...
+    const narrowedAccess = store.accessTokens.find(
+      (t) => t.tokenHash === sha256(narrowed.access_token),
+    );
+    expect(narrowedAccess?.scopes).toEqual(["mcp:tools"]);
+
+    // ...but the rotated refresh token still carries the full grant, so a
+    // subsequent refresh can re-request mcp:submissions without re-auth.
+    const reElevated = await exchangeRefreshToken({
+      refreshToken: narrowed.refresh_token,
+      clientId: "client-1",
+      requestedScopes: ["mcp:tools", "mcp:submissions"],
+    });
+    expect("scope" in reElevated && reElevated.scope).toBe("mcp:tools mcp:submissions");
   });
 });
