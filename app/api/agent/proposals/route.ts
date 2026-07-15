@@ -22,6 +22,10 @@ export async function GET(request: Request) {
       sanitizedPayload: proposal.kind === "mcp_tool" && reviewed
         ? {
             toolName: typeof reviewed.toolName === "string" ? reviewed.toolName : undefined,
+            connectorName: typeof reviewed.connectorName === "string" ? reviewed.connectorName : undefined,
+            connectorUrl: typeof reviewed.connectorUrl === "string" ? reviewed.connectorUrl : undefined,
+            connectorVersion:
+              typeof reviewed.connectorVersion === "string" ? reviewed.connectorVersion : undefined,
             arguments:
               reviewed.arguments && typeof reviewed.arguments === "object" && !Array.isArray(reviewed.arguments)
                 ? reviewed.arguments

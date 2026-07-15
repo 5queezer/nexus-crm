@@ -48,6 +48,19 @@ export function buildBoundedHistory<T extends { content: string }>(
   return selected;
 }
 
+export function buildMcpProposalAuditInput(input: {
+  connectorId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  reason: string;
+}) {
+  return {
+    connectorId: input.connectorId,
+    toolName: input.toolName,
+    argumentsOmitted: true,
+  };
+}
+
 async function auditedTool<T>(input: {
   userId: string;
   runId: string;
@@ -225,7 +238,7 @@ export function buildMcpAgentTools(input: {
           runId: input.runId,
           toolName: "propose_mcp_tool_call",
           kind: "proposal",
-          toolInput,
+          toolInput: buildMcpProposalAuditInput(toolInput),
           execute: async (toolInvocationId) => {
             const connector = await getConnectorSecret(
               input.connectorRepository,
@@ -252,6 +265,8 @@ export function buildMcpAgentTools(input: {
               targetId: connector.id,
               payload: {
                 connectorVersion: connector.updatedAt.toISOString(),
+                connectorName: connector.name,
+                connectorUrl: connector.url,
                 toolName: selected.remoteName,
                 arguments: reviewedCall.arguments,
                 argumentsHash: reviewedCall.argumentsHash,

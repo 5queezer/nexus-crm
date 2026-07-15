@@ -38,7 +38,7 @@ The system SHALL discover connector tools server-side with bounded connection ti
 - **THEN** the system closes the connection, records a redacted failure, and exposes no tools from that attempt
 
 ### Requirement: Approval-gated MCP invocation
-The system SHALL treat every external MCP invocation as consequential and SHALL require approval of the stored connector ID and version, namespaced tool name, and visible canonical arguments before calling the remote server.
+The system SHALL treat every external MCP invocation as consequential and SHALL require approval of the stored connector ID, immutable reviewed name, destination URL and version, namespaced tool name, and visible canonical arguments before calling the remote server. Unvalidated model arguments and rationale SHALL NOT be persisted in the tool-invocation audit record.
 
 #### Scenario: Model requests an MCP tool
 - **WHEN** the model selects an external MCP tool

@@ -101,7 +101,7 @@ model suggests change
         └─ mismatch ──────────► applied_unverified + mismatch evidence
 ```
 
-Approval is a separate browser-session-authenticated API request. The executor does not ask the model to regenerate arguments. A conditional status transition claims a pending proposal before execution; after dispatch, uncertainty is durably represented as `outcome_unknown`. Repeated approval of an already completed or outcome-unknown proposal returns its recorded state instead of applying it again. After a successful update, clients invalidate application queries so table, Kanban, and details views show the read-back state.
+Approval is a separate browser-session-authenticated API request. The executor does not ask the model to regenerate arguments. MCP approval cards identify the immutable reviewed connector name, destination URL, connector version, remote tool, and exact canonical arguments; connector or schema drift prevents execution. A conditional status transition claims a pending proposal before execution; after dispatch, uncertainty is durably represented as `outcome_unknown`. Repeated approval of an already completed or outcome-unknown proposal returns its recorded state instead of applying it again. After a successful update, clients invalidate application queries so table, Kanban, and details views refresh from Nexus.
 
 The currently implemented mutation is an application update limited to status, follow-up date, last-contact date, notes, and rating.
 

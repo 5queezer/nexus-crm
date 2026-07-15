@@ -143,6 +143,9 @@ describe("AiOperator", () => {
               sanitizedPayload: {
                 toolName: "create_task",
                 arguments: { title: "Follow up", priority: 2, notify: true },
+                connectorName: "Research tools",
+                connectorUrl: "https://mcp.example.com/v1",
+                connectorVersion: "2026-07-14T00:00:00.000Z",
               },
               assumptions: { reason: "Create the requested follow-up task" },
               status: "pending",
@@ -162,6 +165,9 @@ describe("AiOperator", () => {
     expect(await screen.findByText("I found one follow-up that needs attention.")).toBeTruthy();
     expect(await screen.findByText("Approval required")).toBeTruthy();
     expect(screen.getByText("create_task")).toBeTruthy();
+    expect(screen.getByText("Research tools")).toBeTruthy();
+    expect(screen.getByText("https://mcp.example.com/v1")).toBeTruthy();
+    expect(screen.getByText("2026-07-14T00:00:00.000Z")).toBeTruthy();
     expect(screen.getByText(/"title": "Follow up"/)).toBeTruthy();
     expect(screen.getByText(/"priority": 2/)).toBeTruthy();
     expect(screen.getByText(/"notify": true/)).toBeTruthy();

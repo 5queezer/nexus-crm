@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DatabaseAdapter } from "@/lib/db/adapter";
-import { AGENT_LIMITS, buildAgentTools, buildBoundedHistory } from "../runtime";
+import {
+  AGENT_LIMITS,
+  buildAgentTools,
+  buildBoundedHistory,
+  buildMcpProposalAuditInput,
+} from "../runtime";
 import { AGENT_SYSTEM_PROMPT } from "../system-prompt";
 
 const db = {
@@ -52,6 +57,22 @@ describe("agent runtime policy", () => {
     expect(bounded.length).toBeLessThanOrEqual(24);
     expect(bounded.reduce((total, item) => total + item.content.length, 0)).toBeLessThanOrEqual(60_000);
     expect(bounded.at(-1)?.content.startsWith("39:")).toBe(true);
+  });
+
+  it("omits unvalidated MCP arguments and free text from audit input", () => {
+    const auditInput = buildMcpProposalAuditInput({
+      connectorId: "connector-a",
+      toolName: "send_message",
+      arguments: { authorization: "Bearer must-not-persist", token: "must-not-persist" },
+      reason: "contains must-not-persist",
+    });
+
+    expect(auditInput).toEqual({
+      connectorId: "connector-a",
+      toolName: "send_message",
+      argumentsOmitted: true,
+    });
+    expect(JSON.stringify(auditInput)).not.toContain("must-not-persist");
   });
 
   it("marks external content as untrusted and forbids self-approval", () => {

@@ -40,6 +40,9 @@ export type ActionProposal = {
   sanitizedPayload?: {
     toolName?: string;
     arguments?: Record<string, unknown>;
+    connectorName?: string;
+    connectorUrl?: string;
+    connectorVersion?: string;
   } | null;
   assumptions?: { reason?: string } | null;
   status: string;

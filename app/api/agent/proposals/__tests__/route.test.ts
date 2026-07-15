@@ -30,6 +30,8 @@ describe("GET /api/agent/proposals", () => {
           argumentsHash: "internal-argument-hash",
           toolSchemaHash: "internal-schema-hash",
           connectorVersion: "2026-07-14T00:00:00.000Z",
+          connectorName: "Research tools",
+          connectorUrl: "https://mcp.example.com/v1",
         },
       },
     ]);
@@ -40,6 +42,9 @@ describe("GET /api/agent/proposals", () => {
     expect(body.proposals[0].sanitizedPayload).toEqual({
       toolName: "send_message",
       arguments: { recipient: "person@example.com", body: "Hello" },
+      connectorName: "Research tools",
+      connectorUrl: "https://mcp.example.com/v1",
+      connectorVersion: "2026-07-14T00:00:00.000Z",
     });
     expect(JSON.stringify(body)).not.toContain("internal-schema-hash");
   });
