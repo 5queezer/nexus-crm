@@ -59,7 +59,7 @@ Thread and proposal IDs from a request are never sufficient authorization. Every
 
 A new generic secret helper derives purpose-specific keys from `AGENT_SECRET_ENCRYPTION_KEY` and encrypts with AES-256-GCM. Provider credentials and MCP authorization metadata use different purpose strings. The database stores ciphertext, provider/model metadata, and a short key hint only.
 
-The API supports create/replace, metadata lookup, provider validation, and deletion. The raw key is accepted over TLS, encrypted immediately, omitted from responses, and redacted from errors. It is decrypted only for the provider request or MCP connection that needs it.
+The API supports create/replace, metadata lookup, provider/model allowlist validation, and deletion. Saving configures but does not remotely verify the credential; the UI labels that state truthfully. The raw key is accepted over TLS, encrypted immediately, omitted from responses, and redacted from errors. It is decrypted only for the provider request that needs it.
 
 ### 5. Separate model tools from mutation execution
 
@@ -118,7 +118,7 @@ Interactive model execution remains in a Next.js route for the MVP. Runtime func
 - **Stale proposals overwrite newer work** → Base-version checks and a visible stale status requiring regeneration.
 - **Long model responses exceed request lifetime** → Bounded steps/timeouts and persisted partial run failure; durable background execution is a later worker concern.
 - **Large UI scope obscures the core portfolio story** → Use a focused drawer with clear empty/configured/proposal states rather than adding another top-level application.
-- **Firestore adapter parity** → Agent persistence is explicitly implemented on the primary Prisma/PostgreSQL path; the existing hybrid authentication already requires Prisma. Documentation will state that the operator console requires PostgreSQL.
+- **Firestore adapter parity** → Agent persistence always uses Prisma/PostgreSQL; when the optional Firestore CRM adapter is selected, only tenant-scoped application reads and writes use Firestore. Documentation states this split explicitly.
 
 ## Migration Plan
 

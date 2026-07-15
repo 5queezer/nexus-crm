@@ -43,7 +43,7 @@ Each user configures an allowlisted provider/model pair and their own API key. N
 1. `PUT /api/agent/credentials` authenticates the request and validates its shape and provider/model allowlist.
 2. The server derives a purpose-specific key from `AGENT_SECRET_ENCRYPTION_KEY`.
 3. It encrypts the API key with AES-256-GCM and stores the envelope under `(userId, provider)`.
-4. Metadata responses contain provider, model, state, timestamps, and a last-four-character hint—not the key.
+4. Metadata responses contain provider, model, state, timestamps, and a last-four-character hint—not the key. A saved credential is `configured` but remains unverified unless a future provider-validation flow records `lastValidatedAt`.
 5. For a model request, the credential is decrypted only in server memory and passed directly to the selected provider client.
 
 OpenAI and Anthropic are currently supported. The exact model allowlist lives in `lib/agent/providers.ts`; unsupported provider/model combinations fail before persistence.
@@ -124,7 +124,7 @@ Connector discovery is available to the authenticated model through `list_mcp_to
 
 ## Persistence model
 
-All operator records use PostgreSQL through Prisma. The operator is not available on the optional Firestore application adapter path.
+All operator records use PostgreSQL through Prisma, regardless of the optional CRM application adapter. When `DB_PROVIDER=firestore`, tenant-scoped CRM read/proposal tools use Firestore for application data while credentials, threads, runs, tool audits, proposals, and connector metadata still require Prisma/PostgreSQL.
 
 | Record | Purpose | Ownership |
 | --- | --- | --- |

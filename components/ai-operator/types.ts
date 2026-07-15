@@ -21,12 +21,24 @@ export type AgentMessage = {
   createdAt: string;
 };
 
+export type AgentActivity = {
+  id: string;
+  type: "run" | "tool";
+  runId: string;
+  toolName: string | null;
+  status: string;
+  durationMs: number | null;
+  proposalId: string | null;
+  createdAt: string;
+};
+
 export type AgentThread = {
   id: string;
   title: string;
   createdAt: string;
   updatedAt: string;
   messages?: AgentMessage[];
+  activities?: AgentActivity[];
 };
 
 export type ProposalDiff = { field: string; from: unknown; to: unknown };

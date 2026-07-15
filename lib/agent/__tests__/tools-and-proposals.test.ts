@@ -108,10 +108,22 @@ describe("tenant-scoped Nexus agent tools", () => {
     expect(results[0]).not.toHaveProperty("jobDescription");
   });
 
-  it("looks up application details with the authenticated user scope", async () => {
-    const db = { getApplication: vi.fn().mockResolvedValue(application()) } as unknown as DatabaseAdapter;
-    await getApplicationForAgent(db, "user-a", "1");
+  it("looks up application details with scoped, bounded, explicitly untrusted context", async () => {
+    const db = { getApplication: vi.fn().mockResolvedValue(application({
+      notes: "n".repeat(3_000),
+      jobSummary: "s".repeat(3_000),
+      jobDescription: "d".repeat(5_000),
+    })) } as unknown as DatabaseAdapter;
+    const result = await getApplicationForAgent(db, "user-a", "1");
     expect(db.getApplication).toHaveBeenCalledWith("1", "user-a");
+    expect(result).not.toHaveProperty("notes");
+    expect(result).not.toHaveProperty("jobSummary");
+    expect(result?.untrustedExternalContext).toMatchObject({
+      label: expect.stringContaining("UNTRUSTED"),
+    });
+    expect(result?.untrustedExternalContext.notes).toHaveLength(1_500);
+    expect(result?.untrustedExternalContext.summary).toHaveLength(1_500);
+    expect(result?.untrustedExternalContext.jobDescription).toHaveLength(2_500);
   });
 });
 

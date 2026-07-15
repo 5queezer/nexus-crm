@@ -26,6 +26,7 @@ class MemoryAgentRepository implements AgentRepository {
       updatedAt: now,
       messages: [],
       proposals: [],
+      activities: [],
     };
     this.threads.push(thread);
     return thread;

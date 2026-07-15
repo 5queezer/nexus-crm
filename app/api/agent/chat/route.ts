@@ -27,6 +27,7 @@ import {
 import { prismaProposalRepository } from "@/lib/agent/proposals";
 import { prismaConnectorRepository } from "@/lib/agent/connectors";
 import { AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
+import { agentRequestErrorResponse, readBoundedJson } from "@/lib/agent/request";
 
 const requestSchema = z.object({
   threadId: z.string().min(1).max(100),
@@ -37,7 +38,13 @@ const requestSchema = z.object({
 export async function POST(request: Request) {
   const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = requestSchema.safeParse(await request.json().catch(() => null));
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request);
+  } catch (error) {
+    return agentRequestErrorResponse(error) ?? NextResponse.json({ error: "Invalid chat request" }, { status: 400 });
+  }
+  const parsed = requestSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid chat request" }, { status: 400 });
 
   const thread = await getAgentThread(
