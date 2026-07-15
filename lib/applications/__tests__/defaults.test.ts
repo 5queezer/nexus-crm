@@ -30,7 +30,8 @@ describe("opportunity creation defaults", () => {
       .toThrow("appliedAt_invalid");
   });
 
-  it("formats a date for date inputs", () => {
-    expect(toDateInputValue(new Date("2026-06-30T12:34:56.000Z"))).toBe("2026-06-30");
+  it("formats the user's local calendar day for date inputs", () => {
+    const localLateEvening = new Date(2026, 6, 14, 23, 30);
+    expect(toDateInputValue(localLateEvening)).toBe("2026-07-14");
   });
 });

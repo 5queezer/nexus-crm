@@ -1,7 +1,13 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslations } from "next-intl";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
@@ -14,9 +20,24 @@ import { KeyboardShortcutDialog } from "./keyboard-shortcut-dialog";
 import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
-import { WorkspaceToolbar } from "./workspace-toolbar";
 import { AiOperator } from "./ai-operator/ai-operator";
-import { Application, ApplicationStatus, STATUS_ORDER } from "@/types";
+import { WorkspaceToolbar, type WorkspaceViewMode } from "./workspace-toolbar";
+import { FocusQueue } from "./focus-queue";
+import { OpportunityFilterControls } from "./opportunity-filter-controls";
+import {
+  EMPTY_OPPORTUNITY_FILTERS,
+  filterOpportunities,
+  hasOpportunityFilters,
+  type OpportunityFilters,
+} from "@/lib/applications/opportunity-filters";
+import {
+  Application,
+  ApplicationStatus,
+  STATUS_ORDER,
+  getSourceCategory,
+} from "@/types";
+import { resolveOpportunityView } from "@/lib/applications/workspace-view";
+import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { format } from "date-fns";
 
 interface DashboardProps {
@@ -48,13 +69,27 @@ async function archiveApplication(id: string, archive: boolean): Promise<void> {
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ archivedAt: archive ? new Date().toISOString() : null }),
+    body: JSON.stringify({
+      archivedAt: archive ? new Date().toISOString() : null,
+    }),
   });
   if (!res.ok) throw new Error("Failed to archive application");
 }
 
-function exportToCsv(applications: Application[], filename = "applications.csv") {
-  const headers = ["Company", "Role", "Status", "Source", "Applied", "Last Contact", "Follow-up", "Notes"];
+function exportToCsv(
+  applications: Application[],
+  filename = "applications.csv",
+) {
+  const headers = [
+    "Company",
+    "Role",
+    "Status",
+    "Source",
+    "Applied",
+    "Last Contact",
+    "Follow-up",
+    "Notes",
+  ];
   const rows = applications.map((a) => [
     a.company,
     a.role,
@@ -67,7 +102,9 @@ function exportToCsv(applications: Application[], filename = "applications.csv")
   ]);
 
   const csv = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .map((row) =>
+      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
+    )
     .join("\n");
 
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -79,15 +116,35 @@ function exportToCsv(applications: Application[], filename = "applications.csv")
   URL.revokeObjectURL(url);
 }
 
-type ViewMode = "table" | "kanban";
+function subscribeCompactViewport(callback: () => void) {
+  const media = window.matchMedia("(max-width: 1023px)");
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
 
-export function Dashboard({ user, shareUrl, initialStatus, initialSource, initialSearch }: DashboardProps) {
+function getCompactViewport(): boolean | null {
+  return window.matchMedia("(max-width: 1023px)").matches;
+}
+
+function getServerCompactViewport(): boolean | null {
+  return null;
+}
+
+export function Dashboard({
+  user,
+  shareUrl,
+  initialStatus,
+  initialSource,
+  initialSearch,
+}: DashboardProps) {
   const queryClient = useQueryClient();
   const t = useTranslations("dashboard");
   const tn = useTranslations("nav");
   const ts = useTranslations("stats");
   const ta = useTranslations("actions");
   const tc = useTranslations("confirm");
+  const tw = useTranslations("workspace");
+  const tf = useTranslations("focus");
 
   const [customTitle] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -102,7 +159,21 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<Application | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const modalOpenerRef = useRef<HTMLElement | null>(null);
+  const compactViewport = useSyncExternalStore(
+    subscribeCompactViewport,
+    getCompactViewport,
+    getServerCompactViewport,
+  );
+  const [viewMode, setViewMode] = useState<WorkspaceViewMode | null>(null);
+  const [filters, setFilters] = useState<OpportunityFilters>(() => ({
+    ...EMPTY_OPPORTUNITY_FILTERS,
+    search: initialSearch ?? "",
+    status: STATUS_ORDER.includes(initialStatus as ApplicationStatus)
+      ? (initialStatus as ApplicationStatus)
+      : "",
+    source: initialSource ? getSourceCategory(initialSource) : "",
+  }));
   const [showArchived, setShowArchived] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutDialogOpen, setIsShortcutDialogOpen] = useState(false);
@@ -112,7 +183,12 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     if (typeof window === "undefined") return true;
     return localStorage.getItem("onboarding-complete") === "true";
   });
-  const { data: applications = [], isLoading, isError } = useQuery({
+  const {
+    data: applications = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["applications"],
     queryFn: fetchApplications,
   });
@@ -133,6 +209,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   });
 
   function handleEdit(app: Application) {
+    modalOpenerRef.current = document.activeElement as HTMLElement | null;
     setEditingApp(app);
     setIsModalOpen(true);
   }
@@ -144,6 +221,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   }
 
   function handleNewApplication() {
+    modalOpenerRef.current = document.activeElement as HTMLElement | null;
     setEditingApp(null);
     setIsModalOpen(true);
   }
@@ -151,6 +229,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   function handleCloseModal() {
     setIsModalOpen(false);
     setEditingApp(null);
+    requestAnimationFrame(() => modalOpenerRef.current?.focus());
   }
 
   function handleArchive(id: string, archive: boolean) {
@@ -169,7 +248,40 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   // Filter by archive status
   const activeApplications = applications.filter((a) => !a.archivedAt);
   const archivedApplications = applications.filter((a) => !!a.archivedAt);
-  const visibleApplications = showArchived ? archivedApplications : activeApplications;
+  const visibleApplications = showArchived
+    ? archivedApplications
+    : activeApplications;
+  const resolvedView = resolveOpportunityView(
+    viewMode,
+    compactViewport,
+    showArchived,
+  );
+  const filteredApplications = useMemo(
+    () => filterOpportunities(visibleApplications, filters),
+    [visibleApplications, filters],
+  );
+  const filtersActive = hasOpportunityFilters(filters);
+  const isTrueEmpty = !isLoading && visibleApplications.length === 0;
+  const isFilteredEmpty =
+    !isLoading &&
+    filtersActive &&
+    visibleApplications.length > 0 &&
+    filteredApplications.length === 0;
+  const sources = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          visibleApplications
+            .filter((application) => Boolean(application.source))
+            .map((application) => getSourceCategory(application.source)),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [visibleApplications],
+  );
+
+  function clearFilters() {
+    setFilters(EMPTY_OPPORTUNITY_FILTERS);
+  }
 
   function handleBulkArchive(days: number) {
     const cutoff = new Date();
@@ -186,10 +298,18 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
   function handleBulkArchiveByRating(maxRating: number) {
     const lowRated = activeApplications.filter(
-      (a) => a.rating !== null && a.rating !== undefined && a.rating <= maxRating
+      (a) =>
+        a.rating !== null && a.rating !== undefined && a.rating <= maxRating,
     );
     if (lowRated.length === 0) return;
-    if (confirm(ta("archive_rating_confirm", { count: lowRated.length, stars: maxRating }))) {
+    if (
+      confirm(
+        ta("archive_rating_confirm", {
+          count: lowRated.length,
+          stars: maxRating,
+        }),
+      )
+    ) {
       bulkArchiveMutation.mutate(lowRated.map((a) => a.id));
     }
   }
@@ -198,7 +318,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     total: activeApplications.length,
     inbound: activeApplications.filter((a) => a.status === "inbound").length,
     active: activeApplications.filter((a) =>
-      (["applied", "interview"] as ApplicationStatus[]).includes(a.status)
+      (["applied", "interview"] as ApplicationStatus[]).includes(a.status),
     ).length,
     offers: activeApplications.filter((a) => a.status === "offer").length,
     rejected: activeApplications.filter((a) => a.status === "rejected").length,
@@ -212,7 +332,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     for (const a of activeApplications) {
       if (new Date(a.createdAt) >= oneWeekAgo) counts.thisWeek++;
       const q = a.triageQuality;
-      if (q != null && q >= 1 && q <= 5) counts[q as 1|2|3|4|5]++;
+      if (q != null && q >= 1 && q <= 5) counts[q as 1 | 2 | 3 | 4 | 5]++;
       else counts.unrated++;
     }
     return { ...counts, highPriority: counts[5] + counts[4] };
@@ -222,7 +342,10 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     {
       id: "toggle-archive",
       label: showArchived ? ta("show_active") : ta("show_archive"),
-      hint: !showArchived && archivedApplications.length > 0 ? archivedApplications.length : undefined,
+      hint:
+        !showArchived && archivedApplications.length > 0
+          ? archivedApplications.length
+          : undefined,
       onSelect: () => setShowArchived((value) => !value),
     },
     {
@@ -237,7 +360,9 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
       const count = activeApplications.filter((application) => {
-        const date = application.appliedAt ? new Date(application.appliedAt) : new Date(application.createdAt);
+        const date = application.appliedAt
+          ? new Date(application.appliedAt)
+          : new Date(application.createdAt);
         return date < cutoff;
       }).length;
       workspaceActions.push({
@@ -251,11 +376,15 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     }
     for (const stars of RATING_THRESHOLDS) {
       const count = activeApplications.filter(
-        (application) => application.rating != null && application.rating <= stars,
+        (application) =>
+          application.rating != null && application.rating <= stars,
       ).length;
       workspaceActions.push({
         id: `archive-rating-${stars}`,
-        label: ta(stars === 1 ? "archive_rating_option_one" : "archive_rating_option", { stars }),
+        label: ta(
+          stars === 1 ? "archive_rating_option_one" : "archive_rating_option",
+          { stars },
+        ),
         hint: count || undefined,
         disabled: count === 0 || bulkArchiveMutation.isPending,
         separatorBefore: stars === RATING_THRESHOLDS[0],
@@ -279,10 +408,11 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
     if (!a.followUpAt) return false;
     // Only show for active pipeline statuses
     if (a.status === "offer" || a.status === "rejected") return false;
-    const d = new Date(a.followUpAt);
+    const followUp = parseLocalCalendarDate(a.followUpAt);
+    if (!followUp) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (d >= today) return false;
+    if (followUp >= today) return false;
     // Check if dismissed
     const key = `${a.id}:${a.followUpAt}`;
     return !dismissedOverdue.has(key);
@@ -309,8 +439,8 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   }
 
   function selectAll(apps: Application[]) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
       for (const app of apps) {
         if (next.has(app.id)) continue;
         if (next.size >= 100) break;
@@ -321,8 +451,8 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
   }
 
   function deselectAll(apps: Application[]) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
       for (const app of apps) next.delete(app.id);
       return next;
     });
@@ -334,15 +464,21 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
   // Bulk action mutations
   const bulkStatusMutation = useMutation({
-    mutationFn: async ({ ids, status }: { ids: string[]; status: ApplicationStatus }) => {
+    mutationFn: async ({
+      ids,
+      status,
+    }: {
+      ids: string[];
+      status: ApplicationStatus;
+    }) => {
       await Promise.all(
         ids.map((id) =>
           fetch(`/api/applications/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status }),
-          })
-        )
+          }),
+        ),
       );
     },
     onSettled: () => {
@@ -390,7 +526,12 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       const el = document.activeElement;
       if (!el) return false;
       const tag = el.tagName.toLowerCase();
-      return tag === "input" || tag === "textarea" || tag === "select" || (el as HTMLElement).isContentEditable;
+      return (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        (el as HTMLElement).isContentEditable
+      );
     }
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -402,7 +543,13 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
       }
 
       // Skip shortcuts when in input fields or modals are open
-      if (isInputFocused() || isModalOpen || isCommandPaletteOpen || isShortcutDialogOpen) return;
+      if (
+        isInputFocused() ||
+        isModalOpen ||
+        isCommandPaletteOpen ||
+        isShortcutDialogOpen
+      )
+        return;
 
       switch (e.key) {
         case "/":
@@ -425,36 +572,56 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
           e.preventDefault();
           setViewMode("kanban");
           break;
+        case "f":
+          if (!showArchived) {
+            e.preventDefault();
+            setViewMode("focus");
+          }
+          break;
         case "j":
         case "ArrowDown":
-          if (viewMode === "table") {
+          if (resolvedView === "table") {
             e.preventDefault();
-            setFocusedIndex((i) => Math.min(i + 1, visibleApplications.length - 1));
+            setFocusedIndex((i) =>
+              Math.min(i + 1, filteredApplications.length - 1),
+            );
           }
           break;
         case "k":
         case "ArrowUp":
-          if (viewMode === "table") {
+          if (resolvedView === "table") {
             e.preventDefault();
             setFocusedIndex((i) => Math.max(0, i - 1));
           }
           break;
         case "Enter":
-          if (viewMode === "table" && focusedIndex >= 0 && focusedIndex < visibleApplications.length) {
+          if (
+            resolvedView === "table" &&
+            focusedIndex >= 0 &&
+            focusedIndex < filteredApplications.length
+          ) {
             e.preventDefault();
-            handleEdit(visibleApplications[focusedIndex]);
+            handleEdit(filteredApplications[focusedIndex]);
           }
           break;
         case "e":
-          if (viewMode === "table" && focusedIndex >= 0 && focusedIndex < visibleApplications.length) {
+          if (
+            resolvedView === "table" &&
+            focusedIndex >= 0 &&
+            focusedIndex < filteredApplications.length
+          ) {
             e.preventDefault();
-            handleEdit(visibleApplications[focusedIndex]);
+            handleEdit(filteredApplications[focusedIndex]);
           }
           break;
         case "x":
-          if (viewMode === "table" && focusedIndex >= 0 && focusedIndex < visibleApplications.length) {
+          if (
+            resolvedView === "table" &&
+            focusedIndex >= 0 &&
+            focusedIndex < filteredApplications.length
+          ) {
             e.preventDefault();
-            toggleSelect(visibleApplications[focusedIndex].id);
+            toggleSelect(filteredApplications[focusedIndex].id);
           }
           break;
         case "Escape":
@@ -483,20 +650,79 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isModalOpen, isCommandPaletteOpen, isShortcutDialogOpen, viewMode, focusedIndex, visibleApplications, selectedIds]);
+  }, [
+    isModalOpen,
+    isCommandPaletteOpen,
+    isShortcutDialogOpen,
+    resolvedView,
+    focusedIndex,
+    filteredApplications,
+    showArchived,
+    selectedIds,
+  ]);
 
-  const showOnboarding = !isLoading && !onboardingComplete && applications.length === 0;
+  if (isLoading) {
+    return (
+      <div className="nexus-shell">
+        <AppHeader
+          user={user}
+          shareUrl={shareUrl}
+          title={customTitle || undefined}
+        />
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <DashboardLoadingState message={t("loading")} />
+        </main>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="nexus-shell">
+        <AppHeader
+          user={user}
+          shareUrl={shareUrl}
+          title={customTitle || undefined}
+        />
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <DashboardErrorState
+            message={t("loading_error")}
+            retryLabel={t("retry")}
+            onRetry={() => void refetch()}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  // Onboarding is only eligible after the initial request succeeds.
+  if (!onboardingComplete && applications.length === 0) {
+    return (
+      <div className="nexus-shell">
+        <AppHeader
+          user={user}
+          shareUrl={shareUrl}
+          title={customTitle || undefined}
+        />
+        <OnboardingWizard
+          onComplete={() => {
+            setOnboardingComplete(true);
+            queryClient.invalidateQueries({ queryKey: ["applications"] });
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="nexus-shell">
-      <AppHeader user={user} shareUrl={shareUrl} title={customTitle || undefined} />
-      {showOnboarding ? (
-        <OnboardingWizard onComplete={() => {
-          setOnboardingComplete(true);
-          queryClient.invalidateQueries({ queryKey: ["applications"] });
-        }} />
-      ) : <>
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <AppHeader
+        user={user}
+        shareUrl={shareUrl}
+        title={customTitle || undefined}
+      />
+
+      <main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
         {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
           <div className="mb-6 space-y-2">
@@ -513,9 +739,12 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
                   Overdue follow-up: {app.company}
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); dismissOverdue(app); }}
-                  className="ml-auto shrink-0 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-red-500 dark:text-red-400"
-                  aria-label="Dismiss"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dismissOverdue(app);
+                  }}
+                  className="nexus-target ml-auto inline-flex shrink-0 items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-red-500 dark:text-red-400"
+                  aria-label={tf("dismiss_overdue", { company: app.company })}
                 >
                   ✕
                 </button>
@@ -525,44 +754,137 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
         )}
 
         {/* Decision-oriented overview */}
-        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 shadow-sm backdrop-blur-xl dark:border-white/8 dark:bg-white/[0.035] sm:px-5">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
-            <StatItem label={ts("total")} value={stats.total} className="text-blue-600 dark:text-blue-300" />
-            <StatItem label={ts("active")} value={stats.active} className="text-amber-600 dark:text-amber-300" />
-            <StatItem label={ts("new_this_week")} value={triageStats.thisWeek} className="text-slate-900 dark:text-white" />
-            <StatItem label={ts("high_priority")} value={triageStats.highPriority} className="text-emerald-600 dark:text-emerald-300" />
-          </div>
-        </section>
+        {!isTrueEmpty && (
+          <section className="mb-5 rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-xl dark:bg-white/[0.035] dark:ring-white/8 sm:mb-6 sm:px-5 sm:py-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
+              <StatItem
+                label={ts("total")}
+                value={stats.total}
+                className="text-blue-600 dark:text-blue-300"
+              />
+              <StatItem
+                label={ts("active")}
+                value={stats.active}
+                className="text-amber-600 dark:text-amber-300"
+              />
+              <StatItem
+                label={ts("new_this_week")}
+                value={triageStats.thisWeek}
+                className="text-slate-900 dark:text-white"
+              />
+              <StatItem
+                label={ts("high_priority")}
+                value={triageStats.highPriority}
+                className="text-emerald-600 dark:text-emerald-300"
+              />
+            </div>
+          </section>
+        )}
 
-        <WorkspaceToolbar
-          title={showArchived ? ta("archive") : t("applications")}
-          count={visibleApplications.length}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          moreMenu={<ActionMenu label={ta("more_actions")} buttonText={ta("more")} items={workspaceActions} />}
-          onCreate={handleNewApplication}
-          createLabel={ta("new_application")}
-          tableLabel={tn("table_view")}
-          kanbanLabel={tn("kanban_view")}
-        />
+        {isTrueEmpty && (archivedApplications.length > 0 || showArchived) && (
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold">
+              {showArchived ? ta("archive") : t("applications")}
+            </h1>
+            <ActionMenu
+              label={ta("more_actions")}
+              buttonText={ta("more")}
+              items={workspaceActions}
+            />
+          </div>
+        )}
+
+        {!isTrueEmpty && (
+          <WorkspaceToolbar
+            title={showArchived ? ta("archive") : t("applications")}
+            count={visibleApplications.length}
+            viewMode={resolvedView}
+            onViewModeChange={setViewMode}
+            moreMenu={
+              <ActionMenu
+                label={ta("more_actions")}
+                buttonText={ta("more")}
+                items={workspaceActions}
+              />
+            }
+            onCreate={handleNewApplication}
+            createLabel={ta("new_application")}
+            focusLabel={tw("focus")}
+            tableLabel={tn("table_view")}
+            kanbanLabel={tn("kanban_view")}
+            listLabel={tw("list")}
+            stagesLabel={tw("stages")}
+            showFocus={!showArchived}
+          />
+        )}
+
+        {!isTrueEmpty && (
+          <OpportunityFilterControls
+            filters={filters}
+            sources={sources}
+            resultCount={filteredApplications.length}
+            onChange={setFilters}
+            onClear={clearFilters}
+          />
+        )}
 
         {/* Content */}
-        {isLoading ? (
+        {compactViewport === null ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
           </div>
-        ) : isError ? (
-          <div className="text-center py-20 text-red-500">{t("loading_error")}</div>
-        ) : viewMode === "table" ? (
+        ) : isTrueEmpty && showArchived ? (
+          <div className="nexus-panel mx-auto max-w-xl px-6 py-14 text-center">
+            <h2 className="text-xl font-semibold">
+              {tw("archive_empty_title")}
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {tw("archive_empty_description")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowArchived(false)}
+              className="nexus-button-ghost nexus-target mt-6"
+            >
+              {ta("show_active")}
+            </button>
+          </div>
+        ) : isTrueEmpty ? (
+          <FocusQueue
+            applications={[]}
+            isTrueEmpty
+            isFilteredEmpty={false}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onOpen={handleEdit}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onArchive={handleArchive}
+            onCreate={handleNewApplication}
+            onClearFilters={clearFilters}
+          />
+        ) : resolvedView === "focus" ? (
+          <FocusQueue
+            applications={filteredApplications}
+            isTrueEmpty={false}
+            isFilteredEmpty={isFilteredEmpty}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onOpen={handleEdit}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onArchive={handleArchive}
+            onCreate={handleNewApplication}
+            onClearFilters={clearFilters}
+          />
+        ) : resolvedView === "table" ? (
           <ApplicationTable
-            applications={visibleApplications}
+            applications={filteredApplications}
             onEdit={handleEdit}
             onDelete={handleDelete}
             onArchive={handleArchive}
             showArchived={showArchived}
-            initialStatusFilter={initialStatus}
-            initialSourceFilter={initialSource}
-            initialGlobalFilter={initialSearch}
+            hideFilters
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onSelectAll={selectAll}
@@ -570,9 +892,25 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
             focusedIndex={focusedIndex}
           />
         ) : (
-          <KanbanView applications={visibleApplications} onEdit={handleEdit} />
+          <KanbanView applications={filteredApplications} onEdit={handleEdit} />
         )}
       </main>
+
+      {!showArchived &&
+        !isTrueEmpty &&
+        selectedIds.size === 0 &&
+        !isModalOpen &&
+        !isCommandPaletteOpen &&
+        !isShortcutDialogOpen && (
+          <button
+            type="button"
+            onClick={handleNewApplication}
+            className="nexus-fab nexus-fixed-bottom fixed right-4 z-40 lg:hidden"
+          >
+            <span aria-hidden="true">+</span>
+            {ta("new_application")}
+          </button>
+        )}
 
       {/* Modal */}
       {isModalOpen && (
@@ -584,13 +922,16 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
         <CommandPalette
           applications={applications}
           onSelect={handleEdit}
+          onFocusView={() => setViewMode("focus")}
           onClose={() => setIsCommandPaletteOpen(false)}
         />
       )}
 
       {/* Keyboard Shortcut Dialog */}
       {isShortcutDialogOpen && (
-        <KeyboardShortcutDialog onClose={() => setIsShortcutDialogOpen(false)} />
+        <KeyboardShortcutDialog
+          onClose={() => setIsShortcutDialogOpen(false)}
+        />
       )}
 
       {/* Bulk Action Bar */}
@@ -604,7 +945,7 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 
       {/* Keyboard Shortcut Hint Bar */}
       {selectedIds.size === 0 && <KeyboardShortcutBar />}
-      </>}
+
       <AiOperator />
     </div>
   );
@@ -613,11 +954,69 @@ export function Dashboard({ user, shareUrl, initialStatus, initialSource, initia
 const ARCHIVE_THRESHOLDS = [30, 60, 90, 180] as const;
 const RATING_THRESHOLDS = [1, 2, 3] as const;
 
-function StatItem({ label, value, className }: { label: string; value: number; className?: string }) {
+export function DashboardLoadingState({ message }: { message: string }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="nexus-panel mx-auto flex max-w-xl flex-col items-center gap-4 px-6 py-14 text-center"
+    >
+      <div
+        aria-hidden="true"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"
+      />
+      <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+        {message}
+      </p>
+    </div>
+  );
+}
+
+export function DashboardErrorState({
+  message,
+  retryLabel,
+  onRetry,
+}: {
+  message: string;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="nexus-panel mx-auto max-w-xl px-6 py-14 text-center"
+    >
+      <p className="text-sm font-medium text-red-600 dark:text-red-300">
+        {message}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="nexus-button-ghost nexus-target mt-5"
+      >
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
+
+function StatItem({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: number;
+  className?: string;
+}) {
   return (
     <div className="min-w-18">
-      <div className={`text-xl font-semibold leading-6 ${className ?? ""}`}>{value}</div>
-      <div className="mt-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">{label}</div>
+      <div className={`text-xl font-semibold leading-6 ${className ?? ""}`}>
+        {value}
+      </div>
+      <div className="mt-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+        {label}
+      </div>
     </div>
   );
 }
