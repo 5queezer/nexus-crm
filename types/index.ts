@@ -172,6 +172,46 @@ export function normalizeSource(source: string | null | undefined): string | nul
   return trimmed;
 }
 
+export type SourceCategory =
+  | (typeof SOURCE_PRESETS)[number]
+  | "himalayas"
+  | "web-search"
+  | "unknown";
+
+/**
+ * Returns a stable analytics bucket without mutating the source metadata stored
+ * on an application. Import timestamps, scan notes, and provenance details are
+ * intentionally reduced so they do not fragment the Source Breakdown chart.
+ */
+export function getSourceCategory(source: string | null | undefined): SourceCategory {
+  if (!source?.trim()) return "unknown";
+
+  const lower = source.trim().toLowerCase();
+
+  // Prefer a named discovery platform when scan metadata lists several methods.
+  if (/\bhimalayas?\b/.test(lower)) return "himalayas";
+  if (lower.includes("linkedin")) return "linkedin";
+
+  // Direct ATS and company-career links are first-party website applications.
+  if (
+    /\b(ashby|greenhouse|lever|workday)\b/.test(lower) ||
+    /\b(direct (?:application|apply|career(?:s)?(?: link)?))\b/.test(lower) ||
+    /\b(career|careers|karriereseite|homepage)\b/.test(lower) ||
+    /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(lower)
+  ) {
+    return "website";
+  }
+
+  if (/\bweb[ -]?search\b/.test(lower)) return "web-search";
+
+  const normalized = normalizeSource(source);
+  if (normalized && (SOURCE_PRESETS as readonly string[]).includes(normalized)) {
+    return normalized as (typeof SOURCE_PRESETS)[number];
+  }
+
+  return "other";
+}
+
 // Legacy: for any place that still needs a label+color pair
 export const STATUS_OPTIONS: { value: ApplicationStatus; label: string; color: string }[] = [
   { value: "inbound", label: "Neuer Lead", color: STATUS_COLORS.inbound },

@@ -45,6 +45,10 @@ Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) byp
 | GET | /api/applications/:id | session or token | Get single |
 | PATCH | /api/applications/:id | session or token | Update |
 | DELETE | /api/applications/:id | session or token | Delete |
+| GET | /api/applications/:id/submissions | session or token | List immutable submission snapshots; answers are omitted unless `includeAnswers=true` |
+| POST | /api/applications/:id/submissions | session or token | Atomically record answers, compensation, documents, status, follow-up, and timeline event |
+| GET | /api/applications/:id/events | session or token | List append-only application timeline events |
+| POST | /api/applications/:id/events | session or token | Append a timeline event |
 
 ### Contacts (per application)
 | Method | Path | Auth | Description |
@@ -57,9 +61,9 @@ Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) byp
 ### Documents
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /api/documents | session or token | List documents |
+| GET | /api/documents | session or token | List documents; filters: applicationId, documentType, state, submissionId, orphaned, fields, page, pageSize |
 | POST | /api/documents | session or token | Upload (multipart/form-data, field: file; PDF/JPEG/PNG/WEBP up to 10MB) |
-| PATCH | /api/documents/:id | session or token | Update: rename (`{ "originalName": "new.pdf" }`) or update links (`{ "applicationIds": [...] }`) |
+| PATCH | /api/documents/:id | session or token | Rename, update links, or classify lifecycle metadata; submitted document versions are immutable |
 | DELETE | /api/documents/:id | session or token | Delete |
 | GET | /api/documents/:id/file | session or token | Download file |
 
@@ -82,12 +86,25 @@ Multi-tenant: each user only sees their own data. Admin users (isAdmin flag) byp
 `inbound` | `applied` | `interview` | `offer` | `rejected`
 
 ## MCP document tools
-- `list_documents`: list document metadata
+- `list_documents`: filter and paginate document metadata, including lifecycle/submission linkage
 - `get_document`: get document metadata by ID
 - `upload_document_content`: upload PDF/JPEG/PNG/WEBP content up to 10MB using standard base64
 - `download_document_content`: download small files inline as base64; returns a signed URL for larger GCS-backed files
 - `update_document_links`: replace linked application IDs
+- `update_document_metadata`: classify type, state, version, source, and hash
 - `delete_document`: delete document metadata and stored content
+
+## MCP application submission and recall tools
+- `record_application_submission`: atomically preserve exact submitted answers, compensation, document versions, status, follow-up, and event; supports idempotency, dry-run, and optimistic concurrency
+- `list_application_submissions`: list redacted submission summaries
+- `get_application_submission`: owner-scoped sensitive detail with exact answers and documents
+- `get_interview_recall_package`: fetch the JD, exact submissions, timeline, and documents for interview preparation
+- `append_application_note`: concurrency-safe, idempotent note append
+- `record_application_event` / `list_application_events`: append/read the immutable timeline
+- `pipeline_healthcheck`: deterministic follow-up and metadata completeness checks
+- `find_application_by_job_url` / `upsert_application_by_job_url`: canonical URL duplicate prevention
+
+Submission answers, submitted document artifacts, and destructive application deletion are sensitive. MCP OAuth access requires `mcp:tools` for the base toolset and explicit user consent to `mcp:submissions` for those sensitive operations.
 
 ## Example: create application via API token
 ```

@@ -1,0 +1,161 @@
+name: Recover Production Database
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: nexus-production-transition
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  COOLIFY_APP_DIR: ${{ vars.HETZNER_COOLIFY_APP_DIR }}
+  COOLIFY_APP_DIR_DEFAULT: >-
+    /data/coolify/applications/tj4r2ezipwho1zvjhg78a5wu
+  COOLIFY_SERVICE: ${{ vars.HETZNER_COOLIFY_SERVICE }}
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Normalize recovery environment
+        run: |
+          set -euo pipefail
+          app_dir="${COOLIFY_APP_DIR:-}"
+          if [ -z "${app_dir}" ]; then
+            app_dir="${COOLIFY_APP_DIR_DEFAULT}"
+          fi
+          echo "COOLIFY_APP_DIR=${app_dir}" >> "${GITHUB_ENV}"
+
+      - name: Configure SSH
+        env:
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          port="${HETZNER_PORT:-22}"
+          ssh-keyscan -p "${port}" -H "${HETZNER_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Back up, migrate, and verify production database
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+        run: |
+          set -euo pipefail
+          port="${HETZNER_PORT:-22}"
+          ssh -p "${port}" "${HETZNER_USER}@${HETZNER_HOST}" \
+            "COOLIFY_APP_DIR=$(printf '%q' "${COOLIFY_APP_DIR}") COOLIFY_SERVICE=$(printf '%q' "${COOLIFY_SERVICE:-}") bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "${COOLIFY_APP_DIR}"
+          docker compose -f docker-compose.yaml config --quiet
+
+          service="${COOLIFY_SERVICE:-}"
+          if [ -z "${service}" ]; then
+            service="$(python3 - <<'PY'
+          from pathlib import Path
+          for line in Path("docker-compose.yaml").read_text().splitlines():
+              stripped = line.strip()
+              if len(line) - len(line.lstrip()) == 4 and stripped.endswith(":"):
+                  print(stripped[:-1])
+                  break
+          PY
+          )"
+          fi
+          if [ -z "${service}" ]; then
+            echo "Could not determine compose service." >&2
+            exit 1
+          fi
+
+          transition_count_container="nexus-transition-count"
+          transition_backup_container="nexus-transition-backup"
+          transition_migration_container="nexus-transition-migration"
+
+          cleanup_transition_containers() {
+            for container in \
+              "${transition_count_container}" \
+              "${transition_backup_container}" \
+              "${transition_migration_container}"
+            do
+              docker rm -f "${container}" >/dev/null 2>&1 || true
+            done
+          }
+
+          compose_run_bounded() {
+            container_name="$1"
+            timeout_seconds="$2"
+            shift 2
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+            if docker compose -f docker-compose.yaml run --rm -T --interactive=false --no-deps \
+              --name "${container_name}" \
+              --entrypoint timeout \
+              "${service}" "${timeout_seconds}" "$@"; then
+              run_status=0
+            else
+              run_status=$?
+            fi
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+            return "${run_status}"
+          }
+
+          cleanup_transition_on_exit() {
+            rc=$?
+            trap - EXIT
+            cleanup_transition_containers
+            exit "${rc}"
+          }
+
+          cleanup_transition_containers
+          trap cleanup_transition_on_exit EXIT
+
+          db_count() {
+            compose_run_bounded "${transition_count_container}" 120 \
+              sh -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
+          }
+
+          count_before="$(db_count)"
+          case "${count_before}" in
+            ''|*[!0-9]*)
+              echo "Could not verify the pre-migration application count." >&2
+              exit 1
+              ;;
+          esac
+          echo "Applications before migration: ${count_before}"
+
+          stamp="$(date +%Y%m%d%H%M%S)"
+          backup_dir="${COOLIFY_APP_DIR}/database-backups"
+          database_backup="${backup_dir}/nexus-manual-recovery-${stamp}.dump"
+          install -m 700 -d "${backup_dir}"
+          umask 077
+          compose_run_bounded "${transition_backup_container}" 900 \
+            sh -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec pg_dump "$PG_DATABASE_URL" --format=custom --no-owner --no-privileges' \
+            > "${database_backup}"
+          if [ ! -s "${database_backup}" ]; then
+            echo "Database backup failed or produced an empty file." >&2
+            exit 1
+          fi
+          chmod 600 "${database_backup}"
+          echo "Verified pre-migration database backup."
+
+          compose_run_bounded "${transition_migration_container}" 900 \
+            node /app/prisma-cli/node_modules/prisma/build/index.js migrate deploy --schema=/app/prisma/schema.prisma
+
+          count_after="$(db_count)"
+          if [ "${count_after}" != "${count_before}" ]; then
+            echo "Application count changed during additive migration; refusing activation." >&2
+            exit 1
+          fi
+          echo "Applications after migration: ${count_after}"
+
+          docker compose -f docker-compose.yaml up -d "${service}"
+          cleanup_transition_containers
+          trap - EXIT
+          docker ps --filter "name=${service}" --format '{{.Names}} {{.Image}} {{.Status}}'
+          REMOTE

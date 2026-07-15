@@ -21,6 +21,7 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
 import { WorkspaceToolbar, type WorkspaceViewMode } from "./workspace-toolbar";
+import { AiOperator } from "./ai-operator/ai-operator";
 import { FocusQueue } from "./focus-queue";
 import { OpportunityFilterControls } from "./opportunity-filter-controls";
 import {
@@ -111,12 +112,14 @@ function exportToCsv(
 }
 
 function subscribeCompactViewport(callback: () => void) {
+	if (typeof window.matchMedia !== "function") return () => undefined;
 	const media = window.matchMedia("(max-width: 1023px)");
 	media.addEventListener("change", callback);
 	return () => media.removeEventListener("change", callback);
 }
 
 function getCompactViewport(): boolean | null {
+	if (typeof window.matchMedia !== "function") return false;
 	return window.matchMedia("(max-width: 1023px)").matches;
 }
 
@@ -432,7 +435,23 @@ export function Dashboard({
 	}
 
 	function selectAll(apps: Application[]) {
-		setSelectedIds(new Set(apps.slice(0, 100).map((a) => a.id)));
+		setSelectedIds((previous) => {
+			const next = new Set(previous);
+			for (const app of apps) {
+				if (next.has(app.id)) continue;
+				if (next.size >= 100) break;
+				next.add(app.id);
+			}
+			return next;
+		});
+	}
+
+	function deselectAll(apps: Application[]) {
+		setSelectedIds((previous) => {
+			const next = new Set(previous);
+			for (const app of apps) next.delete(app.id);
+			return next;
+		});
 	}
 
 	function clearSelection() {
@@ -638,58 +657,8 @@ export function Dashboard({
 		selectedIds,
 	]);
 
-	if (isLoading) {
-		return (
-			<div className="nexus-shell">
-				<AppHeader
-					user={user}
-					shareUrl={shareUrl}
-					title={customTitle || undefined}
-				/>
-				<main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-					<DashboardLoadingState message={t("loading")} />
-				</main>
-			</div>
-		);
-	}
-
-	if (isError) {
-		return (
-			<div className="nexus-shell">
-				<AppHeader
-					user={user}
-					shareUrl={shareUrl}
-					title={customTitle || undefined}
-				/>
-				<main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-					<DashboardErrorState
-						message={t("loading_error")}
-						retryLabel={t("retry")}
-						onRetry={() => void refetch()}
-					/>
-				</main>
-			</div>
-		);
-	}
-
-	// Onboarding is only eligible after the initial request succeeds.
-	if (!onboardingComplete && applications.length === 0) {
-		return (
-			<div className="nexus-shell">
-				<AppHeader
-					user={user}
-					shareUrl={shareUrl}
-					title={customTitle || undefined}
-				/>
-				<OnboardingWizard
-					onComplete={() => {
-						setOnboardingComplete(true);
-						queryClient.invalidateQueries({ queryKey: ["applications"] });
-					}}
-				/>
-			</div>
-		);
-	}
+	const showOnboarding =
+		!isLoading && !isError && !onboardingComplete && applications.length === 0;
 
 	return (
 		<div className="nexus-shell">
@@ -698,7 +667,27 @@ export function Dashboard({
 				shareUrl={shareUrl}
 				title={customTitle || undefined}
 			/>
-
+			{isLoading ? (
+				<main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+					<DashboardLoadingState message={t("loading")} />
+				</main>
+			) : isError ? (
+				<main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+					<DashboardErrorState
+						message={t("loading_error")}
+						retryLabel={t("retry")}
+						onRetry={() => void refetch()}
+					/>
+				</main>
+			) : showOnboarding ? (
+				<OnboardingWizard
+					onComplete={() => {
+						setOnboardingComplete(true);
+						queryClient.invalidateQueries({ queryKey: ["applications"] });
+					}}
+				/>
+			) : (
+				<>
 			<main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
 				{/* Overdue follow-up banners */}
 				{overdueFollowUps.length > 0 && (
@@ -865,7 +854,7 @@ export function Dashboard({
 						selectedIds={selectedIds}
 						onToggleSelect={toggleSelect}
 						onSelectAll={selectAll}
-						onClearSelection={clearSelection}
+						onDeselectAll={deselectAll}
 						focusedIndex={focusedIndex}
 					/>
 				) : (
@@ -922,6 +911,9 @@ export function Dashboard({
 
 			{/* Keyboard Shortcut Hint Bar */}
 			{selectedIds.size === 0 && <KeyboardShortcutBar />}
+				</>
+			)}
+			<AiOperator />
 		</div>
 	);
 }

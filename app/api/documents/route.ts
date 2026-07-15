@@ -7,13 +7,31 @@ import {
   uploadDocument,
 } from "@/lib/documents/upload";
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   const auth = await requireAuth();
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const documents = await getDb().listDocuments(auth.readScopeUserId);
+  const params = request.nextUrl.searchParams;
+  const rawPage = params.has("page") ? Number(params.get("page")) : undefined;
+  const rawPageSize = params.has("pageSize") ? Number(params.get("pageSize")) : undefined;
+  if (
+    (rawPage !== undefined && (!Number.isInteger(rawPage) || rawPage < 1)) ||
+    (rawPageSize !== undefined && (!Number.isInteger(rawPageSize) || rawPageSize < 1 || rawPageSize > 200))
+  ) {
+    return NextResponse.json({ error: "Invalid pagination parameters" }, { status: 400 });
+  }
+  const documents = await getDb().listDocumentsFiltered(auth.readScopeUserId, {
+    applicationId: params.get("applicationId") ?? undefined,
+    documentType: params.get("documentType") ?? undefined,
+    state: params.get("state") ?? undefined,
+    submissionId: params.get("submissionId") ?? undefined,
+    orphaned: params.has("orphaned") ? params.get("orphaned") === "true" : undefined,
+    fields: params.get("fields")?.split(",").map((field) => field.trim()).filter(Boolean),
+    page: rawPage,
+    pageSize: rawPageSize,
+  });
   return NextResponse.json(documents);
 }
 

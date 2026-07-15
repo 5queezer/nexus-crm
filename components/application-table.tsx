@@ -20,10 +20,12 @@ import {
 	STATUS_ROW_COLORS,
 	STATUS_ORDER,
 	TRIAGE_COLORS,
+	getSourceCategory,
 } from "@/types";
 import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
+import { Search } from "lucide-react";
 import { ActionMenu } from "./action-menu";
 
 const columnHelper = createColumnHelper<Application>();
@@ -69,6 +71,7 @@ function JobLink({
 	jobUrl: string;
 	iconClassName: string;
 }) {
+	const ta = useTranslations("actions");
 	return (
 		<a
 			href={jobUrl}
@@ -76,6 +79,7 @@ function JobLink({
 			rel="noopener noreferrer"
 			onClick={(event) => event.stopPropagation()}
 			title={jobUrl}
+			aria-label={ta("open_job_post")}
 			className="shrink-0 text-gray-400 transition-colors hover:text-blue-600 dark:hover:text-blue-400"
 		>
 			<svg
@@ -253,7 +257,7 @@ interface ApplicationTableProps {
 	selectedIds?: Set<string>;
 	onToggleSelect?: (id: string) => void;
 	onSelectAll?: (applications: Application[]) => void;
-	onClearSelection?: () => void;
+	onDeselectAll?: (applications: Application[]) => void;
 	focusedIndex?: number;
 	hideFilters?: boolean;
 }
@@ -270,12 +274,13 @@ export function ApplicationTable({
 	selectedIds,
 	onToggleSelect,
 	onSelectAll,
-	onClearSelection,
+	onDeselectAll,
 	focusedIndex,
 	hideFilters = false,
 }: ApplicationTableProps) {
 	const t = useTranslations("table");
 	const ta = useTranslations("actions");
+	const tAnalytics = useTranslations("analytics");
 	const ts = useTranslations("status");
 	const locale = useLocale();
 	const dateFnsLocale = locale === "de" ? de : enUS;
@@ -325,7 +330,8 @@ export function ApplicationTable({
 									type="checkbox"
 									checked={allSelected}
 									onChange={() => {
-										if (allSelected) onClearSelection?.();
+										if (allSelected)
+											onDeselectAll?.(selectableApplications);
 										else onSelectAll?.(selectableApplications);
 									}}
 									className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -426,19 +432,22 @@ export function ApplicationTable({
 		columnHelper.accessor("source", {
 			header: t("source"),
 			cell: (info) => {
-				const val = info.getValue();
-				return val ? (
+				const rawSource = info.getValue();
+				return rawSource ? (
 					<span
 						className="inline-flex max-w-36 items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300"
-						title={val}
+						title={rawSource}
 					>
-						<span className="truncate">{val}</span>
+						<span className="truncate">
+							{tAnalytics(`source_labels.${getSourceCategory(rawSource)}`)}
+						</span>
 					</span>
 				) : (
 					<span className="text-gray-400 dark:text-gray-500">—</span>
 				);
 			},
-			filterFn: "equals",
+			filterFn: (row, _columnId, filterValue) =>
+				getSourceCategory(row.original.source) === String(filterValue),
 		}),
 		columnHelper.accessor("appliedAt", {
 			header: t("applied_at"),
@@ -517,15 +526,16 @@ export function ApplicationTable({
 				<div className="border-b border-slate-200/80 bg-white/70 p-4 backdrop-blur dark:border-white/8 dark:bg-black/20">
 					<div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:flex-wrap sm:items-center">
 						<div className="relative col-span-2 sm:w-72">
-							<span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-								⌕
-							</span>
+							<Search
+								className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+								aria-hidden
+							/>
 							<input
 								type="text"
 								value={globalFilter}
 								onChange={(e) => setGlobalFilter(e.target.value)}
 								placeholder={ta("search")}
-								className="nexus-input pl-8"
+								className="nexus-input pl-9!"
 							/>
 						</div>
 						<select

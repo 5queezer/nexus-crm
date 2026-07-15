@@ -6,13 +6,86 @@ import { getDb } from "@/lib/db";
 import { hashApiToken } from "@/lib/token";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
-import { resolveCreatedAtForCreate } from "@/lib/applications/defaults";
+import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
+import {
+  canonicalizeJobUrl,
+  computeApplicationHealth,
+  requireOccurredAtForIdempotency,
+  validateEventMetadata,
+  validateSubmissionAnswers,
+} from "@/lib/applications/submission";
+import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
+import { submissionPolicyTransportSchema } from "@/lib/applications/submission-transport";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
 import { downloadDocumentContent } from "@/lib/documents/download";
-import { uploadDocumentContent } from "@/lib/documents/upload";
+import {
+  isSubmissionDocument,
+  requiresSubmissionScopeForDocumentMutation,
+} from "@/lib/documents/access";
+import { uploadDocumentContent, MAX_DOCUMENT_BASE64_SIZE } from "@/lib/documents/upload";
+import { deleteDocumentWithContent } from "@/lib/documents/service";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
-import type { UpsertCvProfileInput } from "@/lib/db/types";
+import type { SubmissionPolicyInput, UpsertCvProfileInput } from "@/lib/db/types";
+
+const structuredApplicationToolFields = {
+  workMode: z.enum(["remote", "hybrid", "onsite", "flexible"]).nullable().optional(),
+  eligibleCountries: z.array(z.string().length(2)).max(50).optional(),
+  primaryLocations: z.array(z.string().max(200)).max(50).optional(),
+  officeDaysMin: z.number().int().min(0).max(7).nullable().optional(),
+  travelPercent: z.number().int().min(0).max(100).nullable().optional(),
+  visaSponsorship: z.boolean().nullable().optional(),
+  rightToWorkRequired: z.boolean().nullable().optional(),
+  timezoneOverlap: z.string().max(255).nullable().optional(),
+  salaryCurrency: z.string().length(3).nullable().optional(),
+  salaryPeriod: z.enum(["year", "month", "day", "hour"]).nullable().optional(),
+  salaryType: z.enum(["base", "total", "contract_rate"]).nullable().optional(),
+  atsName: z.string().max(100).nullable().optional(),
+  requisitionId: z.string().max(255).nullable().optional(),
+  jobCapturedAt: z.string().datetime().nullable().optional(),
+  jobVerifiedAt: z.string().datetime().nullable().optional(),
+  jobPostedAt: z.string().datetime().nullable().optional(),
+  jobClosedAt: z.string().datetime().nullable().optional(),
+  jobContentHash: z.string().max(64).nullable().optional(),
+  jobLiveness: z.enum(["unknown", "live", "closed", "expired"]).nullable().optional(),
+  jobSummary: z.string().max(10_000).nullable().optional(),
+  currentStage: z.string().max(255).nullable().optional(),
+};
+
+const APPLICATION_UPDATE_ERROR_CODES = new Set([
+  "not_found",
+  "conflict",
+  "canonical_job_url_conflict",
+  "application_deleting",
+]);
+const SUBMISSION_ERROR_CODES = new Set([
+  "salary_range_invalid",
+  "not_found",
+  "conflict",
+  "application_deleting",
+  "idempotency_conflict",
+  "invalid_documents",
+  "document_already_submitted",
+  "human_review_required",
+  "identity_consistency_required",
+  "fact_verification_required",
+  "profile_consistency_review_required",
+  "submission_materials_required",
+  "submission_answers_required",
+  "submission_answers_conflict",
+  "submission_documents_invalid",
+  "submission_policy_reason_invalid",
+  "submission_policy_reason_too_long",
+  "application_already_submitted",
+  "duplicate_requisition",
+  "same_company_active_application",
+  "verification_failed",
+]);
+
+function controlledErrorCode(error: unknown, allowed: Set<string>, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  return allowed.has(error.message) ? error.message : fallback;
+}
 
 // ── Auth helper ──────────────────────────────────────────────────────────────
 // Tries MCP OAuth access token first, then falls back to CRM API token.
@@ -56,6 +129,8 @@ async function authenticateFromRequest(
     userId: user.id,
     readScopeUserId: user.isAdmin ? null : user.id,
     user: sessionUser,
+    authType: "api_token",
+    scopes: ["mcp:tools", "mcp:submissions"],
   };
 }
 
@@ -71,6 +146,14 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         "All operations are scoped to the authenticated user.",
     }
   );
+
+  const canAccessSubmissions =
+    auth.authType !== "mcp_oauth" || auth.scopes?.includes("mcp:submissions") === true;
+  const submissionScopeError = () => ({
+    content: [{ type: "text" as const, text: JSON.stringify({ error: { code: "insufficient_scope", required: "mcp:submissions" } }) }],
+    isError: true,
+  });
+
 
   // ── Applications ────────────────────────────────────────────────────────
 
@@ -113,11 +196,13 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       status: z
         .enum(["inbound", "applied", "interview", "offer", "rejected"])
         .optional()
-        .describe("Application status (default: applied)"),
+        .describe("Application status (default: inbound)"),
       appliedAt: z
         .string()
         .optional()
         .describe("Date applied (ISO 8601)"),
+      lastContact: z.string().datetime().nullable().optional().describe("Last contact timestamp"),
+      followUpAt: z.string().datetime().nullable().optional().describe("Follow-up timestamp"),
       notes: z.string().optional().describe("Free-text notes"),
       jobDescription: z
         .string()
@@ -127,26 +212,30 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       remote: z.boolean().optional().describe("Remote position?"),
       salaryMin: z.number().optional().describe("Minimum salary"),
       salaryMax: z.number().optional().describe("Maximum salary"),
+      rating: z.number().int().min(1).max(5).nullable().optional().describe("Fit rating 1-5"),
       jobUrl: z.string().optional().describe("URL to job listing or opportunity page"),
       resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
+      ...structuredApplicationToolFields,
     },
     async (args) => {
+      const metadata = parseStructuredApplicationMetadata(args as unknown as Record<string, unknown>);
       const app = await getDb().createApplication(auth.userId, {
         company: args.company.slice(0, 255),
         role: args.role.slice(0, 255),
-        status: normalizeStatus(args.status || "applied"),
-        appliedAt: resolveCreatedAtForCreate(args.appliedAt),
-        lastContact: null,
-        followUpAt: null,
+        status: normalizeStatus(args.status || "inbound"),
+        appliedAt: resolveAppliedAtForCreate(args.status || "inbound", args.appliedAt),
+        lastContact: args.lastContact ? new Date(args.lastContact) : null,
+        followUpAt: args.followUpAt ? new Date(args.followUpAt) : null,
         notes: args.notes?.slice(0, 10000) ?? null,
         jobDescription: args.jobDescription?.slice(0, 50000) ?? null,
         source: args.source?.slice(0, 100) ?? null,
         remote: args.remote ?? false,
         salaryMin: args.salaryMin ?? null,
         salaryMax: args.salaryMax ?? null,
-        rating: null,
+        rating: args.rating ?? null,
         jobUrl: args.jobUrl?.slice(0, 2000) ?? null,
         resumeId: args.resumeId ?? null,
+        ...metadata,
       });
       return {
         content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
@@ -177,37 +266,68 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
       jobUrl: z.string().nullable().optional().describe("URL to job listing or opportunity page"),
       resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
+      expectedUpdatedAt: z.string().datetime().optional().describe("Optimistic concurrency timestamp"),
+      dryRun: z.boolean().default(false).describe("Validate and preview without writing"),
+      ...structuredApplicationToolFields,
     },
     async ({ id, ...data }) => {
-      const update: Record<string, unknown> = {};
-      if (data.company !== undefined) update.company = data.company.slice(0, 255);
-      if (data.role !== undefined) update.role = data.role.slice(0, 255);
-      if (data.status !== undefined) update.status = normalizeStatus(data.status);
-      if (data.appliedAt !== undefined)
-        update.appliedAt = data.appliedAt ? new Date(data.appliedAt) : null;
-      if (data.lastContact !== undefined)
-        update.lastContact = data.lastContact ? new Date(data.lastContact) : null;
-      if (data.followUpAt !== undefined)
-        update.followUpAt = data.followUpAt ? new Date(data.followUpAt) : null;
-      if (data.notes !== undefined) update.notes = data.notes?.slice(0, 10000) ?? null;
-      if (data.jobDescription !== undefined)
-        update.jobDescription = data.jobDescription?.slice(0, 50000) ?? null;
-      if (data.source !== undefined) update.source = data.source?.slice(0, 100) ?? null;
-      if (data.remote !== undefined) update.remote = data.remote;
-      if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
-      if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
-      if (data.rating !== undefined) update.rating = data.rating;
-      if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl?.slice(0, 2000) ?? null;
-      if (data.resumeId !== undefined) update.resumeId = data.resumeId ?? null;
-
       try {
+        const update: Record<string, unknown> = {};
+        if (data.company !== undefined) update.company = data.company.slice(0, 255);
+        if (data.role !== undefined) update.role = data.role.slice(0, 255);
+        if (data.status !== undefined) update.status = normalizeStatus(data.status);
+        if (data.appliedAt !== undefined)
+          update.appliedAt = data.appliedAt ? new Date(data.appliedAt) : null;
+        if (data.lastContact !== undefined)
+          update.lastContact = data.lastContact ? new Date(data.lastContact) : null;
+        if (data.followUpAt !== undefined)
+          update.followUpAt = data.followUpAt ? new Date(data.followUpAt) : null;
+        if (data.notes !== undefined) update.notes = data.notes?.slice(0, 10000) ?? null;
+        if (data.jobDescription !== undefined)
+          update.jobDescription = data.jobDescription?.slice(0, 50000) ?? null;
+        if (data.source !== undefined) update.source = data.source?.slice(0, 100) ?? null;
+        if (data.remote !== undefined) update.remote = data.remote;
+        if (data.salaryMin !== undefined) update.salaryMin = data.salaryMin;
+        if (data.salaryMax !== undefined) update.salaryMax = data.salaryMax;
+        if (data.rating !== undefined) update.rating = data.rating;
+        if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl?.slice(0, 2000) ?? null;
+        if (data.resumeId !== undefined) update.resumeId = data.resumeId ?? null;
+        Object.assign(
+          update,
+          parseStructuredApplicationMetadata(data as unknown as Record<string, unknown>),
+        );
+        if (data.expectedUpdatedAt !== undefined) {
+          update.expectedUpdatedAt = new Date(data.expectedUpdatedAt);
+        }
+
+        if (data.dryRun) {
+          const current = await getDb().getApplication(id, auth.userId);
+          if (!current) throw new Error("not_found");
+          if (
+            data.expectedUpdatedAt &&
+            current.updatedAt.getTime() !== new Date(data.expectedUpdatedAt).getTime()
+          ) throw new Error("conflict");
+          const previewUpdate = { ...update };
+          delete previewUpdate.expectedUpdatedAt;
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({ dryRun: true, application: { ...current, ...previewUpdate } }, null, 2),
+            }],
+          };
+        }
         const app = await getDb().updateApplication(id, auth.userId, update);
         return {
           content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
         };
-      } catch {
+      } catch (error) {
+        const code = controlledErrorCode(
+          error,
+          APPLICATION_UPDATE_ERROR_CODES,
+          "application_update_failed",
+        );
         return {
-          content: [{ type: "text", text: "Application not found or access denied" }],
+          content: [{ type: "text", text: JSON.stringify({ error: { code } }) }],
           isError: true,
         };
       }
@@ -216,9 +336,10 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "delete_application",
-    "Delete an application and its contacts",
+    "Delete an application and its contacts, submissions, and timeline events",
     { id: z.string().describe("Application ID") },
     async ({ id }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
       try {
         await getDb().deleteApplication(id, auth.userId);
         return { content: [{ type: "text", text: "Application deleted" }] };
@@ -229,6 +350,352 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         };
       }
     }
+  );
+
+  server.tool(
+    "record_application_submission",
+    "Atomically preserve the exact submitted answers, required document versions, and application-integrity attestation; block duplicate/repeat/same-company conflicts unless a reasoned override applies; set the application to applied; append an event; and verify the stored package. Idempotency key and human review required.",
+    {
+      applicationId: z.string().min(1).describe("Application ID"),
+      submittedAt: z.string().datetime().describe("Exact submission time as ISO 8601"),
+      followUpAt: z.string().datetime().nullable().optional().describe("Optional follow-up time"),
+      idempotencyKey: z.string().min(8).max(128).describe("Stable retry key for this submission"),
+      applicationUrl: z.string().url().max(2000).nullable().optional(),
+      atsName: z.string().max(100).nullable().optional(),
+      requisitionId: z.string().max(255).nullable().optional(),
+      language: z.string().max(20).nullable().optional(),
+      answers: z.array(z.object({
+        key: z.string().max(255).optional(),
+        question: z.string().min(1).max(2000),
+        answer: z.string().max(20000),
+        kind: z.enum(["text", "boolean", "number", "choice", "salary", "other"]).optional(),
+        sensitive: z.boolean().optional(),
+      })).max(50).default([]),
+      policy: submissionPolicyTransportSchema,
+      candidateSalaryMin: z.number().int().nonnegative().nullable().optional(),
+      candidateSalaryMax: z.number().int().nonnegative().nullable().optional(),
+      candidateSalaryCurrency: z.string().length(3).nullable().optional(),
+      candidateSalaryPeriod: z.enum(["hour", "day", "month", "year"]).nullable().optional(),
+      candidateSalaryType: z.enum(["base", "total", "contract_rate"]).nullable().optional(),
+      candidateSalaryFlexible: z.boolean().optional(),
+      documentIds: z.array(z.string().min(1)).max(20).default([]),
+      expectedUpdatedAt: z.string().datetime().optional().describe("Optimistic concurrency timestamp"),
+      dryRun: z.boolean().default(false),
+    },
+    async (args) => {
+      if (!canAccessSubmissions) return submissionScopeError();
+      try {
+        if (
+          args.candidateSalaryMin != null &&
+          args.candidateSalaryMax != null &&
+          args.candidateSalaryMin > args.candidateSalaryMax
+        ) throw new Error("salary_range_invalid");
+        const answers = validateSubmissionAnswers(args.answers);
+        const result = await getDb().recordApplicationSubmission(auth.userId, {
+          applicationId: args.applicationId,
+          submittedAt: new Date(args.submittedAt),
+          followUpAt: args.followUpAt === undefined
+            ? undefined
+            : args.followUpAt === null ? null : new Date(args.followUpAt),
+          idempotencyKey: args.idempotencyKey,
+          applicationUrl: args.applicationUrl,
+          atsName: args.atsName,
+          requisitionId: args.requisitionId,
+          language: args.language,
+          answers,
+          policy: args.policy as SubmissionPolicyInput | undefined,
+          candidateSalaryMin: args.candidateSalaryMin,
+          candidateSalaryMax: args.candidateSalaryMax,
+          candidateSalaryCurrency: args.candidateSalaryCurrency?.toUpperCase() ?? args.candidateSalaryCurrency,
+          candidateSalaryPeriod: args.candidateSalaryPeriod,
+          candidateSalaryType: args.candidateSalaryType,
+          candidateSalaryFlexible: args.candidateSalaryFlexible,
+          documentIds: args.documentIds,
+          expectedUpdatedAt: args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt) : undefined,
+          dryRun: args.dryRun,
+          source: "mcp",
+          actor: auth.user.email,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        const code = controlledErrorCode(error, SUBMISSION_ERROR_CODES, "submission_failed");
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "list_application_submissions",
+    "List submission summaries for one application. Answers are excluded by default because they may contain sensitive personal data.",
+    { applicationId: z.string().min(1) },
+    async ({ applicationId }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
+      try {
+        const submissions = await getDb().listApplicationSubmissions(applicationId, auth.userId, false);
+        return { content: [{ type: "text", text: JSON.stringify(submissions, null, 2) }] };
+      } catch {
+        return { content: [{ type: "text", text: "Application not found or access denied" }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "get_application_submission",
+    "Get one owner-scoped submission including its exact answers and submitted documents. Treat the response as sensitive.",
+    { id: z.string().min(1).describe("Submission ID") },
+    async ({ id }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
+      const submission = await getDb().getApplicationSubmission(id, auth.userId);
+      if (!submission) return { content: [{ type: "text", text: "Submission not found" }], isError: true };
+      return { content: [{ type: "text", text: JSON.stringify(submission, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "append_application_note",
+    "Append a note without a read-modify-write race and add an immutable note_added timeline event.",
+    {
+      applicationId: z.string().min(1),
+      note: z.string().trim().min(1).max(5000),
+      occurredAt: z.string().datetime().describe("Stable event timestamp required for idempotent retries"),
+      idempotencyKey: z.string().min(8).max(128),
+      expectedUpdatedAt: z.string().datetime().optional(),
+    },
+    async (args) => {
+      try {
+        const result = await getDb().appendApplicationNote(
+          args.applicationId,
+          auth.userId,
+          args.note,
+          {
+            type: "note_added",
+            idempotencyKey: args.idempotencyKey,
+            expectedUpdatedAt: args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt) : undefined,
+            occurredAt: new Date(args.occurredAt),
+            source: "mcp",
+            actor: auth.user.email,
+            metadata: {},
+          },
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "append_failed";
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "record_application_event",
+    "Append an immutable owner-scoped application timeline event.",
+    {
+      applicationId: z.string().min(1),
+      type: z.string().trim().min(1).max(100),
+      idempotencyKey: z.string().min(8).max(128).optional(),
+      occurredAt: z.string().datetime().optional(),
+      metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+    },
+    async (args) => {
+      if (args.type === "application_submitted" && !canAccessSubmissions) return submissionScopeError();
+      try {
+        requireOccurredAtForIdempotency(args.idempotencyKey, args.occurredAt);
+        const event = await getDb().createApplicationEvent(args.applicationId, auth.userId, {
+          type: args.type,
+          idempotencyKey: args.idempotencyKey,
+          occurredAt: args.occurredAt ? new Date(args.occurredAt) : new Date(),
+          source: "mcp",
+          actor: auth.user.email,
+          metadata: validateEventMetadata(args.metadata),
+        });
+        return { content: [{ type: "text", text: JSON.stringify(event, null, 2) }] };
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "event_failed";
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "list_application_events",
+    "List immutable timeline events for an application, newest first.",
+    {
+      applicationId: z.string().min(1),
+      limit: z.number().int().min(1).max(500).default(100),
+    },
+    async ({ applicationId, limit }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
+      try {
+        const events = await getDb().listApplicationEvents(applicationId, auth.userId, limit);
+        return { content: [{ type: "text", text: JSON.stringify(events, null, 2) }] };
+      } catch {
+        return { content: [{ type: "text", text: "Application not found or access denied" }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "get_interview_recall_package",
+    "Return the job description, exact submitted answers, timeline, and submitted documents for interview preparation. Owner-scoped sensitive response.",
+    { applicationId: z.string().min(1) },
+    async ({ applicationId }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
+      const db = getDb();
+      const application = await db.getApplication(applicationId, auth.userId);
+      if (!application) return { content: [{ type: "text", text: "Application not found" }], isError: true };
+      const [submissions, events, documents] = await Promise.all([
+        db.listApplicationSubmissions(applicationId, auth.userId, true),
+        db.listApplicationEvents(applicationId, auth.userId, 500),
+        db.listDocumentsByApplication(applicationId, auth.userId),
+      ]);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ application, submissions, events, documents }, null, 2),
+        }],
+      };
+    },
+  );
+
+  server.tool(
+    "find_application_by_job_url",
+    "Find an exact owner-scoped duplicate using a canonicalized job URL.",
+    { jobUrl: z.string().url().max(2000) },
+    async ({ jobUrl }) => {
+      const canonicalJobUrl = canonicalizeJobUrl(jobUrl);
+      if (!canonicalJobUrl) return { content: [{ type: "text", text: "Invalid URL" }], isError: true };
+      const application = await getDb().findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
+      return { content: [{ type: "text", text: JSON.stringify({ canonicalJobUrl, application }, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "upsert_application_by_job_url",
+    "Create or update one opportunity using an exact canonical job URL, avoiding duplicate records.",
+    {
+      company: z.string().min(1).max(255),
+      role: z.string().min(1).max(255),
+      jobUrl: z.string().url().max(2000),
+      status: z.enum(["inbound", "applied", "interview", "offer", "rejected"]).optional(),
+      notes: z.string().max(10_000).nullable().optional(),
+      jobDescription: z.string().max(50_000).nullable().optional(),
+      source: z.string().max(100).nullable().optional(),
+      remote: z.boolean().optional(),
+      salaryMin: z.number().int().nullable().optional(),
+      salaryMax: z.number().int().nullable().optional(),
+      rating: z.number().int().min(1).max(5).nullable().optional(),
+      resumeId: z.string().max(255).nullable().optional(),
+      dryRun: z.boolean().default(false),
+      ...structuredApplicationToolFields,
+    },
+    async (args) => {
+      try {
+        const canonicalJobUrl = canonicalizeJobUrl(args.jobUrl);
+        if (!canonicalJobUrl) throw new Error("job_url_invalid");
+        if (args.salaryMin != null && args.salaryMax != null && args.salaryMin > args.salaryMax) {
+          throw new Error("salary_range_invalid");
+        }
+        const db = getDb();
+        const existing = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
+        const metadata = parseStructuredApplicationMetadata(args as unknown as Record<string, unknown>);
+        const updateExisting = (applicationId: string) => db.updateApplication(applicationId, auth.userId, {
+          company: args.company,
+          role: args.role,
+          ...(args.status !== undefined && { status: args.status }),
+          ...(args.notes !== undefined && { notes: args.notes }),
+          ...(args.jobDescription !== undefined && { jobDescription: args.jobDescription }),
+          ...(args.source !== undefined && { source: args.source }),
+          ...(args.remote !== undefined && { remote: args.remote }),
+          ...(args.salaryMin !== undefined && { salaryMin: args.salaryMin }),
+          ...(args.salaryMax !== undefined && { salaryMax: args.salaryMax }),
+          ...(args.rating !== undefined && { rating: args.rating }),
+          ...(args.resumeId !== undefined && { resumeId: args.resumeId }),
+          jobUrl: args.jobUrl,
+          canonicalJobUrl,
+          ...metadata,
+        });
+        if (args.dryRun) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                dryRun: true,
+                operation: existing ? "update" : "create",
+                canonicalJobUrl,
+                existingId: existing?.id ?? null,
+              }, null, 2),
+            }],
+          };
+        }
+        if (existing) {
+          const application = await updateExisting(existing.id);
+          return { content: [{ type: "text", text: JSON.stringify({ operation: "updated", application }, null, 2) }] };
+        }
+        const status = args.status ?? "inbound";
+        let operation = "created";
+        let application;
+        try {
+          application = await db.createApplication(auth.userId, {
+          company: args.company,
+          role: args.role,
+          status,
+          appliedAt: resolveAppliedAtForCreate(status, undefined),
+          lastContact: null,
+          followUpAt: null,
+          notes: args.notes ?? null,
+          jobDescription: args.jobDescription ?? null,
+          source: args.source ?? null,
+          remote: args.remote ?? false,
+          salaryMin: args.salaryMin ?? null,
+          salaryMax: args.salaryMax ?? null,
+          rating: args.rating ?? null,
+          jobUrl: args.jobUrl,
+          canonicalJobUrl,
+          resumeId: args.resumeId ?? null,
+          ...metadata,
+          });
+        } catch (error) {
+          const code = error instanceof Error ? error.message : "";
+          if (code !== "canonical_job_url_conflict") throw error;
+          const concurrent = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
+          if (!concurrent) throw error;
+          application = await updateExisting(concurrent.id);
+          operation = "updated";
+        }
+        return { content: [{ type: "text", text: JSON.stringify({ operation, application }, null, 2) }] };
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "upsert_failed";
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "pipeline_healthcheck",
+    "Return deterministic pipeline data-quality findings without modifying records.",
+    {},
+    async () => {
+      if (!canAccessSubmissions) return submissionScopeError();
+      const db = getDb();
+      const [applications, submissions, documents] = await Promise.all([
+        db.listApplications(auth.userId),
+        db.listUserSubmissions(auth.userId),
+        db.listDocuments(auth.userId),
+      ]);
+      const findings = computeApplicationHealth({
+        applications,
+        submissions,
+        documents: documents.map((document) => ({
+          id: document.id,
+          applicationIds: document.applications?.map((application) => application.id) ?? [],
+        })),
+      });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ healthy: findings.length === 0, findingCount: findings.length, findings }, null, 2),
+        }],
+      };
+    },
   );
 
   // ── Batch & filtered operations ───────────────────────────────────────
@@ -259,6 +726,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
             jobUrl: z.string().nullable().optional().describe("URL to job listing"),
             resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
+            ...structuredApplicationToolFields,
           })
         )
         .min(1)
@@ -284,6 +752,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           rating: item.rating,
           jobUrl: item.jobUrl !== undefined ? (item.jobUrl?.slice(0, 2000) ?? null) : undefined,
           resumeId: item.resumeId !== undefined ? (item.resumeId ?? null) : undefined,
+          ...parseStructuredApplicationMetadata(item as unknown as Record<string, unknown>),
         }));
 
         const result = await getDb().batchUpsertApplications(auth.userId, sanitized);
@@ -310,6 +779,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         .describe("Array of application IDs to delete (max 50)"),
     },
     async ({ ids }) => {
+      if (!canAccessSubmissions) return submissionScopeError();
       try {
         const result = await getDb().batchDeleteApplications(ids, auth.userId);
         return {
@@ -395,7 +865,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           isError: true,
         };
       }
-      const contact = await getDb().createContact(applicationId, {
+      const contact = await getDb().createContact(applicationId, auth.userId, {
         name: data.name.slice(0, 255),
         email: data.email?.slice(0, 255) ?? null,
         phone: data.phone?.slice(0, 50) ?? null,
@@ -473,14 +943,26 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "list_documents",
-    "List all uploaded documents",
-    {},
-    async () => {
-      const docs = await getDb().listDocuments(auth.readScopeUserId);
+    "List uploaded documents with optional application, lifecycle, submission, orphan, pagination, and field-selection filters.",
+    {
+      applicationId: z.string().optional(),
+      documentType: z.string().max(100).optional(),
+      state: z.enum(["draft", "current", "submitted", "superseded", "historical", "orphaned"]).optional(),
+      submissionId: z.string().optional(),
+      orphaned: z.boolean().optional(),
+      fields: z.array(z.string()).max(30).optional(),
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(200).optional(),
+    },
+    async (args) => {
+      const docs = await getDb().listDocumentsFiltered(auth.readScopeUserId, {
+        ...args,
+        excludeSubmissionArtifacts: !canAccessSubmissions,
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(docs, null, 2) }],
       };
-    }
+    },
   );
 
   server.tool(
@@ -495,6 +977,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           isError: true,
         };
       }
+      if (!canAccessSubmissions && isSubmissionDocument(doc)) return submissionScopeError();
       return {
         content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
       };
@@ -509,7 +992,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       mimeType: z
         .enum(["application/pdf", "image/jpeg", "image/png", "image/webp"])
         .describe("MIME type of the uploaded file"),
-      contentBase64: z.string().min(1).describe("Raw file bytes encoded as standard base64"),
+      contentBase64: z.string().min(1).max(MAX_DOCUMENT_BASE64_SIZE).describe("Raw file bytes encoded as standard base64"),
       applicationIds: z.array(z.string()).optional().describe("Application IDs to link"),
     },
     async (args) => uploadDocumentContent(args, auth.userId),
@@ -519,7 +1002,14 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     "download_document_content",
     "Download the binary content of a document. For files <=1MB the content is returned inline as base64. For larger files, a short-lived signed URL is returned instead when object storage is available (falls back to inline base64 otherwise).",
     { id: z.string().describe("Document ID") },
-    async ({ id }) => downloadDocumentContent(id, auth.readScopeUserId),
+    async ({ id }) => {
+      const document = await getDb().getDocument(id, auth.readScopeUserId);
+      if (!document) {
+        return { content: [{ type: "text", text: "Document not found" }], isError: true };
+      }
+      if (!canAccessSubmissions && isSubmissionDocument(document)) return submissionScopeError();
+      return downloadDocumentContent(id, auth.readScopeUserId);
+    },
   );
 
   server.tool(
@@ -531,7 +1021,13 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ id, applicationIds }) => {
       try {
+        const existing = await getDb().getDocument(id, auth.userId);
+        if (!existing) throw new Error("not_found");
+        if (!canAccessSubmissions && requiresSubmissionScopeForDocumentMutation(existing)) {
+          return submissionScopeError();
+        }
         const doc = await getDb().updateDocumentLinks(id, auth.userId, applicationIds);
+        if (!canAccessSubmissions && isSubmissionDocument(doc)) return submissionScopeError();
         return {
           content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
         };
@@ -545,12 +1041,55 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
   );
 
   server.tool(
+    "update_document_metadata",
+    "Classify an owned document and update lifecycle metadata. Submitted document content remains immutable.",
+    {
+      id: z.string().describe("Document ID"),
+      documentType: z.string().max(100).optional(),
+      state: z.enum(["draft", "current", "submitted", "superseded", "historical", "orphaned"]).optional(),
+      version: z.number().int().min(1).optional(),
+      contentHash: z.string().regex(/^[a-f0-9]{64}$/i).nullable().optional(),
+      source: z.string().max(100).nullable().optional(),
+      generatedAt: z.string().datetime().nullable().optional(),
+      submittedAt: z.string().datetime().nullable().optional(),
+    },
+    async ({ id, generatedAt, submittedAt, ...metadata }) => {
+      try {
+        const existing = await getDb().getDocument(id, auth.userId);
+        if (!existing) throw new Error("not_found");
+        if (
+          !canAccessSubmissions
+          && (
+            requiresSubmissionScopeForDocumentMutation(existing, metadata.state)
+          )
+        ) return submissionScopeError();
+        const document = await getDb().updateDocumentMetadata(id, auth.userId, {
+          ...metadata,
+          ...(generatedAt !== undefined && {
+            generatedAt: generatedAt ? new Date(generatedAt) : null,
+          }),
+          ...(submittedAt !== undefined && {
+            submittedAt: submittedAt ? new Date(submittedAt) : null,
+          }),
+        });
+        if (!canAccessSubmissions && isSubmissionDocument(document)) return submissionScopeError();
+        return { content: [{ type: "text", text: JSON.stringify(document, null, 2) }] };
+      } catch {
+        return {
+          content: [{ type: "text", text: "Document not found or access denied" }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
     "delete_document",
     "Delete a document",
     { id: z.string().describe("Document ID") },
     async ({ id }) => {
       try {
-        const result = await getDb().deleteDocument(id, auth.userId);
+        const result = await deleteDocumentWithContent(getDb(), id, auth.userId);
         if (!result) {
           return {
             content: [{ type: "text", text: "Document not found or access denied" }],

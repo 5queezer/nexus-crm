@@ -60,6 +60,11 @@ describe("uploadDocument", () => {
       size: PDF_BYTES.length,
       mimeType: "application/pdf",
       applicationIds: ["app-1"],
+      documentType: "other",
+      state: "current",
+      version: 1,
+      contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      source: "upload",
     });
   });
 

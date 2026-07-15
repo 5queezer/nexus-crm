@@ -24,6 +24,10 @@ vi.mock("@/lib/auth-client", () => ({
 	authClient: { signOut: vi.fn() },
 }));
 
+vi.mock("../ai-operator/ai-operator", () => ({
+	AiOperator: () => null,
+}));
+
 describe("Dashboard data states", () => {
 	let container: HTMLDivElement;
 	let root: Root;

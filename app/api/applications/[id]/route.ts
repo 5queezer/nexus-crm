@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
+import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 
 const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
 const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
@@ -48,8 +49,18 @@ export async function PATCH(
   const body = await request.json();
   const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt, companySize, salaryBandMentioned, triageQuality, triageReason, incomingSource, autoRejected, autoRejectReason } = body;
 
-  const parsedSalaryMin = salaryMin != null ? parseInt(String(salaryMin), 10) : null;
-  const parsedSalaryMax = salaryMax != null ? parseInt(String(salaryMax), 10) : null;
+  const parsedSalaryMin = salaryMin != null && salaryMin !== "" ? Number(salaryMin) : null;
+  const parsedSalaryMax = salaryMax != null && salaryMax !== "" ? Number(salaryMax) : null;
+  const parsedRating = rating != null && rating !== "" ? Number(rating) : null;
+  if (
+    (parsedSalaryMin !== null && (!Number.isInteger(parsedSalaryMin) || parsedSalaryMin < 0)) ||
+    (parsedSalaryMax !== null && (!Number.isInteger(parsedSalaryMax) || parsedSalaryMax < 0))
+  ) {
+    return NextResponse.json({ error: "salary values must be non-negative integers" }, { status: 400 });
+  }
+  if (parsedRating !== null && (!Number.isInteger(parsedRating) || parsedRating < 1 || parsedRating > 5)) {
+    return NextResponse.json({ error: "rating must be an integer from 1 to 5" }, { status: 400 });
+  }
   if (parsedSalaryMin != null && parsedSalaryMax != null && parsedSalaryMin > parsedSalaryMax) {
     return NextResponse.json(
       { error: "salaryMin must not exceed salaryMax" },
@@ -57,7 +68,26 @@ export async function PATCH(
     );
   }
 
-  const application = await getDb().updateApplication(id, auth.userId, {
+  let structuredMetadata;
+  try {
+    structuredMetadata = parseStructuredApplicationMetadata(body as Record<string, unknown>);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid structured metadata" },
+      { status: 400 },
+    );
+  }
+
+  let expectedUpdatedAt: Date | undefined;
+  if (body.expectedUpdatedAt !== undefined) {
+    expectedUpdatedAt = new Date(String(body.expectedUpdatedAt));
+    if (Number.isNaN(expectedUpdatedAt.getTime())) {
+      return NextResponse.json({ error: "invalid_expected_updated_at" }, { status: 400 });
+    }
+  }
+
+  try {
+    const application = await getDb().updateApplication(id, auth.userId, {
     ...(company !== undefined && { company: String(company).slice(0, 255) }),
     ...(role !== undefined && { role: String(role).slice(0, 255) }),
     ...(status !== undefined && { status: normalizeStatus(status) }),
@@ -81,7 +111,7 @@ export async function PATCH(
     ...(salaryMin !== undefined && { salaryMin: parsedSalaryMin }),
     ...(salaryMax !== undefined && { salaryMax: parsedSalaryMax }),
     ...(rating !== undefined && {
-      rating: rating != null ? Math.min(5, Math.max(1, parseInt(String(rating), 10))) : null,
+      rating: parsedRating,
     }),
     ...(jobUrl !== undefined && {
       jobUrl: jobUrl ? String(jobUrl).slice(0, 2000) : null,
@@ -109,9 +139,22 @@ export async function PATCH(
     ...(archivedAt !== undefined && {
       archivedAt: archivedAt ? new Date(archivedAt) : null,
     }),
-  });
+    ...structuredMetadata,
+    ...(expectedUpdatedAt !== undefined && {
+      expectedUpdatedAt,
+    }),
+    });
 
-  return NextResponse.json(application);
+    return NextResponse.json(application);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "update_failed";
+    const responseStatus = code === "conflict" || code === "canonical_job_url_conflict"
+      ? 409
+      : code === "not_found"
+        ? 404
+        : 400;
+    return NextResponse.json({ error: code }, { status: responseStatus });
+  }
 }
 
 export async function DELETE(
@@ -124,7 +167,11 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  await getDb().deleteApplication(id, auth.userId);
-
-  return NextResponse.json({ success: true });
+  try {
+    await getDb().deleteApplication(id, auth.userId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "delete_failed";
+    return NextResponse.json({ error: code }, { status: code === "not_found" ? 404 : 400 });
+  }
 }
