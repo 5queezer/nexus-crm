@@ -620,7 +620,7 @@
     "save": "Save",
     "cancel": "Cancel",
     "setup_title": "Connect a model to begin",
-    "setup_description": "Choose OpenAI or Anthropic and add your API key. Nexus never exposes the key to the browser after saving it.",
+    "setup_description": "Choose a supported model provider and add your API key. Nexus never exposes the key to the browser after saving it.",
     "setup_action": "Configure model",
     "operator_online": "Operator online",
     "welcome_title": "What should we work on?",
@@ -682,7 +682,13 @@
     "status_expired": "Expired",
     "status_stale": "Stale",
     "run_failed": "The operator run could not be completed.",
-    "error_generic": "Something went wrong. Please try again."
+    "error_generic": "Something went wrong. Please try again.",
+    "refresh": "Refresh models",
+    "load_models": "Load models",
+    "model_placeholder": "Enter model id",
+    "manual_hint": "For API-key providers, include the model and key before saving.",
+    "no_models": "Provider models not available",
+    "refresh_models": "Refresh model list"
   },
   "workspace": {
     "focus": "Focus",

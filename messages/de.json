@@ -620,7 +620,7 @@
     "save": "Speichern",
     "cancel": "Abbrechen",
     "setup_title": "Verbinde ein Modell, um zu starten",
-    "setup_description": "Wähle OpenAI oder Anthropic und füge deinen API-Schlüssel hinzu. Nexus zeigt ihn nach dem Speichern nie wieder im Browser an.",
+    "setup_description": "Wähle einen unterstützten Modellanbieter und füge deinen API-Schlüssel hinzu. Nexus zeigt ihn nach dem Speichern nie wieder im Browser an.",
     "setup_action": "Modell konfigurieren",
     "operator_online": "Operator online",
     "welcome_title": "Woran sollen wir arbeiten?",
@@ -682,7 +682,13 @@
     "status_expired": "Abgelaufen",
     "status_stale": "Veraltet",
     "run_failed": "Der Operator-Lauf konnte nicht abgeschlossen werden.",
-    "error_generic": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
+    "error_generic": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "refresh": "Modelle aktualisieren",
+    "load_models": "Modelle laden",
+    "model_placeholder": "Modell-ID eingeben",
+    "manual_hint": "Für API-Schlüssel-Anbieter bitte Modell und Schlüssel beim Speichern angeben.",
+    "no_models": "Keine Modelle verfügbar",
+    "refresh_models": "Modellliste aktualisieren"
   },
   "workspace": {
     "focus": "Fokus",
