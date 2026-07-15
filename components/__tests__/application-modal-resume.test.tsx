@@ -135,4 +135,35 @@ describe("ApplicationModal tailored resume identity", () => {
     const open = await screen.findByRole("button", { name: "resume_open" });
     expect(open.hasAttribute("disabled")).toBe(false);
   });
+
+  it("shows a linked Reactive Resume as a document file type", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/documents")) {
+          return { ok: true, json: async () => [] } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            resumeId: "resume-existing",
+            editUrl: "https://resume.example/edit/resume-existing",
+          }),
+        } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderModal("resume-existing");
+
+    await user.click(screen.getByRole("button", { name: /documents_section/ }));
+
+    const link = await screen.findByRole("link", { name: "documents_open_resume" });
+    expect(link.getAttribute("href")).toBe(
+      "/api/applications/application-1/resume",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(screen.getByText("documents_reactive_resume")).toBeTruthy();
+    expect(screen.getByText("documents_external_link")).toBeTruthy();
+  });
 });

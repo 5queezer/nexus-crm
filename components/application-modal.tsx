@@ -980,7 +980,12 @@ export function ApplicationModal({
           </div>
 
           {/* Documents — only when editing */}
-          {isEditing && <DocumentsSection applicationId={application!.id} />}
+          {isEditing && (
+            <DocumentsSection
+              applicationId={application!.id}
+              resumeId={application!.resumeId}
+            />
+          )}
 
           {/* Resume — only when editing */}
           {isEditing && (
@@ -1103,7 +1108,13 @@ function DocShareButton({
   );
 }
 
-function DocumentsSection({ applicationId }: { applicationId: string }) {
+function DocumentsSection({
+  applicationId,
+  resumeId,
+}: {
+  applicationId: string;
+  resumeId: string | null;
+}) {
   const t = useTranslations("modal");
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1119,6 +1130,7 @@ function DocumentsSection({ applicationId }: { applicationId: string }) {
       return res.json();
     },
   });
+  const documentCount = documents.length + (resumeId ? 1 : 0);
 
   async function handleUpload(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -1179,9 +1191,9 @@ function DocumentsSection({ applicationId }: { applicationId: string }) {
       >
         <span>
           📎 {t("documents_section")}
-          {documents.length > 0 && (
+          {documentCount > 0 && (
             <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
-              {documents.length}
+              {documentCount}
             </span>
           )}
         </span>
@@ -1198,12 +1210,35 @@ function DocumentsSection({ applicationId }: { applicationId: string }) {
             <div className="flex justify-center py-4">
               <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : documents.length === 0 ? (
+          ) : documentCount === 0 ? (
             <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-2">
               {t("documents_empty")}
             </p>
           ) : (
             <ul className="space-y-1.5">
+              {resumeId && (
+                <li className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-600">
+                  <span className="text-lg shrink-0" aria-hidden="true">
+                    🔗
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {t("documents_reactive_resume")}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      {t("documents_external_link")}
+                    </p>
+                  </div>
+                  <a
+                    href={`/api/applications/${applicationId}/resume`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="nexus-target text-xs font-medium text-blue-600 transition-colors hover:text-blue-800"
+                  >
+                    {t("documents_open_resume")}
+                  </a>
+                </li>
+              )}
               {documents.map((doc) => (
                 <li
                   key={doc.id}
