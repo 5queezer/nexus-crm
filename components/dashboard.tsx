@@ -219,7 +219,9 @@ export function Dashboard({
         return;
       }
       document
-        .querySelector<HTMLElement>("[data-dashboard-create-control]")
+        .querySelector<HTMLElement>(
+          `[data-dashboard-create-control="${compactViewport ? "mobile" : "desktop"}"]`,
+        )
         ?.focus();
     });
   }
@@ -899,7 +901,7 @@ export function Dashboard({
           <button
             type="button"
             onClick={handleNewApplication}
-            data-dashboard-create-control
+            data-dashboard-create-control="mobile"
             className="nexus-fab nexus-fixed-bottom fixed right-4 z-40 lg:hidden"
           >
             <span aria-hidden="true">+</span>

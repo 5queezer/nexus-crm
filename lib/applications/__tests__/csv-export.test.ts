@@ -34,29 +34,45 @@ function application(overrides: Partial<Application> = {}): Application {
   };
 }
 
+const FORMULA_MARKERS = ["=", "+", "-", "@"];
+const EXCEL_LEADING_CHARACTERS = [" ", "\t", "\r", "\n"];
+const PREFIXED_FORMULAS = EXCEL_LEADING_CHARACTERS.flatMap((prefix) =>
+  FORMULA_MARKERS.map((marker) => `${prefix}${marker}payload`),
+);
+
 describe("CSV export safety", () => {
-  it.each(["=1+1", "+SUM(A1:A2)", "-2+3", "@cmd"]) (
-    "neutralizes formula-leading cell %s before quote escaping",
+  it.each([...FORMULA_MARKERS.map((marker) => `${marker}payload`), ...PREFIXED_FORMULAS])(
+    "neutralizes formula-capable cell %j before quote escaping",
     (value) => {
       expect(escapeCsvCell(value)).toBe(`"'${value}"`);
     },
   );
 
-  it("neutralizes malicious company, role, source, and notes while preserving normal cells", () => {
+  it("escapes quotes and preserves separators and normal values", () => {
+    expect(escapeCsvCell('Normal, "quoted" value')).toBe(
+      '"Normal, ""quoted"" value"',
+    );
+    expect(escapeCsvCell("plain text")).toBe('"plain text"');
+    expect(escapeCsvCell("12345")).toBe('"12345"');
+  });
+
+  it("neutralizes exported fields and safely normalizes every notes line ending", () => {
     const csv = applicationsToCsv([
       application({
-        company: '=HYPERLINK("https://evil.example")',
-        role: "+SUM(1,2)",
-        source: "-1+2",
-        notes: "@IMPORTXML(example)",
+        company: ' \t=HYPERLINK("https://evil.example")',
+        role: "\r+SUM(1,2)",
+        source: "\n-1+2",
+        notes: "\r\n@IMPORTXML(example)\rnext\nlast, \"quoted\"",
       }),
       application({ id: "normal", company: "Normal Co", role: "Designer" }),
     ]);
 
-    expect(csv).toContain('"\'=HYPERLINK(""https://evil.example"")"');
-    expect(csv).toContain('"\'+SUM(1,2)"');
-    expect(csv).toContain('"\'-1+2"');
-    expect(csv).toContain('"\'@IMPORTXML(example)"');
+    expect(csv).toContain('"\' \t=HYPERLINK(""https://evil.example"")"');
+    expect(csv).toContain('"\'\r+SUM(1,2)"');
+    expect(csv).toContain('"\'\n-1+2"');
+    expect(csv).toContain(
+      '"\' @IMPORTXML(example) next last, ""quoted"""',
+    );
     expect(csv).toContain('"Normal Co","Designer","applied","Referral"');
   });
 });

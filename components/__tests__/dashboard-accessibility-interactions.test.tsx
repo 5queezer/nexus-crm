@@ -68,7 +68,12 @@ vi.mock("../ai-operator/ai-operator", () => ({ AiOperator: () => null }));
 vi.mock("../focus-queue", () => ({ FocusQueue: () => <div>focus queue</div> }));
 vi.mock("../workspace-toolbar", () => ({
   WorkspaceToolbar: ({ onCreate }: { onCreate: () => void }) => (
-    <button type="button" data-dashboard-create-control onClick={onCreate}>
+    <button
+      type="button"
+      data-dashboard-create-control="desktop"
+      style={{ display: "none" }}
+      onClick={onCreate}
+    >
       toolbar create
     </button>
   ),
@@ -133,17 +138,24 @@ describe("Dashboard modal ownership", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("restores focus to a connected create control when the mobile FAB opener unmounts", async () => {
+  it("restores focus to the newly rendered visible compact FAB when its opener unmounts", async () => {
     const user = userEvent.setup();
     renderDashboard();
+    await screen.findByText("toolbar create");
+    const desktopCreate = document.querySelector<HTMLButtonElement>(
+      '[data-dashboard-create-control="desktop"]',
+    );
     const fab = await screen.findByRole("button", { name: "new_application" });
+    expect(desktopCreate).not.toBeNull();
+    expect(getComputedStyle(desktopCreate!).display).toBe("none");
 
     await user.click(fab);
     expect(fab.isConnected).toBe(false);
     await user.click(screen.getByRole("button", { name: "close modal" }));
 
-    const liveCreate = screen.getByRole("button", { name: "toolbar create" });
-    await waitFor(() => expect(document.activeElement).toBe(liveCreate));
+    const liveFab = await screen.findByRole("button", { name: "new_application" });
+    expect(liveFab).not.toBe(fab);
+    await waitFor(() => expect(document.activeElement).toBe(liveFab));
   });
 
   it("blocks Cmd/Ctrl+K while a document modal filter sheet is open", async () => {

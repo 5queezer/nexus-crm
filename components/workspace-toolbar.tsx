@@ -51,7 +51,7 @@ export function WorkspaceToolbar({
           <button
             type="button"
             onClick={onCreate}
-            data-dashboard-create-control
+            data-dashboard-create-control="desktop"
             className="nexus-button-primary nexus-target hidden whitespace-nowrap lg:inline-flex"
           >
             <span aria-hidden="true">+</span>

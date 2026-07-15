@@ -18,7 +18,11 @@ interface BulkActionBarProps {
   onClear: () => void;
 }
 
-export function BulkActionBar({
+export function BulkActionBar(props: BulkActionBarProps) {
+  return props.selectedCount > 0 ? <BulkActionBarInner {...props} /> : null;
+}
+
+function BulkActionBarInner({
   selectedCount,
   onChangeStatus,
   onArchive,
@@ -106,6 +110,11 @@ export function BulkActionBar({
     setStatusOpen((value) => !value);
   }
 
+  function closeStatusMenuAndRestoreFocus() {
+    setStatusOpen(false);
+    requestAnimationFrame(() => statusTriggerRef.current?.focus());
+  }
+
   function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     const items = Array.from(
@@ -124,8 +133,6 @@ export function BulkActionBar({
         : (currentIndex + direction + items.length) % items.length;
     items[nextIndex].focus();
   }
-
-  if (selectedCount === 0) return null;
 
   return (
     <div className="nexus-safe-bottom fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white px-3 pt-3 shadow-[0_-4px_12px_rgba(0,0,0,0.1)] dark:border-gray-700 dark:bg-gray-800 sm:px-4">
@@ -205,7 +212,7 @@ export function BulkActionBar({
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  setStatusOpen(false);
+                  closeStatusMenuAndRestoreFocus();
                   onChangeStatus(status);
                 }}
                 className="flex min-h-12 w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"

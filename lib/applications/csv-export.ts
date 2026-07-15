@@ -3,7 +3,7 @@ import type { Application } from "@/types";
 
 export function escapeCsvCell(value: unknown): string {
   const text = String(value ?? "");
-  const neutralized = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  const neutralized = /^[\u0000-\u0020]*[=+\-@]/.test(text) ? `'${text}` : text;
   return `"${neutralized.replace(/"/g, '""')}"`;
 }
 
@@ -32,7 +32,7 @@ export function applicationsToCsv(applications: Application[]): string {
     application.followUpAt
       ? format(new Date(application.followUpAt), "yyyy-MM-dd")
       : "",
-    application.notes?.replace(/\n/g, " ") ?? "",
+    application.notes?.replace(/\r\n?|\n/g, " ") ?? "",
   ]);
 
   return [headers, ...rows]

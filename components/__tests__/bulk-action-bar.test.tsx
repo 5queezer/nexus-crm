@@ -38,6 +38,32 @@ describe("BulkActionBar status menu", () => {
     expect(document.activeElement).toBe(items[1]);
     await user.keyboard("{Enter}");
     expect(onChangeStatus).toHaveBeenCalledWith("applied");
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "change_status" })).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
+  });
+
+  it("unmounts an open portal at zero selections and reopens with closed state", async () => {
+    const user = userEvent.setup();
+    const props = {
+      onChangeStatus: vi.fn(),
+      onArchive: vi.fn(),
+      onDelete: vi.fn(),
+      onClear: vi.fn(),
+    };
+    const { rerender } = render(<BulkActionBar selectedCount={1} {...props} />);
+
+    await user.click(screen.getByRole("button", { name: "change_status" }));
+    expect(await screen.findByRole("menu", { name: "change_status" })).toBeTruthy();
+
+    rerender(<BulkActionBar selectedCount={0} {...props} />);
+    expect(screen.queryByRole("menu", { name: "change_status" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "change_status" })).toBeNull();
+
+    rerender(<BulkActionBar selectedCount={1} {...props} />);
+    const reopenedTrigger = screen.getByRole("button", { name: "change_status" });
+    expect(reopenedTrigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("menu", { name: "change_status" })).toBeNull();
   });
 
