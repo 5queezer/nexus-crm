@@ -636,6 +636,13 @@
     "status_expired": "Expired",
     "status_stale": "Stale",
     "run_failed": "The operator run could not be completed.",
-    "error_generic": "Something went wrong. Please try again."
+    "error_generic": "Something went wrong. Please try again.",
+    "refresh": "Refresh models",
+    "load_models": "Load models",
+    "model_placeholder": "Enter model id",
+    "manual_hint": "For API-key providers, include the model and key before saving.",
+    "oauth_configure_hint": "OAuth-based providers are configured through the external OAuth flow.",
+    "no_models": "Provider models not available",
+    "refresh_models": "Refresh model list"
   }
 }

@@ -636,6 +636,13 @@
     "status_expired": "Abgelaufen",
     "status_stale": "Veraltet",
     "run_failed": "Der Operator-Lauf konnte nicht abgeschlossen werden.",
-    "error_generic": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
+    "error_generic": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "refresh": "Modelle aktualisieren",
+    "load_models": "Modelle laden",
+    "model_placeholder": "Modell-ID eingeben",
+    "manual_hint": "Für API-Schlüssel-Anbieter bitte Modell und Schlüssel beim Speichern angeben.",
+    "oauth_configure_hint": "OAuth-basierte Anbieter werden über den externen OAuth-Flow konfiguriert.",
+    "no_models": "Keine Modelle verfügbar",
+    "refresh_models": "Modellliste aktualisieren"
   }
 }
