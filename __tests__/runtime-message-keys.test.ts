@@ -10,6 +10,7 @@ const INTEGRATED_DYNAMIC_KEYS = [
   "shortcuts.focus_view",
   "modal.close",
   "modal.secondary_details",
+  "modal.analyze",
   "kanban.open",
   "kanban.change_status",
   "actions.select_opportunity",

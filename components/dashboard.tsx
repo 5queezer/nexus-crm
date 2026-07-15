@@ -39,7 +39,7 @@ import {
 import { resolveOpportunityView } from "@/lib/applications/workspace-view";
 import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { useApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
-import { format } from "date-fns";
+import { applicationsToCsv } from "@/lib/applications/csv-export";
 
 interface DashboardProps {
   user: {
@@ -81,32 +81,7 @@ function exportToCsv(
   applications: Application[],
   filename = "applications.csv",
 ) {
-  const headers = [
-    "Company",
-    "Role",
-    "Status",
-    "Source",
-    "Applied",
-    "Last Contact",
-    "Follow-up",
-    "Notes",
-  ];
-  const rows = applications.map((a) => [
-    a.company,
-    a.role,
-    a.status,
-    a.source ?? "",
-    a.appliedAt ? format(new Date(a.appliedAt), "yyyy-MM-dd") : "",
-    a.lastContact ? format(new Date(a.lastContact), "yyyy-MM-dd") : "",
-    a.followUpAt ? format(new Date(a.followUpAt), "yyyy-MM-dd") : "",
-    a.notes?.replace(/\n/g, " ") ?? "",
-  ]);
-
-  const csv = [headers, ...rows]
-    .map((row) =>
-      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
-    )
-    .join("\n");
+  const csv = applicationsToCsv(applications);
 
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -237,7 +212,16 @@ export function Dashboard({
   function handleCloseModal() {
     setIsModalOpen(false);
     setEditingApp(null);
-    requestAnimationFrame(() => modalOpenerRef.current?.focus());
+    requestAnimationFrame(() => {
+      const opener = modalOpenerRef.current;
+      if (opener?.isConnected) {
+        opener.focus();
+        return;
+      }
+      document
+        .querySelector<HTMLElement>("[data-dashboard-create-control]")
+        ?.focus();
+    });
   }
 
   function handleArchive(id: string, archive: boolean) {
@@ -539,8 +523,9 @@ export function Dashboard({
     }
 
     function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+K / Ctrl+K always works
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if (document.querySelector('[aria-modal="true"]')) return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setIsCommandPaletteOpen(true);
         return;
@@ -756,7 +741,7 @@ export function Dashboard({
         )}
 
         {/* Decision-oriented overview */}
-        {!isTrueEmpty && (
+        {!isTrueEmpty && !showArchived && (
           <section className="mb-5 rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-xl dark:bg-white/[0.035] dark:ring-white/8 sm:mb-6 sm:px-5 sm:py-4">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
               <StatItem
@@ -914,6 +899,7 @@ export function Dashboard({
           <button
             type="button"
             onClick={handleNewApplication}
+            data-dashboard-create-control
             className="nexus-fab nexus-fixed-bottom fixed right-4 z-40 lg:hidden"
           >
             <span aria-hidden="true">+</span>

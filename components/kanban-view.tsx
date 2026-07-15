@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { format, isPast, isToday } from "date-fns";
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
+import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
 import {
   DndContext,
   DragEndEvent,
@@ -65,6 +66,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
   const ts = useTranslations("status");
   const ta = useTranslations("actions");
   const followUpDate = app.followUpAt ? new Date(app.followUpAt) : null;
+  const safeJobUrl = getSafeExternalUrl(app.jobUrl);
   const isOverdue =
     followUpDate && isPast(followUpDate) && !isToday(followUpDate);
   const isDueToday = followUpDate && isToday(followUpDate);
@@ -90,14 +92,14 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
             >
               {app.company}
             </span>
-            {app.jobUrl && (
+            {safeJobUrl && (
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  window.open(app.jobUrl!, "_blank", "noopener,noreferrer");
+                  openExternalUrl(safeJobUrl);
                 }}
-                title={app.jobUrl}
+                title={safeJobUrl}
                 aria-label={ta("open_job_post")}
                 className="nexus-target nexus-focus-ring -m-3 inline-flex shrink-0 items-center justify-center rounded text-slate-400 transition hover:text-indigo-600 dark:hover:text-[#828fff]"
               >

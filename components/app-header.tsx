@@ -27,19 +27,42 @@ interface AppHeaderProps {
   title?: string;
 }
 
+function MobileNavigationDisclosure({ isAdmin }: { isAdmin?: boolean }) {
+  const tn = useTranslations("nav");
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => {
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={() => setOpen(true)}
+        className="nexus-target nexus-focus-ring flex items-center justify-center rounded-xl border border-slate-200 bg-white/70 text-slate-600 transition hover:bg-slate-50 dark:border-white/8 dark:bg-white/4 dark:text-slate-300"
+        aria-label={tn("menu")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      <MobileNavigationSheet
+        open={open}
+        isAdmin={isAdmin}
+        onClose={close}
+        onNavigate={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
 export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const tn = useTranslations("nav");
   const tapp = useTranslations("app");
-  const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null);
-  const mobileMenuOpen = mobileMenuPath === pathname;
-  const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null);
-  const closeMobileMenu = useCallback(() => {
-    setMobileMenuPath(null);
-    requestAnimationFrame(() => mobileMenuTriggerRef.current?.focus());
-  }, []);
-
   async function handleLogout() {
     await authClient.signOut();
     router.push("/login");
@@ -129,25 +152,13 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
               shareUrl={shareUrl}
               onLogout={handleLogout}
             />
-            <button
-              ref={mobileMenuTriggerRef}
-              onClick={() => setMobileMenuPath(pathname)}
-              className="nexus-target nexus-focus-ring flex items-center justify-center rounded-xl border border-slate-200 bg-white/70 text-slate-600 transition hover:bg-slate-50 dark:border-white/8 dark:bg-white/4 dark:text-slate-300"
-              aria-label={tn("menu")}
-              aria-haspopup="dialog"
-              aria-expanded={mobileMenuOpen}
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+            <MobileNavigationDisclosure
+              key={pathname}
+              isAdmin={user.isAdmin}
+            />
           </div>
         </div>
       </div>
-
-      <MobileNavigationSheet
-        open={mobileMenuOpen}
-        isAdmin={user.isAdmin}
-        onClose={closeMobileMenu}
-      />
     </header>
   );
 }

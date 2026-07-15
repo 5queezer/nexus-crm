@@ -73,6 +73,7 @@ export function OpportunityFilterControls({
       <div className="hidden items-center gap-2 lg:flex">
         <select
           value={filters.status}
+          aria-label={t("status_filter")}
           onChange={(event) =>
             onChange({
               ...filters,
@@ -90,6 +91,7 @@ export function OpportunityFilterControls({
         </select>
         <select
           value={filters.source}
+          aria-label={t("source_filter")}
           onChange={(event) =>
             onChange({ ...filters, source: event.target.value })
           }

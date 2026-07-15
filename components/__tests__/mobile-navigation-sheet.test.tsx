@@ -31,6 +31,8 @@ function SheetHarness() {
 }
 
 describe("MobileNavigationSheet interactions", () => {
+  let breakpointListener: ((event: MediaQueryListEvent) => void) | undefined;
+
   beforeEach(() => {
     vi.stubGlobal(
       "requestAnimationFrame",
@@ -39,6 +41,20 @@ describe("MobileNavigationSheet interactions", () => {
         return 1;
       },
     );
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: false,
+        addEventListener: (
+          _event: string,
+          listener: (event: MediaQueryListEvent) => void,
+        ) => {
+          breakpointListener = listener;
+        },
+        removeEventListener: vi.fn(),
+      })),
+    );
+    breakpointListener = undefined;
     document.body.style.overflow = "";
   });
 
@@ -80,6 +96,22 @@ describe("MobileNavigationSheet interactions", () => {
     expect(screen.queryByRole("dialog", { name: "Navigation" })).toBeNull();
     expect(document.body.style.overflow).toBe("");
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("closes and releases scroll lock when crossing the lg breakpoint", async () => {
+    const user = userEvent.setup();
+    render(<SheetHarness />);
+    const trigger = screen.getByRole("button", { name: "Open menu" });
+
+    await user.click(trigger);
+    expect(document.body.style.overflow).toBe("hidden");
+    breakpointListener?.({ matches: true } as MediaQueryListEvent);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Navigation" })).toBeNull();
+      expect(document.body.style.overflow).toBe("");
+      expect(document.activeElement).toBe(trigger);
+    });
   });
 
   it("closes from the backdrop and restores focus", async () => {

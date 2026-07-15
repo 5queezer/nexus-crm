@@ -11,6 +11,7 @@ import {
 } from "@/lib/applications/focus-queue";
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { formatLocalCalendarDate } from "@/lib/applications/local-calendar";
+import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
 import { ActionMenu } from "./action-menu";
 
 interface FocusQueueProps {
@@ -55,6 +56,7 @@ export function FocusQueue({
         <button
           type="button"
           onClick={onCreate}
+          data-dashboard-create-control
           className="nexus-button-primary nexus-target mt-6"
         >
           {t("create")}
@@ -147,6 +149,7 @@ function FocusRow({
   const ts = useTranslations("status");
   const ta = useTranslations("actions");
   const locale = useLocale();
+  const safeJobUrl = getSafeExternalUrl(application.jobUrl);
   const due = formatLocalCalendarDate(application.followUpAt, locale);
   const reason =
     due && (group === "overdue" || group === "dueSoon")
@@ -216,7 +219,7 @@ function FocusRow({
         <ActionMenu
           label={ta("opportunity_actions", { company: application.company })}
           items={[
-            ...(application.jobUrl
+            ...(safeJobUrl
               ? [
                   {
                     id: "job",
@@ -226,12 +229,7 @@ function FocusRow({
                         <ExternalLink className="h-4 w-4" />
                       </span>
                     ),
-                    onSelect: () =>
-                      window.open(
-                        application.jobUrl!,
-                        "_blank",
-                        "noopener,noreferrer",
-                      ),
+                    onSelect: () => openExternalUrl(safeJobUrl),
                   },
                 ]
               : []),

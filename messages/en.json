@@ -129,6 +129,7 @@
     "resume_open": "Open in Reactive Resume",
     "resume_error": "Failed to create resume.",
     "resume_not_configured": "Resume integration not configured.",
+    "analyze": "Analyze",
     "source": "Source",
     "source_placeholder": "e.g. LinkedIn, referral, cold outreach",
     "remote": "Remote Engagement",

@@ -16,8 +16,19 @@ export function parseLocalCalendarDate(
   const calendarMatch = DATE_ONLY_PATTERN.exec(value);
   if (calendarMatch) {
     const [, year, month, day] = calendarMatch;
-    const date = new Date(Number(year), Number(month) - 1, Number(day));
-    return Number.isNaN(date.getTime()) ? null : date;
+    const numericYear = Number(year);
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+    const date = new Date(numericYear, numericMonth - 1, numericDay);
+    if (
+      Number.isNaN(date.getTime()) ||
+      date.getFullYear() !== numericYear ||
+      date.getMonth() !== numericMonth - 1 ||
+      date.getDate() !== numericDay
+    ) {
+      return null;
+    }
+    return date;
   }
 
   const date = new Date(value);

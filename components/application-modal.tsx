@@ -16,6 +16,7 @@ import {
 import { toDateInputValue } from "@/lib/applications/defaults";
 import { toLocalCalendarInputValue } from "@/lib/applications/local-calendar";
 import { TriagePanel } from "./triage-panel";
+import { openExternalUrl } from "@/lib/external-url";
 
 interface ApplicationModalProps {
   application: Application | null;
@@ -189,7 +190,7 @@ export function JobUrlField({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => window.open(value, "_blank", "noopener,noreferrer")}
+            onClick={() => openExternalUrl(value)}
             title={value}
             className="nexus-target min-w-0 flex-1 truncate rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-left text-sm font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-50 hover:underline dark:border-white/8 dark:bg-white/4 dark:text-[#828fff] dark:hover:bg-white/6"
           >
@@ -804,7 +805,7 @@ export function ApplicationModal({
                     }
                     className="nexus-target mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400 dark:hover:bg-indigo-950/50"
                   >
-                    🤖 Analyze
+                    🤖 {t("analyze")}
                   </button>
                 )}
               </div>
@@ -1269,6 +1270,11 @@ function DocumentsSection({ applicationId }: { applicationId: string }) {
 
 // ── Resume Section ───────────────────────────────────────────────────────────
 
+interface TailoredResume {
+  resumeId: string;
+  editUrl: string;
+}
+
 function ResumeSection({
   applicationId,
   resumeId,
@@ -1281,6 +1287,28 @@ function ResumeSection({
   const [open, setOpen] = useState(false);
   const [tailoring, setTailoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tailoredResume, setTailoredResume] = useState<TailoredResume | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!resumeId || tailoredResume) return;
+    let cancelled = false;
+    fetch(`/api/applications/${applicationId}/tailor`, { method: "POST" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Failed to load resume");
+        return (await response.json()) as TailoredResume;
+      })
+      .then((resume) => {
+        if (!cancelled) setTailoredResume(resume);
+      })
+      .catch(() => {
+        if (!cancelled) setError(t("resume_error"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, resumeId, t, tailoredResume]);
 
   async function handleTailor() {
     setError(null);
@@ -1297,7 +1325,8 @@ function ResumeSection({
         setError(t("resume_error"));
         return;
       }
-      await res.json();
+      const resume = (await res.json()) as TailoredResume;
+      setTailoredResume(resume);
       queryClient.invalidateQueries({ queryKey: ["applications"] });
     } catch {
       setError(t("resume_error"));
@@ -1324,8 +1353,8 @@ function ResumeSection({
               {error}
             </div>
           )}
-          {resumeId ? (
-            <ResumeLink applicationId={applicationId} />
+          {resumeId || tailoredResume ? (
+            <ResumeLink editUrl={tailoredResume?.editUrl ?? null} />
           ) : (
             <button
               type="button"
@@ -1349,22 +1378,14 @@ function ResumeSection({
   );
 }
 
-function ResumeLink({ applicationId }: { applicationId: string }) {
+function ResumeLink({ editUrl }: { editUrl: string | null }) {
   const t = useTranslations("modal");
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/applications/${applicationId}/tailor`, { method: "POST" })
-      .then((r) => r.json())
-      .then((d) => setUrl(d.editUrl))
-      .catch(() => {});
-  }, [applicationId]);
 
   return (
     <button
       type="button"
-      disabled={!url}
-      onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")}
+      disabled={!editUrl}
+      onClick={() => openExternalUrl(editUrl)}
       className="nexus-target flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 py-2.5 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-950/50"
     >
       {t("resume_open")}

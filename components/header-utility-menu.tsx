@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, ExternalLink, LogOut } from "lucide-react";
 import { LanguageSwitcher } from "./language-switcher";
 import { ThemeSwitcher } from "./theme-switcher";
+import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
 
 interface HeaderUtilityUser {
   name?: string | null;
@@ -56,6 +57,7 @@ export function HeaderUtilityMenuPanel({
   onRequestClose,
 }: HeaderUtilityMenuPanelProps) {
   const tn = useTranslations("nav");
+  const safeShareUrl = getSafeExternalUrl(shareUrl);
 
   return (
     <div role="none" className="p-1.5">
@@ -72,13 +74,13 @@ export function HeaderUtilityMenuPanel({
       </div>
 
       <div role="none" className="py-1">
-        {shareUrl && (
+        {safeShareUrl && (
           <button
             type="button"
             role="menuitem"
             onClick={() => {
               onRequestClose?.();
-              window.open(shareUrl, "_blank", "noopener,noreferrer");
+              openExternalUrl(safeShareUrl);
             }}
             className="flex min-h-12 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/[0.07]"
           >

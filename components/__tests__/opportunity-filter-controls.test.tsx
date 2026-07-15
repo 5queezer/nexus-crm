@@ -24,6 +24,33 @@ describe("OpportunityFilterControls compact targets", () => {
     document.body.replaceChildren();
   });
 
+  it("gives both desktop selects localized accessible names", async () => {
+    await act(async () => {
+      root.render(
+        <OpportunityFilterControls
+          filters={{
+            search: "",
+            status: "",
+            source: "",
+            remoteOnly: false,
+            highPriorityOnly: false,
+          }}
+          sources={["referral"]}
+          resultCount={1}
+          onChange={vi.fn()}
+          onClear={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('select[aria-label="status_filter"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('select[aria-label="source_filter"]'),
+    ).not.toBeNull();
+  });
+
   it("gives removable filter chips a 48 by 48 control", async () => {
     await act(async () => {
       root.render(

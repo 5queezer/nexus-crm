@@ -57,6 +57,77 @@ describe("ApplicationTable bulk selection and compact targets", () => {
     document.body.replaceChildren();
   });
 
+  it("uses the shared mutation for named 48px mobile and desktop status controls", async () => {
+    const mutate = vi.fn();
+    await act(async () => {
+      root.render(
+        <ApplicationTable
+          applications={[application("one", "inbound")]}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          hideFilters
+          statusMutation={{ mutate }}
+        />,
+      );
+    });
+
+    const controls = Array.from(
+      container.querySelectorAll<HTMLSelectElement>(
+        'select[aria-label="change_status"]',
+      ),
+    );
+    expect(controls).toHaveLength(2);
+    for (const control of controls) {
+      expect(control.className).toContain("h-12");
+      expect(control.className).toContain("min-w-12");
+    }
+
+    await act(async () => {
+      controls[0].value = "interview";
+      controls[0].dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(mutate).toHaveBeenCalledWith({ id: "one", status: "interview" });
+  });
+
+  it("hides unsafe integrated job links and keeps valid HTTPS links", async () => {
+    await act(async () => {
+      root.render(
+        <ApplicationTable
+          applications={[
+            { ...application("unsafe", "applied"), jobUrl: "data:text/html,x" },
+          ]}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          hideFilters
+          statusMutation={{ mutate: vi.fn() }}
+        />,
+      );
+    });
+    expect(container.querySelector('a[aria-label="open_job_post"]')).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <ApplicationTable
+          applications={[
+            {
+              ...application("safe", "applied"),
+              jobUrl: "https://example.com/job",
+            },
+          ]}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          hideFilters
+          statusMutation={{ mutate: vi.fn() }}
+        />,
+      );
+    });
+    expect(
+      container
+        .querySelector('a[aria-label="open_job_post"]')
+        ?.getAttribute("href"),
+    ).toBe("https://example.com/job");
+  });
+
   it("uses 48px pagination targets", async () => {
     await act(async () => {
       root.render(

@@ -27,6 +27,7 @@ import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
 import { ActionMenu } from "./action-menu";
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
+import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
 
 const columnHelper = createColumnHelper<Application>();
 
@@ -72,10 +73,12 @@ function JobLink({
   iconClassName: string;
 }) {
   const ta = useTranslations("actions");
+  const safeJobUrl = getSafeExternalUrl(jobUrl);
+  if (!safeJobUrl) return null;
 
   return (
     <a
-      href={jobUrl}
+      href={safeJobUrl}
       target="_blank"
       rel="noopener noreferrer"
       onClick={(event) => event.stopPropagation()}
@@ -109,6 +112,7 @@ interface MobileApplicationCardProps {
   selected?: boolean;
   selectionMode?: boolean;
   onToggleSelect?: (id: string) => void;
+  statusMutation: ApplicationStatusMutation;
 }
 
 function ApplicationActionMenu({
@@ -123,6 +127,7 @@ function ApplicationActionMenu({
 }: MobileApplicationCardProps & { buttonText?: string }) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
+  const safeJobUrl = getSafeExternalUrl(app.jobUrl);
   return (
     <ActionMenu
       label={ta("opportunity_actions", {
@@ -130,13 +135,12 @@ function ApplicationActionMenu({
       })}
       buttonText={buttonText}
       items={[
-        ...(app.jobUrl
+        ...(safeJobUrl
           ? [
               {
                 id: "job",
                 label: ta("open_job"),
-                onSelect: () =>
-                  window.open(app.jobUrl!, "_blank", "noopener,noreferrer"),
+                onSelect: () => openExternalUrl(safeJobUrl),
               },
             ]
           : []),
@@ -180,9 +184,12 @@ function MobileApplicationCard({
   selected = false,
   selectionMode = false,
   onToggleSelect,
+  statusMutation,
 }: MobileApplicationCardProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
+  const tf = useTranslations("focus");
+  const ts = useTranslations("status");
   return (
     <article
       className={`flex min-h-20 items-stretch gap-1 rounded-xl bg-white/85 p-1 shadow-sm ring-1 ring-slate-200/80 dark:bg-white/[0.035] dark:ring-white/8 ${selected ? "bg-indigo-50 dark:bg-indigo-500/10" : ""}`}
@@ -229,9 +236,26 @@ function MobileApplicationCard({
         </div>
       </button>
       <div
-        className="flex items-center"
+        className="flex items-center gap-1"
         onClick={(event) => event.stopPropagation()}
       >
+        <select
+          value={app.status}
+          onChange={(event) =>
+            statusMutation.mutate({
+              id: app.id,
+              status: event.target.value as ApplicationStatus,
+            })
+          }
+          aria-label={tf("change_status", { company: app.company })}
+          className="nexus-focus-ring h-12 min-w-12 max-w-28 rounded-xl border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+        >
+          {STATUS_ORDER.map((status) => (
+            <option key={status} value={status}>
+              {ts(status)}
+            </option>
+          ))}
+        </select>
         <ApplicationActionMenu
           app={app}
           onEdit={onEdit}
@@ -240,6 +264,7 @@ function MobileApplicationCard({
           showArchived={showArchived}
           onToggleSelect={onToggleSelect}
           selected={selected}
+          statusMutation={statusMutation}
         />
       </div>
     </article>
@@ -279,11 +304,13 @@ export function ApplicationTable({
   onDeselectAll,
   focusedIndex,
   hideFilters = false,
+  statusMutation,
 }: ApplicationTableProps) {
   const t = useTranslations("table");
   const ta = useTranslations("actions");
   const tAnalytics = useTranslations("analytics");
   const ts = useTranslations("status");
+  const tf = useTranslations("focus");
   const locale = useLocale();
   const dateFnsLocale = locale === "de" ? de : enUS;
 
@@ -389,7 +416,25 @@ export function ApplicationTable({
     columnHelper.accessor("status", {
       header: t("status"),
       cell: (info) => (
-        <StatusBadge status={info.getValue() as ApplicationStatus} />
+        <select
+          value={info.getValue() as ApplicationStatus}
+          onChange={(event) =>
+            statusMutation.mutate({
+              id: info.row.original.id,
+              status: event.target.value as ApplicationStatus,
+            })
+          }
+          aria-label={tf("change_status", {
+            company: info.row.original.company,
+          })}
+          className="nexus-focus-ring h-12 min-w-12 rounded-xl border border-slate-200 bg-white px-2 text-sm font-medium text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+        >
+          {STATUS_ORDER.map((status) => (
+            <option key={status} value={status}>
+              {ts(status)}
+            </option>
+          ))}
+        </select>
       ),
       filterFn: "equals",
     }),
@@ -472,6 +517,7 @@ export function ApplicationTable({
           onDelete={onDelete}
           onArchive={onArchive}
           showArchived={showArchived}
+          statusMutation={statusMutation}
         />
       ),
     }),
@@ -615,6 +661,7 @@ export function ApplicationTable({
                 selected={selectedIds?.has(row.original.id)}
                 selectionMode={(selectedIds?.size ?? 0) > 0}
                 onToggleSelect={onToggleSelect}
+                statusMutation={statusMutation}
               />
             ))}
           </div>

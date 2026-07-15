@@ -13,10 +13,11 @@ describe("responsive opportunities view resolution", () => {
     expect(resolveOpportunityView("table", true, false)).toBe("table");
   });
 
-  it("always resolves archive mode to Table", () => {
+  it("never resolves archive to Focus but preserves supported explicit views", () => {
     expect(resolveOpportunityView(null, true, true)).toBe("table");
     expect(resolveOpportunityView("focus", true, true)).toBe("table");
-    expect(resolveOpportunityView("kanban", false, true)).toBe("table");
+    expect(resolveOpportunityView("table", true, true)).toBe("table");
+    expect(resolveOpportunityView("kanban", false, true)).toBe("kanban");
   });
 
   it("restores every explicit choice in the active workspace", () => {

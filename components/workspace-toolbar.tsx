@@ -10,7 +10,7 @@ interface WorkspaceToolbarProps {
   moreMenu: ReactNode;
   onCreate: () => void;
   createLabel: string;
-  focusLabel?: string;
+  focusLabel: string;
   tableLabel: string;
   kanbanLabel: string;
   listLabel?: string;
@@ -26,7 +26,7 @@ export function WorkspaceToolbar({
   moreMenu,
   onCreate,
   createLabel,
-  focusLabel = "Focus",
+  focusLabel,
   tableLabel,
   kanbanLabel,
   listLabel = tableLabel,
@@ -51,6 +51,7 @@ export function WorkspaceToolbar({
           <button
             type="button"
             onClick={onCreate}
+            data-dashboard-create-control
             className="nexus-button-primary nexus-target hidden whitespace-nowrap lg:inline-flex"
           >
             <span aria-hidden="true">+</span>

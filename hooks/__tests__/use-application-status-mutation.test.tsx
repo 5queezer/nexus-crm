@@ -305,6 +305,36 @@ describe("useApplicationStatusMutation concurrency", () => {
     ).toBe("applied");
   });
 
+  it("rolls back only status so unrelated concurrent cache edits survive", async () => {
+    const request = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(request.promise));
+
+    let failedMutation!: Promise<Application | undefined>;
+    await act(async () => {
+      failedMutation = mutationHandleRef
+        .current!({ id: "a", status: "applied" })
+        .catch(() => undefined);
+      await Promise.resolve();
+    });
+
+    queryClient.setQueryData<Application[]>(["applications"], (current) =>
+      (current ?? []).map((item) =>
+        item.id === "a" ? { ...item, notes: "concurrent edit" } : item,
+      ),
+    );
+
+    await act(async () => {
+      request.reject(new Error("request failed"));
+      await failedMutation;
+    });
+
+    const rolledBack = queryClient
+      .getQueryData<Application[]>(["applications"])
+      ?.find((item) => item.id === "a");
+    expect(rolledBack?.status).toBe("inbound");
+    expect(rolledBack?.notes).toBe("concurrent edit");
+  });
+
   it("keeps different-application writes concurrent and rolls back independently", async () => {
     const firstRequest = deferred<Response>();
     const successfulB = application("b", "interview");

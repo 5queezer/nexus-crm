@@ -11,7 +11,7 @@ export interface ApplicationStatusVariables {
 
 interface PendingStatusState {
   latestToken: symbol;
-  confirmedApplication?: Application;
+  confirmedStatus?: ApplicationStatus;
 }
 
 interface StatusMutationContext {
@@ -46,7 +46,7 @@ export function useApplicationStatusMutation(options?: {
     const request = previousWrite.catch(() => undefined).then(async () => {
       const updated = await patchApplicationStatus(variables);
       const pending = pendingByApplication.current.get(variables.id);
-      if (pending) pending.confirmedApplication = updated;
+      if (pending) pending.confirmedStatus = updated.status;
       return updated;
     });
     const tail = request.then(
@@ -83,9 +83,9 @@ export function useApplicationStatusMutation(options?: {
       } else {
         pendingByApplication.current.set(id, {
           latestToken: token,
-          confirmedApplication: currentApplications?.find(
+          confirmedStatus: currentApplications?.find(
             (application: Application) => application.id === id,
-          ),
+          )?.status,
         });
       }
       queryClient.setQueryData<Application[]>(
@@ -108,7 +108,9 @@ export function useApplicationStatusMutation(options?: {
         ["applications"],
         (current: Application[] | undefined) =>
           (current ?? []).map((application: Application) =>
-            application.id === updated.id ? updated : application,
+            application.id === updated.id
+              ? { ...application, status: updated.status }
+              : application,
           ),
       );
     },
@@ -120,13 +122,14 @@ export function useApplicationStatusMutation(options?: {
       const pending = pendingByApplication.current.get(variables.id);
       if (!pending || pending.latestToken !== context?.token) return;
 
-      if (pending.confirmedApplication) {
+      const confirmedStatus = pending.confirmedStatus;
+      if (confirmedStatus !== undefined) {
         queryClient.setQueryData<Application[]>(
           ["applications"],
           (current: Application[] | undefined) =>
             (current ?? []).map((application: Application) =>
               application.id === variables.id
-                ? pending.confirmedApplication!
+                ? { ...application, status: confirmedStatus }
                 : application,
             ),
         );

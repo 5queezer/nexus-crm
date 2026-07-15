@@ -5,7 +5,11 @@ export function resolveOpportunityView(
   compactViewport: boolean | null,
   showArchived: boolean,
 ): WorkspaceViewMode {
-  if (showArchived) return "table";
+  if (showArchived) {
+    return explicitView === "kanban" || explicitView === "table"
+      ? explicitView
+      : "table";
+  }
   if (explicitView) return explicitView;
   return compactViewport ? "focus" : "table";
 }

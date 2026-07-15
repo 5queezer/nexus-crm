@@ -172,11 +172,13 @@ describe("Dashboard archive view", () => {
     );
 
     expect(await screen.findByText("focus-queue")).toBeTruthy();
+    expect(screen.getByText("total")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "select-focus" }));
     await user.click(screen.getByRole("button", { name: "toggle-archive" }));
 
     expect(await screen.findByText("toolbar-view-table")).toBeTruthy();
     expect(screen.getByText("table-unarchive-action")).toBeTruthy();
     expect(screen.queryByText("focus-queue")).toBeNull();
+    expect(screen.queryByText("total")).toBeNull();
   });
 });

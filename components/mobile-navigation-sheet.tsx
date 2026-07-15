@@ -18,12 +18,14 @@ interface MobileNavigationSheetProps {
   open: boolean;
   isAdmin?: boolean;
   onClose: () => void;
+  onNavigate?: () => void;
 }
 
 export function MobileNavigationSheet({
   open,
   isAdmin,
   onClose,
+  onNavigate = onClose,
 }: MobileNavigationSheetProps) {
   const tn = useTranslations("nav");
   const t = useTranslations("workspace");
@@ -66,10 +68,21 @@ export function MobileNavigationSheet({
         first.focus();
       }
     }
+    const desktopMedia =
+      typeof window.matchMedia === "function"
+        ? window.matchMedia("(min-width: 1024px)")
+        : null;
+    function handleBreakpointChange(event: MediaQueryListEvent) {
+      if (event.matches) onClose();
+    }
+    desktopMedia?.addEventListener("change", handleBreakpointChange);
+    if (desktopMedia?.matches) onClose();
+
     document.addEventListener("keydown", handleKey);
     return () => {
       document.body.style.overflow = previous;
       document.removeEventListener("keydown", handleKey);
+      desktopMedia?.removeEventListener("change", handleBreakpointChange);
     };
   }, [onClose, open]);
 
@@ -112,7 +125,7 @@ export function MobileNavigationSheet({
                 key={route.href}
                 href={route.href}
                 aria-current={active ? "page" : undefined}
-                onClick={onClose}
+                onClick={onNavigate}
                 className={`nexus-focus-ring flex min-h-12 items-center gap-3 rounded-xl px-4 text-sm font-medium ${active ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-200" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/6"}`}
               >
                 <Icon className="h-5 w-5 shrink-0" />

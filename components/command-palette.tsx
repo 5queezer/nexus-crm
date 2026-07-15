@@ -16,9 +16,25 @@ interface CommandPaletteProps {
   onClose: () => void;
 }
 
-interface ScoredApp {
+interface TimestampedApp {
   app: Application;
+  updatedAt: number;
+}
+
+interface ScoredApp extends TimestampedApp {
   score: number;
+}
+
+function validTimestamp(value: string): number {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function compareTimestampedApps(a: TimestampedApp, b: TimestampedApp): number {
+  return (
+    b.updatedAt - a.updatedAt ||
+    (a.app.id < b.app.id ? -1 : a.app.id > b.app.id ? 1 : 0)
+  );
 }
 
 function fuzzyScore(query: string, text: string): number {
@@ -134,32 +150,33 @@ export function CommandPalette({
   );
 
   const results = useMemo(() => {
-    let pool = applications;
+    let pool: TimestampedApp[] = [...applications].map((app) => ({
+      app,
+      updatedAt: validTimestamp(app.updatedAt),
+    }));
     if (statusLock) {
-      pool = pool.filter((a) => a.status === statusLock);
+      pool = pool.filter(({ app }) => app.status === statusLock);
     }
 
     if (!query || query.startsWith("@")) {
-      // Show all (or locked) sorted by updatedAt
       return pool
-        .sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        )
-        .slice(0, 50);
+        .sort(compareTimestampedApps)
+        .slice(0, 50)
+        .map(({ app }) => app);
     }
 
     const scored: ScoredApp[] = pool
-      .map((app) => ({ app, score: matchApp(query, app) }))
-      .filter((s) => s.score > 0)
+      .map(({ app, updatedAt }) => ({
+        app,
+        updatedAt,
+        score: matchApp(query, app),
+      }))
+      .filter(({ score }) => score > 0)
       .sort(
-        (a, b) =>
-          b.score - a.score ||
-          new Date(b.app.updatedAt).getTime() -
-            new Date(a.app.updatedAt).getTime(),
+        (a, b) => b.score - a.score || compareTimestampedApps(a, b),
       );
 
-    return scored.slice(0, 50).map((s) => s.app);
+    return scored.slice(0, 50).map(({ app }) => app);
   }, [applications, query, statusLock]);
 
   // Group by status

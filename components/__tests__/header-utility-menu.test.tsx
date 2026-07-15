@@ -54,6 +54,18 @@ describe("HeaderUtilityMenuPanel", () => {
     expect(html.match(/role="none"/g)).toHaveLength(4);
   });
 
+  it("omits sharing when the share URL is not HTTP(S)", () => {
+    const html = renderToStaticMarkup(
+      <HeaderUtilityMenuPanel
+        user={{ email: "chris@example.com" }}
+        shareUrl="data:text/html,unsafe"
+        onLogout={vi.fn()}
+      />,
+    );
+
+    expect(html).not.toContain("Teilen");
+  });
+
   it("omits sharing when no share URL is available", () => {
     const html = renderToStaticMarkup(
       <HeaderUtilityMenuPanel
