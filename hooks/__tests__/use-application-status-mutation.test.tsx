@@ -45,12 +45,34 @@ interface MutationHandle {
   }) => Promise<Application>;
 }
 
-function Harness({ mutationHandleRef }: { mutationHandleRef: MutationHandle }) {
-  const { mutateAsync } = useApplicationStatusMutation();
+function MutationConsumer({
+  mutateAsync,
+  mutationHandleRef,
+}: {
+  mutateAsync: NonNullable<MutationHandle["current"]>;
+  mutationHandleRef: MutationHandle;
+}) {
   useEffect(() => {
     mutationHandleRef.current = mutateAsync;
   }, [mutateAsync, mutationHandleRef]);
   return null;
+}
+
+function Harness({
+  mutationHandleRef,
+  consumerKey = "focus",
+}: {
+  mutationHandleRef: MutationHandle;
+  consumerKey?: string;
+}) {
+  const { mutateAsync } = useApplicationStatusMutation();
+  return (
+    <MutationConsumer
+      key={consumerKey}
+      mutateAsync={mutateAsync}
+      mutationHandleRef={mutationHandleRef}
+    />
+  );
 }
 
 function deferred<T>() {
@@ -100,7 +122,7 @@ describe("useApplicationStatusMutation concurrency", () => {
     document.body.replaceChildren();
   });
 
-  it("serializes rapid same-application writes so delayed completions preserve final intent", async () => {
+  it("keeps same-application writes serialized when the status consumer switches views", async () => {
     const firstRequest = deferred<Response>();
     const secondRequest = deferred<Response>();
     let serverStatus: ApplicationStatus = "inbound";
@@ -117,6 +139,21 @@ describe("useApplicationStatusMutation concurrency", () => {
         id: "a",
         status: "applied",
       });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness
+            mutationHandleRef={mutationHandleRef}
+            consumerKey="stages"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
       secondMutation = mutationHandleRef.current!({
         id: "a",
         status: "interview",

@@ -72,6 +72,7 @@ describe("FocusQueue empty recovery", () => {
             onArchive={vi.fn()}
             onCreate={vi.fn()}
             onClearFilters={vi.fn()}
+            statusMutation={{ mutate: vi.fn() }}
           />
         </QueryClientProvider>,
       );
@@ -102,6 +103,7 @@ describe("FocusQueue empty recovery", () => {
             onArchive={vi.fn()}
             onCreate={onCreate}
             onClearFilters={vi.fn()}
+            statusMutation={{ mutate: vi.fn() }}
           />
         </QueryClientProvider>,
       );

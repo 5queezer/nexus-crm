@@ -59,7 +59,11 @@ describe("KanbanView compact controls", () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <KanbanView applications={[opportunity]} onEdit={vi.fn()} />
+          <KanbanView
+            applications={[opportunity]}
+            onEdit={vi.fn()}
+            statusMutation={{ mutate: vi.fn() }}
+          />
         </QueryClientProvider>,
       );
     });

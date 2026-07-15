@@ -66,6 +66,7 @@ describe("ApplicationTable bulk selection and compact targets", () => {
           )}
           onEdit={vi.fn()}
           onDelete={vi.fn()}
+          statusMutation={{ mutate: vi.fn() }}
         />,
       );
     });
@@ -98,6 +99,7 @@ describe("ApplicationTable bulk selection and compact targets", () => {
           onToggleSelect={vi.fn()}
           onSelectAll={onSelectAll}
           onDeselectAll={vi.fn()}
+          statusMutation={{ mutate: vi.fn() }}
         />,
       );
     });
@@ -134,6 +136,7 @@ describe("ApplicationTable bulk selection and compact targets", () => {
           onToggleSelect={vi.fn()}
           onSelectAll={vi.fn()}
           onDeselectAll={onDeselectAll}
+          statusMutation={{ mutate: vi.fn() }}
         />,
       );
     });

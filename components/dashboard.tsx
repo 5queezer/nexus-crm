@@ -38,6 +38,7 @@ import {
 } from "@/types";
 import { resolveOpportunityView } from "@/lib/applications/workspace-view";
 import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
+import { useApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { format } from "date-fns";
 
 interface DashboardProps {
@@ -182,9 +183,13 @@ export function Dashboard({
   const [isShortcutDialogOpen, setIsShortcutDialogOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [statusAnnouncement, setStatusAnnouncement] = useState("");
   const [onboardingComplete, setOnboardingComplete] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem("onboarding-complete") === "true";
+  });
+  const statusMutation = useApplicationStatusMutation({
+    onRollback: () => setStatusAnnouncement(tf("status_rollback")),
   });
   const {
     data: applications = [],
@@ -710,6 +715,9 @@ export function Dashboard({
         shareUrl={shareUrl}
         title={customTitle || undefined}
       />
+      <p className="sr-only" aria-live="polite">
+        {statusAnnouncement}
+      </p>
 
       {showOnboarding ? (
         <OnboardingWizard
@@ -860,6 +868,7 @@ export function Dashboard({
             onArchive={handleArchive}
             onCreate={handleNewApplication}
             onClearFilters={clearFilters}
+            statusMutation={statusMutation}
           />
         ) : resolvedView === "focus" ? (
           <FocusQueue
@@ -874,6 +883,7 @@ export function Dashboard({
             onArchive={handleArchive}
             onCreate={handleNewApplication}
             onClearFilters={clearFilters}
+            statusMutation={statusMutation}
           />
         ) : resolvedView === "table" ? (
           <ApplicationTable
@@ -888,9 +898,14 @@ export function Dashboard({
             onSelectAll={selectAll}
             onDeselectAll={deselectAll}
             focusedIndex={focusedIndex}
+            statusMutation={statusMutation}
           />
         ) : (
-          <KanbanView applications={filteredApplications} onEdit={handleEdit} />
+          <KanbanView
+            applications={filteredApplications}
+            onEdit={handleEdit}
+            statusMutation={statusMutation}
+          />
         )}
       </main>
 

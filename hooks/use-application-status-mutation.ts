@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import type { Application, ApplicationStatus } from "@/types";
 
-interface StatusVariables {
+export interface ApplicationStatusVariables {
   id: string;
   status: ApplicationStatus;
 }
@@ -21,7 +21,7 @@ interface StatusMutationContext {
 async function patchApplicationStatus({
   id,
   status,
-}: StatusVariables): Promise<Application> {
+}: ApplicationStatusVariables): Promise<Application> {
   const response = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -39,7 +39,7 @@ export function useApplicationStatusMutation(options?: {
   const writeTailByApplication = useRef(new Map<string, Promise<void>>());
 
   async function serializeStatusWrite(
-    variables: StatusVariables,
+    variables: ApplicationStatusVariables,
   ): Promise<Application> {
     const previousWrite =
       writeTailByApplication.current.get(variables.id) ?? Promise.resolve();
@@ -67,11 +67,11 @@ export function useApplicationStatusMutation(options?: {
   return useMutation<
     Application,
     Error,
-    StatusVariables,
+    ApplicationStatusVariables,
     StatusMutationContext
   >({
     mutationFn: serializeStatusWrite,
-    onMutate: async ({ id, status }: StatusVariables) => {
+    onMutate: async ({ id, status }: ApplicationStatusVariables) => {
       await queryClient.cancelQueries({ queryKey: ["applications"] });
       const token = Symbol(id);
       const currentApplications = queryClient.getQueryData<Application[]>([
@@ -99,7 +99,7 @@ export function useApplicationStatusMutation(options?: {
     },
     onSuccess: (
       updated: Application,
-      variables: StatusVariables,
+      variables: ApplicationStatusVariables,
       context: StatusMutationContext,
     ) => {
       const pending = pendingByApplication.current.get(variables.id);
@@ -114,7 +114,7 @@ export function useApplicationStatusMutation(options?: {
     },
     onError: (
       _error: Error,
-      variables: StatusVariables,
+      variables: ApplicationStatusVariables,
       context: StatusMutationContext | undefined,
     ) => {
       const pending = pendingByApplication.current.get(variables.id);
@@ -136,7 +136,7 @@ export function useApplicationStatusMutation(options?: {
     onSettled: (
       _data: Application | undefined,
       _error: Error | null,
-      variables: StatusVariables,
+      variables: ApplicationStatusVariables,
       context: StatusMutationContext | undefined,
     ) => {
       const pending = pendingByApplication.current.get(variables.id);
@@ -147,3 +147,8 @@ export function useApplicationStatusMutation(options?: {
     },
   });
 }
+
+export type ApplicationStatusMutation = Pick<
+  ReturnType<typeof useApplicationStatusMutation>,
+  "mutate"
+>;

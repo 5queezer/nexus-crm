@@ -2,14 +2,14 @@
 
 import { ExternalLink } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Application, ApplicationStatus } from "@/types";
 import { STATUS_COLORS, STATUS_ORDER, TRIAGE_COLORS } from "@/types";
 import {
   buildFocusQueue,
   type FocusGroupId,
 } from "@/lib/applications/focus-queue";
-import { useApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
+import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { formatLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { ActionMenu } from "./action-menu";
 
@@ -25,6 +25,7 @@ interface FocusQueueProps {
   onArchive: (id: string, archive: boolean) => void;
   onCreate: () => void;
   onClearFilters: () => void;
+  statusMutation: ApplicationStatusMutation;
 }
 
 export function FocusQueue({
@@ -39,13 +40,10 @@ export function FocusQueue({
   onArchive,
   onCreate,
   onClearFilters,
+  statusMutation,
 }: FocusQueueProps) {
   const t = useTranslations("focus");
   const groups = useMemo(() => buildFocusQueue(applications), [applications]);
-  const [announcement, setAnnouncement] = useState("");
-  const statusMutation = useApplicationStatusMutation({
-    onRollback: () => setAnnouncement(t("status_rollback")),
-  });
 
   if (isTrueEmpty) {
     return (
@@ -84,9 +82,6 @@ export function FocusQueue({
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <p className="sr-only" aria-live="polite">
-        {announcement}
-      </p>
       {groups.map((group) => (
         <section key={group.id} aria-labelledby={`focus-${group.id}`}>
           <div className="mb-2 flex items-center justify-between px-1">

@@ -73,7 +73,8 @@ describe("AiOperator", () => {
     const hiddenLauncher = screen.getByRole("button", {
       name: "Open AI operator",
     });
-    expect(hiddenLauncher.className).toContain("hidden lg:flex");
+    expect(hiddenLauncher.className).toContain("hidden");
+    expect(hiddenLauncher.className).not.toContain("lg:flex");
     expect(hiddenLauncher.className).toContain("lg:right-6");
   });
 

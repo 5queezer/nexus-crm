@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { format, isPast, isToday } from "date-fns";
-import { useApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
+import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import {
   DndContext,
   DragEndEvent,
@@ -258,12 +258,16 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
 interface KanbanViewProps {
   applications: Application[];
   onEdit: (app: Application) => void;
+  statusMutation: ApplicationStatusMutation;
 }
 
-export function KanbanView({ applications, onEdit }: KanbanViewProps) {
+export function KanbanView({
+  applications,
+  onEdit,
+  statusMutation,
+}: KanbanViewProps) {
   const ts = useTranslations("status");
   const tk = useTranslations("kanban");
-  const statusMutation = useApplicationStatusMutation();
   const [activeApp, setActiveApp] = useState<Application | null>(null);
   const [overColumnId, setOverColumnId] = useState<UniqueIdentifier | null>(
     null,

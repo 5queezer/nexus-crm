@@ -26,6 +26,7 @@ import { format, isPast, isToday } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useLocale } from "next-intl";
 import { ActionMenu } from "./action-menu";
+import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 
 const columnHelper = createColumnHelper<Application>();
 
@@ -260,6 +261,7 @@ interface ApplicationTableProps {
   onDeselectAll?: (applications: Application[]) => void;
   focusedIndex?: number;
   hideFilters?: boolean;
+  statusMutation: ApplicationStatusMutation;
 }
 
 export function ApplicationTable({
