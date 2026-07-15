@@ -42,7 +42,7 @@ function application(id: string, status: ApplicationStatus): Application {
 	};
 }
 
-describe("ApplicationTable bulk selection", () => {
+describe("ApplicationTable bulk selection and compact targets", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 
@@ -55,6 +55,31 @@ describe("ApplicationTable bulk selection", () => {
 	afterEach(async () => {
 		await act(async () => root.unmount());
 		document.body.replaceChildren();
+	});
+
+	it("uses 48px pagination targets", async () => {
+		await act(async () => {
+			root.render(
+				<ApplicationTable
+					applications={Array.from({ length: 11 }, (_, index) =>
+						application(String(index), "interview"),
+					)}
+					onEdit={vi.fn()}
+					onDelete={vi.fn()}
+				/>,
+			);
+		});
+
+		const paginationButtons = Array.from(
+			container.querySelectorAll("button"),
+		).filter((button) =>
+			["«", "‹", "1", "2", "›", "»"].includes(button.textContent ?? ""),
+		);
+		expect(paginationButtons.length).toBeGreaterThan(0);
+		for (const button of paginationButtons) {
+			expect(button.className).toContain("min-h-12");
+			expect(button.className).toContain("min-w-12");
+		}
 	});
 
 	it("selects only applications matching the active status filter", async () => {

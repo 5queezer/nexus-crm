@@ -22,7 +22,8 @@
     "documents": "Documents",
     "analytics": "Analytics",
     "resume_ai": "Resume AI",
-    "share": "Share"
+    "share": "Share",
+    "menu": "Menu"
   },
   "stats": {
     "total": "Total",
@@ -64,7 +65,11 @@
     "show_less": "Show less",
     "more": "More",
     "more_actions": "More actions",
-    "opportunity_actions": "Actions for {company}"
+    "opportunity_actions": "Actions for {company}",
+    "open_job": "Open listing",
+    "select": "Select",
+    "deselect": "Deselect",
+    "select_opportunity": "Select {company}"
   },
   "table": {
     "company": "Account",
@@ -98,8 +103,8 @@
     "notes_placeholder": "Details, links...",
     "job_description": "Scope of Work",
     "job_description_placeholder": "Paste the requirements or scope here...",
-    "job_description_toggle_show": "\ud83d\udcc4 Show scope of work",
-    "job_description_toggle_hide": "\ud83d\udcc4 Hide scope of work",
+    "job_description_toggle_show": "📄 Show scope of work",
+    "job_description_toggle_hide": "📄 Hide scope of work",
     "contacts_section": "Contacts",
     "contacts_add": "+ Add contact",
     "contact_name": "Name",
@@ -126,7 +131,7 @@
     "source": "Source",
     "source_placeholder": "e.g. LinkedIn, referral, cold outreach",
     "remote": "Remote Engagement",
-    "salary_range": "Budget Range (\u20ac)",
+    "salary_range": "Budget Range (€)",
     "salary_min_placeholder": "Min e.g. 80000",
     "salary_max_placeholder": "Max e.g. 120000",
     "rating": "Priority Rating",
@@ -168,7 +173,9 @@
     "documents_share_hint": "Copy share link",
     "documents_empty": "No documents attached.",
     "documents_error": "Failed to manage document.",
-    "documents_upload_error": "Upload failed."
+    "documents_upload_error": "Upload failed.",
+    "secondary_details": "More details",
+    "close": "Close opportunity editor"
   },
   "status": {
     "inbound": "New Lead",
@@ -183,7 +190,9 @@
     "sort_rating_desc": "Priority (high → low)",
     "sort_updated_desc": "Recently updated",
     "sort_created_desc": "Newest first",
-    "sort_company_asc": "Account A–Z"
+    "sort_company_asc": "Account A–Z",
+    "open": "Open",
+    "change_status": "Change status"
   },
   "dashboard": {
     "applications": "Opportunities",
@@ -196,7 +205,9 @@
     "triage_weak": "Weak",
     "triage_pass": "Pass",
     "triage_unrated": "Unrated",
-    "triage_action": "You have {count} high-priority opportunities to review"
+    "triage_action": "You have {count} high-priority opportunities to review",
+    "loading": "Loading opportunities…",
+    "retry": "Try again"
   },
   "confirm": {
     "delete": "Really delete this opportunity?",
@@ -301,7 +312,7 @@
     "every_30min": "Every 30 minutes",
     "every_60min": "Every hour",
     "auto_import": "Import mode",
-    "import_off": "Off \u2014 don't import",
+    "import_off": "Off — don't import",
     "import_review": "Review first",
     "import_auto": "Auto-import",
     "scan_days_back": "Scan window",
@@ -413,7 +424,7 @@
     "created": "Created",
     "last_used": "Last used",
     "never_used": "Never",
-    "show_once_warning": "Copy this token now \u2014 it will not be shown again.",
+    "show_once_warning": "Copy this token now — it will not be shown again.",
     "confirm_revoke": "Revoke this API token? Any integrations using it will stop working.",
     "confirm_regenerate": "This will revoke your existing token and create a new one. Continue?",
     "no_token": "No API token generated yet."
@@ -439,7 +450,8 @@
     "no_results": "No matching opportunities found.",
     "navigate": "navigate",
     "select": "open",
-    "filter_status": "filter by status"
+    "filter_status": "filter by status",
+    "focus_view": "Switch to Focus view"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
@@ -460,7 +472,8 @@
     "table_view": "Switch to table view",
     "kanban_view": "Switch to kanban view",
     "other": "Other",
-    "show_shortcuts": "Show this dialog"
+    "show_shortcuts": "Show this dialog",
+    "focus_view": "Switch to focus view"
   },
   "bulk_actions": {
     "selected": "{count} selected",
@@ -536,5 +549,58 @@
       "disclaimer": "This is a personal, non-commercial project."
     },
     "login_agree": "By signing in, you agree to the <terms>Terms of Use</terms> and <privacy>Privacy Policy</privacy>."
+  },
+  "workspace": {
+    "focus": "Focus",
+    "list": "List",
+    "stages": "Stages",
+    "filters_label": "Opportunity filters",
+    "search_placeholder": "Search opportunities",
+    "all_filters": "All filters",
+    "all_filters_count": "All filters · {count}",
+    "close_filters": "Close filters",
+    "status_filter": "Status",
+    "source_filter": "Source",
+    "all_statuses": "All statuses",
+    "all_sources": "All sources",
+    "remote_only": "Remote only",
+    "high_priority_only": "Triage 4–5",
+    "clear": "Clear filters",
+    "apply": "Apply",
+    "results": "{count} results",
+    "remove_filter": "Remove {label} filter",
+    "navigation": "Navigation",
+    "close_navigation": "Close navigation",
+    "archive_empty_title": "Archive is empty",
+    "archive_empty_description": "Archived opportunities will appear here."
+  },
+  "focus": {
+    "groups": {
+      "overdue": "Overdue",
+      "highPriority": "High priority",
+      "dueSoon": "Due soon",
+      "newThisWeek": "New this week",
+      "recent": "Recent"
+    },
+    "reasons": {
+      "overdue": "Due {date}",
+      "highPriority": "Triage priority",
+      "dueSoon": "Due {date}",
+      "newThisWeek": "Created this week",
+      "recent": "Recently updated"
+    },
+    "priority_signal": "Triage {value}/5",
+    "change_status": "Change status for {company}",
+    "select": "Select {company}",
+    "select_action": "Select",
+    "deselect_action": "Deselect",
+    "open_job": "Open listing",
+    "status_rollback": "Status change failed and was restored.",
+    "true_empty_title": "Create your first opportunity",
+    "true_empty_description": "Add an opportunity to start tracking conversations and follow-ups.",
+    "filtered_empty_title": "No matching opportunities",
+    "filtered_empty_description": "Your opportunities are still here. Adjust or clear the active filters.",
+    "create": "New opportunity",
+    "clear_filters": "Clear filters"
   }
 }
