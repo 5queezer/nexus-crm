@@ -163,6 +163,7 @@ describe("ApplicationModal tailored resume identity", () => {
       "/api/applications/application-1/resume",
     );
     expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(screen.getByText("documents_reactive_resume")).toBeTruthy();
     expect(screen.getByText("documents_external_link")).toBeTruthy();
   });

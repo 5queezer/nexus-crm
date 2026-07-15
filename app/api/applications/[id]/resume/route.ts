@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getResumeEditUrl } from "@/lib/reactive-resume";
+import { getResumeEditUrl, isConfigured } from "@/lib/reactive-resume";
 import { requireAuth } from "@/lib/session";
 
 export async function GET(
@@ -10,6 +10,13 @@ export async function GET(
   const auth = await requireAuth();
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!isConfigured()) {
+    return NextResponse.json(
+      { error: "Reactive Resume integration not configured" },
+      { status: 501 },
+    );
   }
 
   const { id } = await params;

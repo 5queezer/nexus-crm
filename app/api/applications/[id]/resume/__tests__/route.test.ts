@@ -5,10 +5,12 @@ const {
   mockRequireAuth,
   mockGetApplication,
   mockGetResumeEditUrl,
+  mockIsConfigured,
 } = vi.hoisted(() => ({
   mockRequireAuth: vi.fn(),
   mockGetApplication: vi.fn(),
   mockGetResumeEditUrl: vi.fn(),
+  mockIsConfigured: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({
@@ -21,6 +23,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/reactive-resume", () => ({
   getResumeEditUrl: mockGetResumeEditUrl,
+  isConfigured: mockIsConfigured,
 }));
 
 import { GET } from "../route";
@@ -36,6 +39,8 @@ describe("GET /api/applications/[id]/resume", () => {
     mockRequireAuth.mockReset();
     mockGetApplication.mockReset();
     mockGetResumeEditUrl.mockReset();
+    mockIsConfigured.mockReset();
+    mockIsConfigured.mockReturnValue(true);
   });
 
   it("requires authentication", async () => {
@@ -78,6 +83,17 @@ describe("GET /api/applications/[id]/resume", () => {
     const response = await GET(request(), params);
 
     expect(response.status).toBe(404);
+    expect(mockGetResumeEditUrl).not.toHaveBeenCalled();
+  });
+
+  it("returns service unavailable when Reactive Resume is not configured", async () => {
+    mockRequireAuth.mockResolvedValue({ userId: "user-1" });
+    mockGetApplication.mockResolvedValue({ resumeId: "resume-1" });
+    mockIsConfigured.mockReturnValue(false);
+
+    const response = await GET(request(), params);
+
+    expect(response.status).toBe(501);
     expect(mockGetResumeEditUrl).not.toHaveBeenCalled();
   });
 });

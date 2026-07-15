@@ -1232,7 +1232,7 @@ function DocumentsSection({
                   <a
                     href={`/api/applications/${applicationId}/resume`}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="nexus-target text-xs font-medium text-blue-600 transition-colors hover:text-blue-800"
                   >
                     {t("documents_open_resume")}
