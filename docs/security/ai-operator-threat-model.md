@@ -143,8 +143,8 @@ This document covers the Nexus AI operator console, its per-user model credentia
 - Tool names and kinds are server-defined.
 - Tool schemas constrain structured input.
 - Tool records store completion summaries and error codes rather than raw provider/MCP responses.
-- MCP proposal audit records omit unvalidated arguments and free-text rationale; only connector/tool identifiers and an omission marker are persisted before canonical schema and sensitive-field validation.
-- Accepted MCP proposals persist only canonical, size-bounded, sensitive-key-screened arguments.
+- MCP proposal audit records omit unvalidated arguments and free-text rationale; only connector/tool identifiers and an omission marker are persisted before connector lookup, discovery, canonical schema validation, and sensitive-key/value validation.
+- Accepted MCP proposals persist only canonical, size-bounded, sensitive-key-and-value-screened arguments.
 - Provider and connector credentials are omitted from metadata responses and model context.
 - Hidden chain-of-thought is not stored.
 
