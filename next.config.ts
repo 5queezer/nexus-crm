@@ -47,6 +47,18 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      // Alias the historical `/mcp` connector URL to the canonical MCP route.
+      // Some MCP clients (and existing Claude.ai connectors) were registered
+      // against `/mcp`; discovery metadata is served on every path, so OAuth
+      // succeeds, but the JSON-RPC POST then hit an HTML 404 ("authorized, but
+      // no MCP server was found at the given URL"). Serve the same handler on
+      // both paths so either connector URL works.
+      { source: "/mcp", destination: "/api/mcp" },
+      { source: "/mcp/:path*", destination: "/api/mcp/:path*" },
+    ];
+  },
   async headers() {
     return [
       {
