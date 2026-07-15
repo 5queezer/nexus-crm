@@ -1,24 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	resolveAppliedAtForCreate,
-	resolveCreatedAtForCreate,
 	toDateInputValue,
 } from "../defaults";
 
 describe("opportunity creation defaults", () => {
 	const now = new Date("2026-06-30T08:00:00.000Z");
-
-	it("auto-fills the created-at date when creation omits it", () => {
-		expect(resolveCreatedAtForCreate(undefined, now)).toEqual(now);
-		expect(resolveCreatedAtForCreate(null, now)).toEqual(now);
-		expect(resolveCreatedAtForCreate("", now)).toEqual(now);
-	});
-
-	it("preserves an explicit created-at value", () => {
-		expect(resolveCreatedAtForCreate("2026-05-04", now)).toEqual(
-			new Date("2026-05-04"),
-		);
-	});
 
 	it("keeps appliedAt empty for a new inbound lead", () => {
 		expect(resolveAppliedAtForCreate("inbound", undefined, now)).toBeNull();

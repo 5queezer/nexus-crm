@@ -31,8 +31,13 @@ describe("WorkspaceToolbar", () => {
 		expect(html).toContain("Kanban");
 		expect(html).toContain('aria-pressed="true"');
 		expect(html).toContain("min-h-12");
+		expect(html).toContain("col-span-2");
 		expect(html).toContain('role="group"');
 		expect(html).toContain('aria-label="Focus / Table / Kanban"');
+		expect(html.indexOf("Table")).toBeLessThan(html.indexOf("More"));
+		expect(html.indexOf("More")).toBeLessThan(
+			html.indexOf("New Opportunity"),
+		);
 		expect(html.match(/New Opportunity/g) ?? []).toHaveLength(1);
 	});
 });
