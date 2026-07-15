@@ -93,6 +93,27 @@ Archive, export, rule archival, selection and bulk actions, editor fields and to
 - **THEN** the applicable existing capability is reachable
 - **AND** its API, permission, payload, and mutation behavior are unchanged
 
+### Requirement: Dataset-scoped selection safety
+
+Selection SHALL persist across Focus, Table, and Kanban presentation changes and committed-filter changes. Actionable selection SHALL be reconciled against the current unfiltered dataset: active opportunities in Active and archived opportunities in Archive. Switching between Active and Archive SHALL clear selection through every navigation entry point. Filter-hidden selected opportunities in the current dataset SHALL remain included in bulk counts and actions, and the bulk action bar SHALL disclose their hidden count accessibly.
+
+#### Scenario: User changes presentation or filters
+
+- **WHEN** the user selects opportunities and changes the presentation or committed filters
+- **THEN** selection for opportunities that remain in the current unfiltered dataset is preserved
+- **AND** selected opportunities hidden by filters remain included in bulk actions
+- **AND** the bulk action bar discloses how many selected opportunities are hidden
+
+#### Scenario: User changes dataset
+
+- **WHEN** the user navigates between Active and Archive from any workspace entry point
+- **THEN** selection is cleared before the destination dataset becomes actionable
+
+#### Scenario: Selected opportunity leaves the dataset
+
+- **WHEN** a selected opportunity is archived, unarchived, deleted, or otherwise disappears from the current unfiltered dataset
+- **THEN** its ID is excluded from view selection state, bulk counts, and every bulk mutation target
+
 ### Requirement: Compact modal navigation
 
 Below 1024px, the header menu SHALL open a modal navigation sheet containing authenticated destinations and admin-gated Settings. Account/display utilities SHALL remain separate.

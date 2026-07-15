@@ -492,6 +492,7 @@
   },
   "bulk_actions": {
     "selected": "{count} ausgewählt",
+    "hidden_included": "{count} ausgeblendet · in Massenaktionen enthalten",
     "max_warning": "Maximal 100 Einträge",
     "change_status": "Status ändern",
     "archive_selected": "Archivieren",

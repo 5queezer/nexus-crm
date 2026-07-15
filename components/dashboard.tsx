@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -199,6 +200,7 @@ export function Dashboard({
 
   function handleDelete(id: string) {
     if (confirm(tc("delete"))) {
+      removeFromSelection(id);
       deleteMutation.mutate(id);
     }
   }
@@ -227,6 +229,7 @@ export function Dashboard({
   }
 
   function handleArchive(id: string, archive: boolean) {
+    removeFromSelection(id);
     archiveMutation.mutate({ id, archive });
   }
 
@@ -240,11 +243,30 @@ export function Dashboard({
   });
 
   // Filter by archive status
-  const activeApplications = applications.filter((a) => !a.archivedAt);
-  const archivedApplications = applications.filter((a) => !!a.archivedAt);
+  const activeApplications = useMemo(
+    () => applications.filter((application) => !application.archivedAt),
+    [applications],
+  );
+  const archivedApplications = useMemo(
+    () => applications.filter((application) => !!application.archivedAt),
+    [applications],
+  );
   const visibleApplications = showArchived
     ? archivedApplications
     : activeApplications;
+  const visibleApplicationIds = useMemo(
+    () => new Set(visibleApplications.map((application) => application.id)),
+    [visibleApplications],
+  );
+  const scopedSelectedIds = useMemo(
+    () =>
+      new Set(
+        [...selectedIds].filter((selectedId) =>
+          visibleApplicationIds.has(selectedId),
+        ),
+      ),
+    [selectedIds, visibleApplicationIds],
+  );
   const resolvedView = resolveOpportunityView(
     viewMode,
     compactViewport,
@@ -253,6 +275,17 @@ export function Dashboard({
   const filteredApplications = useMemo(
     () => filterOpportunities(visibleApplications, filters),
     [visibleApplications, filters],
+  );
+  const filteredApplicationIds = useMemo(
+    () => new Set(filteredApplications.map((application) => application.id)),
+    [filteredApplications],
+  );
+  const hiddenSelectedCount = useMemo(
+    () =>
+      [...scopedSelectedIds].filter(
+        (selectedId) => !filteredApplicationIds.has(selectedId),
+      ).length,
+    [scopedSelectedIds, filteredApplicationIds],
   );
   const filtersActive = hasOpportunityFilters(filters);
   const isTrueEmpty = !isLoading && visibleApplications.length === 0;
@@ -286,7 +319,9 @@ export function Dashboard({
     });
     if (old.length === 0) return;
     if (confirm(ta("archive_old_confirm", { count: old.length, days }))) {
-      bulkArchiveMutation.mutate(old.map((a) => a.id));
+      const ids = old.map((application) => application.id);
+      removeFromSelection(...ids);
+      bulkArchiveMutation.mutate(ids);
     }
   }
 
@@ -304,7 +339,9 @@ export function Dashboard({
         }),
       )
     ) {
-      bulkArchiveMutation.mutate(lowRated.map((a) => a.id));
+      const ids = lowRated.map((application) => application.id);
+      removeFromSelection(...ids);
+      bulkArchiveMutation.mutate(ids);
     }
   }
 
@@ -332,6 +369,12 @@ export function Dashboard({
     return { ...counts, highPriority: counts[5] + counts[4] };
   }, [activeApplications]);
 
+  function navigateToDataset(archived: boolean) {
+    if (archived === showArchived) return;
+    clearSelection();
+    setShowArchived(archived);
+  }
+
   const workspaceActions: ActionMenuItem[] = [
     {
       id: "toggle-archive",
@@ -340,7 +383,7 @@ export function Dashboard({
         !showArchived && archivedApplications.length > 0
           ? archivedApplications.length
           : undefined,
-      onSelect: () => setShowArchived((value) => !value),
+      onSelect: () => navigateToDataset(!showArchived),
     },
     {
       id: "export",
@@ -423,20 +466,34 @@ export function Dashboard({
   }
 
   // Selection helpers
-  function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else if (next.size < 100) next.add(id);
-      return next;
-    });
-  }
+  const reconcileSelection = useCallback(
+    (selection: Set<string>) =>
+      new Set(
+        [...selection].filter((selectedId) =>
+          visibleApplicationIds.has(selectedId),
+        ),
+      ),
+    [visibleApplicationIds],
+  );
+
+  const toggleSelect = useCallback(
+    (id: string) => {
+      if (!visibleApplicationIds.has(id)) return;
+      setSelectedIds((previous) => {
+        const next = reconcileSelection(previous);
+        if (next.has(id)) next.delete(id);
+        else if (next.size < 100) next.add(id);
+        return next;
+      });
+    },
+    [reconcileSelection, visibleApplicationIds],
+  );
 
   function selectAll(apps: Application[]) {
     setSelectedIds((previous) => {
-      const next = new Set(previous);
+      const next = reconcileSelection(previous);
       for (const app of apps) {
-        if (next.has(app.id)) continue;
+        if (!visibleApplicationIds.has(app.id) || next.has(app.id)) continue;
         if (next.size >= 100) break;
         next.add(app.id);
       }
@@ -446,8 +503,16 @@ export function Dashboard({
 
   function deselectAll(apps: Application[]) {
     setSelectedIds((previous) => {
-      const next = new Set(previous);
+      const next = reconcileSelection(previous);
       for (const app of apps) next.delete(app.id);
+      return next;
+    });
+  }
+
+  function removeFromSelection(...ids: string[]) {
+    setSelectedIds((previous) => {
+      const next = reconcileSelection(previous);
+      for (const id of ids) next.delete(id);
       return next;
     });
   }
@@ -488,13 +553,13 @@ export function Dashboard({
   });
 
   function handleBulkChangeStatus(status: ApplicationStatus) {
-    const ids = [...selectedIds];
+    const ids = [...scopedSelectedIds];
     if (ids.length === 0) return;
     bulkStatusMutation.mutate({ ids, status });
   }
 
   function handleBulkArchiveSelected() {
-    const ids = [...selectedIds];
+    const ids = [...scopedSelectedIds];
     if (ids.length === 0) return;
     if (confirm(tc("bulk_archive_confirm", { count: ids.length }))) {
       bulkArchiveMutation.mutate(ids);
@@ -503,9 +568,10 @@ export function Dashboard({
   }
 
   function handleBulkDeleteSelected() {
-    const ids = [...selectedIds];
+    const ids = [...scopedSelectedIds];
     if (ids.length === 0) return;
     if (confirm(tc("bulk_delete_confirm", { count: ids.length }))) {
+      clearSelection();
       bulkDeleteMutation.mutate(ids);
     }
   }
@@ -616,7 +682,7 @@ export function Dashboard({
           }
           break;
         case "Escape":
-          if (selectedIds.size > 0) {
+          if (scopedSelectedIds.size > 0) {
             e.preventDefault();
             clearSelection();
           }
@@ -649,7 +715,8 @@ export function Dashboard({
     focusedIndex,
     filteredApplications,
     showArchived,
-    selectedIds,
+    scopedSelectedIds,
+    toggleSelect,
   ]);
 
   if (isLoading) {
@@ -832,7 +899,7 @@ export function Dashboard({
             </p>
             <button
               type="button"
-              onClick={() => setShowArchived(false)}
+              onClick={() => navigateToDataset(false)}
               className="nexus-button-ghost nexus-target mt-6"
             >
               {ta("show_active")}
@@ -843,7 +910,7 @@ export function Dashboard({
             applications={[]}
             isTrueEmpty
             isFilteredEmpty={false}
-            selectedIds={selectedIds}
+            selectedIds={scopedSelectedIds}
             onToggleSelect={toggleSelect}
             onOpen={handleEdit}
             onEdit={handleEdit}
@@ -858,7 +925,7 @@ export function Dashboard({
             applications={filteredApplications}
             isTrueEmpty={false}
             isFilteredEmpty={isFilteredEmpty}
-            selectedIds={selectedIds}
+            selectedIds={scopedSelectedIds}
             onToggleSelect={toggleSelect}
             onOpen={handleEdit}
             onEdit={handleEdit}
@@ -876,7 +943,7 @@ export function Dashboard({
             onArchive={handleArchive}
             showArchived={showArchived}
             hideFilters
-            selectedIds={selectedIds}
+            selectedIds={scopedSelectedIds}
             onToggleSelect={toggleSelect}
             onSelectAll={selectAll}
             onDeselectAll={deselectAll}
@@ -894,7 +961,7 @@ export function Dashboard({
 
       {!showArchived &&
         !isTrueEmpty &&
-        selectedIds.size === 0 &&
+        scopedSelectedIds.size === 0 &&
         !isModalOpen &&
         !isCommandPaletteOpen &&
         !isShortcutDialogOpen && (
@@ -933,7 +1000,8 @@ export function Dashboard({
 
       {/* Bulk Action Bar */}
       <BulkActionBar
-        selectedCount={selectedIds.size}
+        selectedCount={scopedSelectedIds.size}
+        hiddenSelectedCount={hiddenSelectedCount}
         onChangeStatus={handleBulkChangeStatus}
         onArchive={handleBulkArchiveSelected}
         onDelete={handleBulkDeleteSelected}
@@ -941,13 +1009,13 @@ export function Dashboard({
       />
 
       {/* Keyboard Shortcut Hint Bar */}
-      {selectedIds.size === 0 && <KeyboardShortcutBar />}
+      {scopedSelectedIds.size === 0 && <KeyboardShortcutBar />}
         </>
       )}
 
       <AiOperator
         key="ai-operator"
-        hideCompactLauncher={selectedIds.size > 0}
+        hideCompactLauncher={scopedSelectedIds.size > 0}
       />
     </div>
   );

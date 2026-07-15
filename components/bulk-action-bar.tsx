@@ -12,6 +12,7 @@ import { ApplicationStatus, STATUS_ORDER, STATUS_COLORS } from "@/types";
 
 interface BulkActionBarProps {
   selectedCount: number;
+  hiddenSelectedCount: number;
   onChangeStatus: (status: ApplicationStatus) => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -24,6 +25,7 @@ export function BulkActionBar(props: BulkActionBarProps) {
 
 function BulkActionBarInner({
   selectedCount,
+  hiddenSelectedCount,
   onChangeStatus,
   onArchive,
   onDelete,
@@ -141,6 +143,15 @@ function BulkActionBarInner({
           <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
             {t("selected", { count: selectedCount })}
           </span>
+          {hiddenSelectedCount > 0 && (
+            <span
+              aria-live="polite"
+              aria-atomic="true"
+              className="text-xs text-gray-500 dark:text-gray-400"
+            >
+              {t("hidden_included", { count: hiddenSelectedCount })}
+            </span>
+          )}
           {selectedCount > 100 && (
             <span className="text-xs text-amber-600 dark:text-amber-400">
               {t("max_warning")}

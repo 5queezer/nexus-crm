@@ -16,6 +16,7 @@
 - [x] 3.3 Add three-mode toolbar, compact labels, FAB, and empty-state hierarchy.
 - [x] 3.4 Reduce compact List density and expose selection.
 - [x] 3.5 Align Kanban breakpoint and explicit compact actions.
+- [x] 3.6 Scope selection to the current unfiltered dataset, centralize dataset navigation cleanup, and disclose filter-hidden selections.
 
 ## 4. Navigation and accessibility
 
@@ -25,5 +26,5 @@
 
 ## 5. Verification
 
-- [x] 5.1 Add selector, filter, component, responsive, navigation, and editor tests.
+- [x] 5.1 Add selector, filter, component, responsive, navigation, editor, and selection-scope regression tests.
 - [x] 5.2 Run strict OpenSpec validation, tests, lint, build, diff checks, and responsive browser review.

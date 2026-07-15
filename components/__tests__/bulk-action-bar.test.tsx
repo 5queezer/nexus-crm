@@ -16,6 +16,7 @@ describe("BulkActionBar status menu", () => {
     const { container } = render(
       <BulkActionBar
         selectedCount={2}
+        hiddenSelectedCount={0}
         onChangeStatus={onChangeStatus}
         onArchive={vi.fn()}
         onDelete={vi.fn()}
@@ -47,6 +48,7 @@ describe("BulkActionBar status menu", () => {
   it("unmounts an open portal at zero selections and reopens with closed state", async () => {
     const user = userEvent.setup();
     const props = {
+      hiddenSelectedCount: 0,
       onChangeStatus: vi.fn(),
       onArchive: vi.fn(),
       onDelete: vi.fn(),
@@ -67,11 +69,28 @@ describe("BulkActionBar status menu", () => {
     expect(screen.queryByRole("menu", { name: "change_status" })).toBeNull();
   });
 
+  it("announces filter-hidden selections as included in bulk actions", () => {
+    render(
+      <BulkActionBar
+        selectedCount={3}
+        hiddenSelectedCount={2}
+        onChangeStatus={vi.fn()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    const disclosure = screen.getByText("hidden_included");
+    expect(disclosure.getAttribute("aria-live")).toBe("polite");
+  });
+
   it("returns focus to the trigger when Escape closes the portal", async () => {
     const user = userEvent.setup();
     render(
       <BulkActionBar
         selectedCount={1}
+        hiddenSelectedCount={0}
         onChangeStatus={vi.fn()}
         onArchive={vi.fn()}
         onDelete={vi.fn()}

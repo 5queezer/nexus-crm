@@ -18,6 +18,10 @@ Each filtered active application enters the first matching group in this precede
 
 Ordering is deterministic within every group: overdue and due-soon records use earliest follow-up first; high priority uses Triage score descending and then earliest follow-up; new-this-week uses newest creation first; and recent uses newest update first. Stable application ID breaks every remaining tie. Visible headings and reason text explain placement.
 
+### Dataset-scoped selection
+
+Selection is presentation-stable and filter-stable, but Active and Archive are separate datasets. Dashboard derives the actionable selected IDs from the current unfiltered dataset, while filter-hidden selected IDs remain included and are disclosed in the bulk bar. Every Active/Archive entry point uses one navigation helper that clears selection before changing datasets. Mutations that move or remove records clean those IDs from selection immediately; derived scoping prevents externally disappeared IDs from reaching counts, views, or bulk targets.
+
 ### Fixed-surface ownership
 
 The compact create FAB is absent during selection or modal/sheet ownership. BulkActionBar owns the bottom slot during selection. Shared safe-area and z-index utilities prevent overlap.
