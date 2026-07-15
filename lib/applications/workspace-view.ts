@@ -5,7 +5,7 @@ export function resolveOpportunityView(
   compactViewport: boolean | null,
   showArchived: boolean,
 ): WorkspaceViewMode {
-  if (showArchived && explicitView === "focus") return "table";
+  if (showArchived) return "table";
   if (explicitView) return explicitView;
   return compactViewport ? "focus" : "table";
 }
