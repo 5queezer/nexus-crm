@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
@@ -10,11 +10,11 @@ import {
   Bot,
   Settings,
   Menu,
-  X,
   BriefcaseBusiness,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { HeaderUtilityMenu } from "./header-utility-menu";
+import { MobileNavigationSheet } from "./mobile-navigation-sheet";
 
 interface AppHeaderProps {
   user: {
@@ -27,13 +27,42 @@ interface AppHeaderProps {
   title?: string;
 }
 
+function MobileNavigationDisclosure({ isAdmin }: { isAdmin?: boolean }) {
+  const tn = useTranslations("nav");
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => {
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={() => setOpen(true)}
+        className="nexus-target nexus-focus-ring flex items-center justify-center rounded-xl border border-slate-200 bg-white/70 text-slate-600 transition hover:bg-slate-50 dark:border-white/8 dark:bg-white/4 dark:text-slate-300"
+        aria-label={tn("menu")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      <MobileNavigationSheet
+        open={open}
+        isAdmin={isAdmin}
+        onClose={close}
+        onNavigate={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
 export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const tn = useTranslations("nav");
   const tapp = useTranslations("app");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
   async function handleLogout() {
     await authClient.signOut();
     router.push("/login");
@@ -41,12 +70,29 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
   }
 
   const navLinks = [
-    { href: "/", label: tn("opportunities"), icon: BriefcaseBusiness, show: true },
-    { href: "/documents", label: tn("documents"), icon: FolderOpen, show: true },
+    {
+      href: "/",
+      label: tn("opportunities"),
+      icon: BriefcaseBusiness,
+      show: true,
+    },
+    {
+      href: "/documents",
+      label: tn("documents"),
+      icon: FolderOpen,
+      show: true,
+    },
     { href: "/analytics", label: tn("analytics"), icon: BarChart3, show: true },
     { href: "/resume-review", label: tn("resume_ai"), icon: Bot, show: true },
     ...(user.isAdmin
-      ? [{ href: "/settings", label: tn("settings"), icon: Settings, show: true }]
+      ? [
+          {
+            href: "/settings",
+            label: tn("settings"),
+            icon: Settings,
+            show: true,
+          },
+        ]
       : []),
   ];
 
@@ -93,50 +139,26 @@ export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
           </nav>
 
           <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            <HeaderUtilityMenu user={user} shareUrl={shareUrl} onLogout={handleLogout} />
+            <HeaderUtilityMenu
+              user={user}
+              shareUrl={shareUrl}
+              onLogout={handleLogout}
+            />
           </div>
 
           <div className="flex shrink-0 items-center gap-2 lg:hidden">
-            <HeaderUtilityMenu user={user} shareUrl={shareUrl} onLogout={handleLogout} />
-            <button
-              onClick={() => setMobileMenuOpen((v) => !v)}
-              className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/70 text-slate-600 transition hover:bg-slate-50 dark:border-white/8 dark:bg-white/4 dark:text-slate-300"
-              aria-label="Menu"
-            >
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+            <HeaderUtilityMenu
+              user={user}
+              shareUrl={shareUrl}
+              onLogout={handleLogout}
+            />
+            <MobileNavigationDisclosure
+              key={pathname}
+              isAdmin={user.isAdmin}
+            />
           </div>
         </div>
       </div>
-
-      {mobileMenuOpen && (
-        <div className="border-t border-slate-200/80 bg-white/95 px-4 py-3 backdrop-blur-xl dark:border-white/8 dark:bg-[#08090a]/95 lg:hidden">
-          <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 dark:border-white/8 dark:bg-white/4 dark:text-slate-300">
-            {user.name || user.email}
-          </div>
-          <div className="flex flex-col gap-1">
-            {activeLinks.map((link) => {
-              const Icon = link.icon;
-              const active = pathname === link.href;
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium transition ${
-                    active
-                      ? "bg-slate-100 text-slate-950 dark:bg-white/8 dark:text-white"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-white/4"
-                  }`}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <Icon className="h-4 w-4" />
-                  {link.label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </header>
   );
 }

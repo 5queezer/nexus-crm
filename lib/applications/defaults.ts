@@ -1,5 +1,7 @@
+import { toLocalCalendarInputValue } from "./local-calendar";
+
 export function toDateInputValue(date: Date = new Date()): string {
-  return date.toISOString().split("T")[0];
+  return toLocalCalendarInputValue(date);
 }
 
 const APPLIED_OR_LATER = new Set(["applied", "interview", "offer", "rejected"]);

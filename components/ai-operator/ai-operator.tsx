@@ -37,7 +37,11 @@ import {
 
 const STARTERS = ["starter_pipeline", "starter_followups", "starter_priorities", "starter_notes"] as const;
 
-export function AiOperator() {
+export function AiOperator({
+  hideCompactLauncher = false,
+}: {
+  hideCompactLauncher?: boolean;
+} = {}) {
   const t = useTranslations("ai_operator");
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -296,7 +300,7 @@ export function AiOperator() {
   function submit(event: FormEvent) { event.preventDefault(); void sendMessage(message); }
 
   return <>
-    <button ref={launcherRef} onClick={() => setOpen(true)} className="group fixed bottom-5 right-4 z-40 flex h-12 items-center gap-2 rounded-2xl bg-slate-950 px-3.5 text-sm font-semibold text-white shadow-[0_14px_40px_rgba(15,23,42,0.3)] ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400 sm:bottom-6 sm:right-6" aria-label={t("open_operator")}>
+    <button ref={launcherRef} onClick={() => setOpen(true)} className={`group fixed bottom-5 left-4 z-40 h-12 items-center gap-2 rounded-2xl bg-slate-950 px-3.5 text-sm font-semibold text-white shadow-[0_14px_40px_rgba(15,23,42,0.3)] ring-1 ring-white/10 transition hover:-translate-y-0.5 hover:bg-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400 sm:bottom-6 sm:left-6 lg:left-auto lg:right-6 ${hideCompactLauncher ? "hidden" : "flex"}`} aria-label={t("open_operator")}>
       <span className="relative"><Sparkles className="h-4 w-4" /><span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-emerald-400 ring-2 ring-slate-950 group-hover:ring-indigo-600" /></span><span className="hidden sm:inline">{t("launcher")}</span>
     </button>
 

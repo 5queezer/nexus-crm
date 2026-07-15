@@ -43,6 +43,7 @@ describe("ApplicationTable source column", () => {
           applications={[application]}
           onEdit={vi.fn()}
           onDelete={vi.fn()}
+          statusMutation={{ mutate: vi.fn() }}
         />
       </NextIntlClientProvider>,
     );

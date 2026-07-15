@@ -33,14 +33,14 @@ function setCompactLayout(matches: boolean) {
   });
 }
 
-function renderOperator() {
+function renderOperator(hideCompactLauncher = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <NextIntlClientProvider locale="en" messages={messages}>
-        <AiOperator />
+        <AiOperator hideCompactLauncher={hideCompactLauncher} />
       </NextIntlClientProvider>
     </QueryClientProvider>,
   );
@@ -53,6 +53,29 @@ describe("AiOperator", () => {
     setCompactLayout(true);
     document.body.style.overflow = "";
     document.body.style.paddingRight = "";
+  });
+
+  it("keeps the compact launcher away from the create FAB and hides it for the bulk bar", () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ providers: [], credentials: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { unmount } = renderOperator();
+    const launcher = screen.getByRole("button", { name: "Open AI operator" });
+    expect(launcher.className).toContain("left-4");
+    expect(launcher.className).toContain("h-12");
+    expect(launcher.className).not.toContain("right-4");
+    unmount();
+
+    renderOperator(true);
+    const hiddenLauncher = screen.getByRole("button", {
+      name: "Open AI operator",
+    });
+    expect(hiddenLauncher.className).toContain("hidden");
+    expect(hiddenLauncher.className).not.toContain("lg:flex");
+    expect(hiddenLauncher.className).toContain("lg:right-6");
   });
 
   it("opens as an accessible dialog and guides a user without credentials through BYOK setup", async () => {

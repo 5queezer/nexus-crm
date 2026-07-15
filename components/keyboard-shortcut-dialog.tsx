@@ -7,7 +7,9 @@ interface KeyboardShortcutDialogProps {
   onClose: () => void;
 }
 
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
+const IS_MAC =
+  typeof navigator !== "undefined" &&
+  /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
 
 interface ShortcutGroup {
@@ -44,19 +46,20 @@ const GROUPS: ShortcutGroup[] = [
   {
     titleKey: "views",
     shortcuts: [
+      { keys: ["F"], labelKey: "focus_view" },
       { keys: ["T"], labelKey: "table_view" },
       { keys: ["B"], labelKey: "kanban_view" },
     ],
   },
   {
     titleKey: "other",
-    shortcuts: [
-      { keys: ["?"], labelKey: "show_shortcuts" },
-    ],
+    shortcuts: [{ keys: ["?"], labelKey: "show_shortcuts" }],
   },
 ];
 
-export function KeyboardShortcutDialog({ onClose }: KeyboardShortcutDialogProps) {
+export function KeyboardShortcutDialog({
+  onClose,
+}: KeyboardShortcutDialogProps) {
   const t = useTranslations("shortcuts");
 
   useEffect(() => {
@@ -71,7 +74,10 @@ export function KeyboardShortcutDialog({ onClose }: KeyboardShortcutDialogProps)
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={onClose}
+    >
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
       <div
         className="relative w-full max-w-md mx-4 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
@@ -85,8 +91,18 @@ export function KeyboardShortcutDialog({ onClose }: KeyboardShortcutDialogProps)
             onClick={onClose}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -99,14 +115,21 @@ export function KeyboardShortcutDialog({ onClose }: KeyboardShortcutDialogProps)
               </h3>
               <div className="space-y-1.5">
                 {group.shortcuts.map((shortcut) => (
-                  <div key={shortcut.labelKey} className="flex items-center justify-between py-1">
+                  <div
+                    key={shortcut.labelKey}
+                    className="flex items-center justify-between py-1"
+                  >
                     <span className="text-sm text-gray-700 dark:text-gray-300">
                       {t(shortcut.labelKey)}
                     </span>
                     <div className="flex items-center gap-1">
                       {shortcut.keys.map((key, i) => (
                         <span key={key}>
-                          {i > 0 && <span className="text-gray-400 dark:text-gray-500 text-xs mx-0.5">/</span>}
+                          {i > 0 && (
+                            <span className="text-gray-400 dark:text-gray-500 text-xs mx-0.5">
+                              /
+                            </span>
+                          )}
                           <kbd className="inline-flex items-center px-1.5 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 min-w-6 justify-center">
                             {key}
                           </kbd>
