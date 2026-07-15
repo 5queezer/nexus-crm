@@ -232,29 +232,38 @@ export function buildMcpAgentTools(input: {
         arguments: z.record(z.string(), z.unknown()).default({}),
         reason: z.string().min(1).max(1_000),
       }),
-      execute: (toolInput) =>
-        auditedTool({
+      execute: async (toolInput) => {
+        const connector = await getConnectorSecret(
+          input.connectorRepository,
+          input.userId,
+          toolInput.connectorId,
+        );
+        if (!connector) throw new Error("Connector not found");
+        const available = await discoverMcpTools(connector);
+        const selected = available.find(
+          (candidate) => candidate.name === toolInput.toolName,
+        );
+        if (!selected) throw new Error("MCP tool not found");
+
+        // Reject sensitive keys, invalid schemas, schema mismatches, and oversized values
+        // before an audit row exists. Only this canonical allowlisted shape is persisted.
+        const reviewedCall = canonicalizeMcpCall(
+          toolInput.arguments,
+          selected.inputSchema,
+        );
+        return auditedTool({
           userId: input.userId,
           runId: input.runId,
           toolName: "propose_mcp_tool_call",
           kind: "proposal",
-          toolInput: buildMcpProposalAuditInput(toolInput),
+          toolInput: {
+            connectorId: connector.id,
+            toolName: selected.remoteName,
+            arguments: reviewedCall.arguments,
+            argumentsHash: reviewedCall.argumentsHash,
+            toolSchemaHash: reviewedCall.schemaHash,
+          },
           execute: async (toolInvocationId) => {
-            const connector = await getConnectorSecret(
-              input.connectorRepository,
-              input.userId,
-              toolInput.connectorId,
-            );
-            if (!connector) throw new Error("Connector not found");
-            const available = await discoverMcpTools(connector);
-            const selected = available.find(
-              (candidate) => candidate.name === toolInput.toolName,
-            );
-            if (!selected) throw new Error("MCP tool not found");
-            const reviewedCall = canonicalizeMcpCall(
-              toolInput.arguments,
-              selected.inputSchema,
-            );
             const proposal = await input.proposalRepository.create({
               userId: input.userId,
               threadId: input.threadId,
@@ -294,7 +303,8 @@ export function buildMcpAgentTools(input: {
               message: "External MCP invocation proposed. The user must approve it before any request is sent.",
             };
           },
-        }),
+        });
+      },
     }),
   };
 }

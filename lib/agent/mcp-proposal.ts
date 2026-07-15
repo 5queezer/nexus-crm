@@ -73,6 +73,7 @@ export function canonicalizeMcpCall(
   if (!inputSchema || typeof inputSchema !== "object" || Array.isArray(inputSchema)) {
     throw new Error("MCP tool schema is invalid");
   }
+  assertNoSensitiveFields(inputSchema);
   const schemaJson = canonicalJson(inputSchema);
   if (Buffer.byteLength(schemaJson, "utf8") > MAX_CANONICAL_ARGUMENT_BYTES) {
     throw new Error("MCP tool schema is too large");

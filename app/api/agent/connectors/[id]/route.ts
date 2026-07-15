@@ -6,6 +6,7 @@ import {
   prismaConnectorRepository,
   saveConnector,
 } from "@/lib/agent/connectors";
+import { agentRequestErrorResponse, readBoundedJson } from "@/lib/agent/request";
 
 const schema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -17,7 +18,13 @@ const schema = z.object({
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request);
+  } catch (error) {
+    return agentRequestErrorResponse(error) ?? NextResponse.json({ error: "Invalid connector" }, { status: 400 });
+  }
+  const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid connector" }, { status: 400 });
   const { id } = await context.params;
   try {

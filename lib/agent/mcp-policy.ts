@@ -56,8 +56,12 @@ export async function resolveMcpDestination(
     }
     if (url.protocol !== "https:") throw new Error("HTTPS required");
 
-    const records = isIP(url.hostname)
-      ? [{ address: url.hostname, family: isIP(url.hostname) }]
+    const literalHostname = url.hostname.startsWith("[") && url.hostname.endsWith("]")
+      ? url.hostname.slice(1, -1)
+      : url.hostname;
+    const literalFamily = isIP(literalHostname);
+    const records = literalFamily
+      ? [{ address: literalHostname, family: literalFamily }]
       : await (options.resolve ?? defaultResolver)(url.hostname);
     if (!records.length || records.some((record) => !isPublicAddress(record.address))) {
       throw new Error("non-public address");

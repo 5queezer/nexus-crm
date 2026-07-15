@@ -4,6 +4,7 @@ import {
   deleteConnector,
   getConnectorSecret,
   listConnectorMetadata,
+  recordConnectorHealth,
   saveConnector,
 } from "../connectors";
 import {
@@ -15,6 +16,14 @@ import { resolveMcpDestination } from "../mcp-policy";
 import { canonicalizeMcpCall } from "../mcp-proposal";
 
 const ORIGINAL_KEY = process.env.AGENT_SECRET_ENCRYPTION_KEY;
+
+async function parseTestUrl(value: string): Promise<URL> {
+  try {
+    return new URL(value);
+  } catch {
+    throw new Error("Invalid test URL");
+  }
+}
 
 class MemoryConnectorRepository implements ConnectorRepository {
   records = new Map<string, ConnectorRecord>();
@@ -42,6 +51,17 @@ class MemoryConnectorRepository implements ConnectorRepository {
     if (!record || record.userId !== userId) return false;
     return this.records.delete(id);
   }
+  async updateHealth(userId: string, id: string, health: { checkedAt: Date; status: "healthy" | "failed"; errorCode: string | null }) {
+    const record = this.records.get(id);
+    if (!record || record.userId !== userId) return false;
+    this.records.set(id, {
+      ...record,
+      lastCheckedAt: health.checkedAt,
+      lastStatus: health.status,
+      lastErrorCode: health.errorCode,
+    });
+    return true;
+  }
 }
 
 describe("per-user MCP connectors", () => {
@@ -59,7 +79,7 @@ describe("per-user MCP connectors", () => {
       name: "Research tools",
       url: "https://mcp.example.com/api",
       authorization: "Bearer top-secret-token",
-      validate: async (value) => new URL(value),
+      validate: parseTestUrl,
     });
 
     const stored = repository.records.get(metadata.id)!;
@@ -74,18 +94,37 @@ describe("per-user MCP connectors", () => {
       name: "Tools",
       url: "https://first.example.com/mcp",
       authorization: "Bearer user-a-token",
-      validate: async (value) => new URL(value),
+      validate: parseTestUrl,
     });
 
     const moved = await saveConnector(repository, "user-a", {
       id: saved.id,
       name: "Tools",
       url: "https://second.example.com/mcp",
-      validate: async (value) => new URL(value),
+      validate: parseTestUrl,
     });
 
     expect(moved.hasAuthorization).toBe(false);
     expect((await getConnectorSecret(repository, "user-a", saved.id))?.authorization).toBeNull();
+  });
+
+  it("records sanitized health without changing the connector configuration version", async () => {
+    const repository = new MemoryConnectorRepository();
+    const saved = await saveConnector(repository, "user-a", {
+      name: "Tools",
+      url: "https://mcp.example.com/api",
+      validate: parseTestUrl,
+    });
+    const version = repository.records.get(saved.id)!.updatedAt;
+
+    const health = await recordConnectorHealth(repository, "user-a", saved.id, "failed");
+
+    expect(health).toMatchObject({ lastStatus: "failed", lastErrorCode: "DISCOVERY_FAILED" });
+    expect(repository.records.get(saved.id)).toMatchObject({
+      lastStatus: "failed",
+      lastErrorCode: "DISCOVERY_FAILED",
+      updatedAt: version,
+    });
   });
 
   it("scopes list, secret lookup, and delete to the authenticated user", async () => {
@@ -94,7 +133,7 @@ describe("per-user MCP connectors", () => {
       name: "Tools",
       url: "https://mcp.example.com/api",
       authorization: "Bearer user-a-token",
-      validate: async (value) => new URL(value),
+      validate: parseTestUrl,
     });
 
     expect(await listConnectorMetadata(repository, "user-b")).toEqual([]);
@@ -173,6 +212,27 @@ describe("MCP cleanup", () => {
 });
 
 describe("bounded MCP discovery", () => {
+  it("times out stalled initialization and closes a client that arrives late", async () => {
+    let resolveClient!: (client: { listTools: () => Promise<{ tools: [] }>; close: () => void }) => void;
+    const close = vi.fn();
+    const pendingClient = new Promise<{ listTools: () => Promise<{ tools: [] }>; close: () => void }>((resolve) => {
+      resolveClient = resolve;
+    });
+    const discovery = discoverMcpTools(
+      { id: "connector-1", name: "Tools", url: "https://mcp.example.com", authorization: null },
+      {
+        validate: parseTestUrl,
+        connect: async () => pendingClient,
+        initializationTimeoutMs: 10,
+      },
+    );
+
+    await expect(discovery).rejects.toThrow("MCP initialization timed out");
+    resolveClient({ listTools: async () => ({ tools: [] }), close });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("namespaces discovered tools and always closes the client", async () => {
     const close = vi.fn();
     const listTools = vi.fn().mockResolvedValue({
@@ -184,7 +244,7 @@ describe("bounded MCP discovery", () => {
     const tools = await discoverMcpTools(
       { id: "connector-1", name: "Research Tools", url: "https://mcp.example.com", authorization: null },
       {
-        validate: async (value) => new URL(value),
+        validate: parseTestUrl,
         connect: async () => ({ listTools, close }),
       },
     );
@@ -200,7 +260,7 @@ describe("bounded MCP discovery", () => {
       discoverMcpTools(
         { id: "connector-1", name: "Tools", url: "https://mcp.example.com", authorization: null },
         {
-          validate: async (value) => new URL(value),
+          validate: parseTestUrl,
           connect: async () => ({
             listTools: async () => ({
               tools: [{ name: "oversized", description: "x".repeat(300_000) }],
@@ -219,7 +279,7 @@ describe("bounded MCP discovery", () => {
       discoverMcpTools(
         { id: "connector-1", name: "Tools", url: "https://mcp.example.com", authorization: null },
         {
-          validate: async (value) => new URL(value),
+          validate: parseTestUrl,
           connect: async () => ({
             listTools: async () => ({ tools: Array.from({ length: 51 }, (_, i) => ({ name: `tool-${i}` })) }),
             close,

@@ -8,6 +8,7 @@ import {
   saveCredential,
 } from "@/lib/agent/credentials";
 import { listProviderOptions } from "@/lib/agent/providers";
+import { agentRequestErrorResponse, readBoundedJson } from "@/lib/agent/request";
 
 const credentialSchema = z.object({
   provider: z.string().trim().min(1).max(32),
@@ -40,7 +41,13 @@ export async function PUT(request: Request) {
   const userId = await authenticatedUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const parsed = credentialSchema.safeParse(await request.json().catch(() => null));
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request);
+  } catch (error) {
+    return agentRequestErrorResponse(error) ?? NextResponse.json({ error: "Invalid credential configuration" }, { status: 400 });
+  }
+  const parsed = credentialSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid credential configuration" }, { status: 400 });
   }

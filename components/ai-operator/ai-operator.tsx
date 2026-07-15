@@ -26,6 +26,7 @@ import {
 import { OperatorSettings } from "./operator-settings";
 import {
   ActionProposal,
+  AgentActivity,
   AgentMessage,
   AgentThread,
   apiJson,
@@ -53,6 +54,7 @@ export function AiOperator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [actingProposal, setActingProposal] = useState<string | null>(null);
+  const [compactLayout, setCompactLayout] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -62,6 +64,15 @@ export function AiOperator() {
   useEffect(() => {
     activeThreadRef.current = activeThread;
   }, [activeThread]);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const query = window.matchMedia("(max-width: 1023px)");
+    const update = () => setCompactLayout(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   const configuredProviders = useMemo(
     () => providers.filter((item) => credentials.some((credential) => credential.provider === item.id)),
@@ -97,8 +108,10 @@ export function AiOperator() {
   useEffect(() => {
     if (!open) return;
     void loadInitial();
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    if (compactLayout) document.body.style.overflow = "hidden";
+    else document.body.style.paddingRight = "min(720px, 48vw)";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (settingsOpen) setSettingsOpen(false);
@@ -107,16 +120,18 @@ export function AiOperator() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.body.style.overflow = previous;
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, settingsOpen, loadInitial]);
+  }, [open, settingsOpen, loadInitial, compactLayout]);
 
   useEffect(() => {
     if (!open) return;
     const dialog = dialogRef.current;
     const launcher = launcherRef.current;
     if (!dialog) return;
+    if (!compactLayout) return () => launcher?.focus();
     const focusableSelector = "button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
     focusable()[0]?.focus();
@@ -143,7 +158,7 @@ export function AiOperator() {
       document.removeEventListener("keydown", trapFocus);
       launcher?.focus();
     };
-  }, [open]);
+  }, [open, compactLayout]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth" });
@@ -246,13 +261,36 @@ export function AiOperator() {
 
   async function actOnProposal(id: string, action: "approve" | "reject") {
     setActingProposal(id); setError("");
+    let actionFailed = false;
     try {
       await apiJson<unknown>(`/api/agent/proposals/${id}/${action}`, { method: "POST" });
       if (action === "approve") {
         await queryClient.invalidateQueries({ queryKey: ["applications"] });
       }
-      if (activeThread) await loadProposals(activeThread.id);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : t("error_generic")); } finally { setActingProposal(null); }
+    } catch (reason) {
+      actionFailed = true;
+      setError(reason instanceof Error ? reason.message : t("error_generic"));
+    } finally {
+      const threadId = activeThreadRef.current?.id;
+      if (threadId) {
+        const [threadResult, proposalResult] = await Promise.allSettled([
+          apiJson<{ thread: AgentThread }>(`/api/agent/threads/${threadId}`),
+          apiJson<{ proposals: ActionProposal[] }>(`/api/agent/proposals?threadId=${encodeURIComponent(threadId)}`),
+        ]);
+        if (threadResult.status === "fulfilled") {
+          setActiveThread(threadResult.value.thread);
+          setThreads((current) => [threadResult.value.thread, ...current.filter((item) => item.id !== threadId)]);
+        }
+        if (proposalResult.status === "fulfilled") setProposals(proposalResult.value.proposals);
+        const refreshFailure = threadResult.status === "rejected"
+          ? threadResult.reason
+          : proposalResult.status === "rejected" ? proposalResult.reason : null;
+        if (!actionFailed && refreshFailure) {
+          setError(refreshFailure instanceof Error ? refreshFailure.message : t("error_generic"));
+        }
+      }
+      setActingProposal(null);
+    }
   }
 
   function submit(event: FormEvent) { event.preventDefault(); void sendMessage(message); }
@@ -262,9 +300,8 @@ export function AiOperator() {
       <span className="relative"><Sparkles className="h-4 w-4" /><span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-emerald-400 ring-2 ring-slate-950 group-hover:ring-indigo-600" /></span><span className="hidden sm:inline">{t("launcher")}</span>
     </button>
 
-    {open && <div ref={dialogRef} className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={t("title")} tabIndex={-1}>
-      <button className="absolute inset-0 hidden bg-slate-950/35 backdrop-blur-[2px] lg:block" onClick={() => setOpen(false)} aria-label={t("close")} />
-      <section className="absolute inset-0 flex overflow-hidden bg-white shadow-2xl dark:bg-[#0f1011] lg:inset-y-3 lg:left-auto lg:right-3 lg:w-[min(920px,calc(100vw-24px))] lg:rounded-[24px] lg:border lg:border-slate-200/80 dark:lg:border-white/10">
+    {open && <div ref={dialogRef} className="fixed inset-0 z-50 lg:pointer-events-none" role={compactLayout ? "dialog" : "complementary"} aria-modal={compactLayout ? true : undefined} aria-label={t("title")} tabIndex={-1}>
+      <section className="absolute inset-0 flex overflow-hidden bg-white shadow-2xl dark:bg-[#0f1011] lg:pointer-events-auto lg:left-auto lg:w-[min(720px,48vw)] lg:border-l lg:border-slate-200/80 dark:lg:border-white/10">
         <aside className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} absolute inset-y-0 left-0 z-20 flex w-[min(82vw,260px)] flex-col border-r border-slate-200 bg-slate-50/95 transition-transform dark:border-white/8 dark:bg-[#0b0c0d] lg:static lg:w-60 lg:translate-x-0`}>
           <div className="flex h-16 items-center justify-between px-4"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm"><Sparkles className="h-3.5 w-3.5" /></span><div><p className="text-xs font-semibold text-slate-900 dark:text-white">{t("title")}</p><p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">{t("workspace")}</p></div></div><button aria-label={t("close_history")} onClick={() => setSidebarOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200/60 dark:hover:bg-white/5 lg:hidden"><X className="h-4 w-4" /></button></div>
           <div className="px-3"><button onClick={() => void createThread()} disabled={streaming} className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-xs font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40 dark:bg-white dark:text-slate-950"><Plus className="h-3.5 w-3.5" />{t("new_thread")}</button></div>
@@ -284,10 +321,10 @@ export function AiOperator() {
           </header>
 
           <main className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.06),transparent_35%)] px-4 py-5 dark:bg-[radial-gradient(circle_at_50%_0%,rgba(113,112,255,0.08),transparent_35%)] sm:px-7">
-            {loading && !activeThread ? <div className="flex h-full items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-indigo-500" /></div> : !credentials.length ? <SetupEmpty onSetup={() => setSettingsOpen(true)} /> : !(activeThread?.messages?.length) ? <Welcome providerLabel={currentProvider?.label} model={currentCredential?.defaultModel} onStarter={(key) => void sendMessage(t(key))} /> : <div className="mx-auto max-w-2xl space-y-5">{activeThread.messages.filter((item) => item.role === "user" || item.role === "assistant").map((item) => <ChatMessage key={item.id} message={item} streaming={streaming && item.role === "assistant" && !item.content} />)}{proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} busy={actingProposal === proposal.id} onApprove={() => void actOnProposal(proposal.id, "approve")} onReject={() => void actOnProposal(proposal.id, "reject")} />)}<div ref={endRef} /></div>}
+            {loading && !activeThread ? <div className="flex h-full items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-indigo-500" /></div> : !credentials.length ? <SetupEmpty onSetup={() => setSettingsOpen(true)} /> : !(activeThread?.messages?.length) ? <Welcome providerLabel={currentProvider?.label} model={currentCredential?.defaultModel} onStarter={(key) => void sendMessage(t(key))} /> : <div className="mx-auto max-w-2xl space-y-5">{activeThread.messages.filter((item) => item.role === "user" || item.role === "assistant").map((item) => <ChatMessage key={item.id} message={item} streaming={streaming && item.role === "assistant" && !item.content} />)}{(activeThread.activities?.length ?? 0) > 0 && <ActivityTimeline activities={activeThread.activities ?? []} />}{proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} busy={actingProposal === proposal.id} onApprove={() => void actOnProposal(proposal.id, "approve")} onReject={() => void actOnProposal(proposal.id, "reject")} />)}<div ref={endRef} /></div>}
           </main>
 
-          <footer className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-white/8 dark:bg-[#0f1011] sm:p-4">{error && <div role="alert" className="mx-auto mb-2 max-w-2xl rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}<form onSubmit={submit} className="mx-auto max-w-2xl"><div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-sm transition focus-within:border-indigo-400 focus-within:ring-3 focus-within:ring-indigo-500/10 dark:border-white/10 dark:bg-white/[0.035]"><textarea aria-label={t("message_label")} ref={inputRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (message.trim()) void sendMessage(message); } }} disabled={streaming || !credentials.length} rows={1} placeholder={credentials.length ? t("message_placeholder") : t("configure_first")} className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white dark:placeholder:text-slate-600" /><button aria-label={t("send_message")} type="submit" disabled={!message.trim() || streaming || !credentials.length} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-indigo-500 dark:hover:bg-indigo-400">{streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-3.5 w-3.5" />}</button></div><div className="mt-2 flex items-center justify-between px-1 text-[10px] text-slate-400"><span>{t("enter_hint")}</span><span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{t("approval_hint")}</span></div></form></footer>
+          <footer className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-white/8 dark:bg-[#0f1011] sm:p-4">{error && <div role="alert" className="mx-auto mb-2 max-w-2xl rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</div>}<form onSubmit={submit} className="mx-auto max-w-2xl"><div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-sm transition focus-within:border-indigo-400 focus-within:ring-3 focus-within:ring-indigo-500/10 dark:border-white/10 dark:bg-white/[0.035]"><textarea aria-label={t("message_label")} ref={inputRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (message.trim()) void sendMessage(message); } }} disabled={streaming || !credentials.length} rows={1} placeholder={credentials.length ? t("message_placeholder") : t("configure_first")} className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50 dark:text-white dark:placeholder:text-slate-600" /><button aria-label={t("send_message")} type="submit" disabled={!message.trim() || streaming || !credentials.length} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-indigo-500 dark:hover:bg-indigo-400">{streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-3.5 w-3.5" />}</button></div><div className="mt-2 flex items-center justify-between px-1 text-[10px] text-slate-400"><span>{t("enter_hint")}</span><span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3" />{t("approval_hint")}</span></div><p className="mt-2 px-1 text-[10px] leading-4 text-amber-700 dark:text-amber-300">{t("provider_disclosure", { provider: currentProvider?.label ?? t("selected_provider") })}</p></form></footer>
           {settingsOpen && <OperatorSettings providers={providers} credentials={credentials} onCredentialsChange={(next) => { setCredentials(next); if (!next.some((item) => item.provider === provider) && next[0]) setProvider(next[0].provider); }} onClose={() => setSettingsOpen(false)} />}
         </div>
       </section>
@@ -301,11 +338,32 @@ function Welcome({ providerLabel, model, onStarter }: { providerLabel?: string; 
 
 function ChatMessage({ message, streaming }: { message: AgentMessage; streaming: boolean }) { const t = useTranslations("ai_operator"); const assistant = message.role === "assistant"; return <div className={`flex gap-3 ${assistant ? "" : "justify-end"}`}>{assistant && <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><Sparkles className="h-3 w-3" /></span>}<div className={`max-w-[85%] ${assistant ? "" : "rounded-2xl rounded-br-md bg-slate-950 px-4 py-3 text-white dark:bg-indigo-500"}`}>{assistant && <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.13em] text-indigo-500 dark:text-indigo-300">{t("assistant_label")}</div>}<div className={`whitespace-pre-wrap text-sm leading-6 ${assistant ? "text-slate-700 dark:text-slate-300" : "text-white"}`}>{message.content || (streaming && <span className="inline-flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:150ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:300ms]" /></span>)}</div></div></div>; }
 
+function ActivityTimeline({ activities }: { activities: AgentActivity[] }) {
+  const t = useTranslations("ai_operator");
+  return <section aria-label={t("activity_title")} className="ml-10 space-y-2 rounded-2xl border border-slate-200 bg-white/70 p-3 dark:border-white/8 dark:bg-white/[0.025]">
+    <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{t("activity_title")}</h3>
+    {activities.map((activity) => {
+      const toolKey = `tool_${activity.toolName}`;
+      const name = activity.type === "run"
+        ? t("activity_run")
+        : t.has(toolKey) ? t(toolKey as "tool_get_pipeline_summary") : t("activity_external_tool", { name: activity.toolName ?? "—" });
+      const statusKey = `activity_status_${activity.status}`;
+      const status = t.has(statusKey) ? t(statusKey as "activity_status_completed") : activity.status;
+      return <div key={`${activity.type}-${activity.id}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+        <span className="font-medium">{name}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] dark:bg-white/5">{status}</span>
+        {activity.durationMs !== null && <span className="text-[10px] text-slate-500">{t("activity_duration", { duration: formatDuration(activity.durationMs) })}</span>}
+        {activity.proposalId && <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-300">{t("activity_proposal", { id: activity.proposalId })}</span>}
+      </div>;
+    })}
+  </section>;
+}
+
 function ProposalCard({ proposal, busy, onApprove, onReject }: { proposal: ActionProposal; busy: boolean; onApprove: () => void; onReject: () => void }) {
   const t = useTranslations("ai_operator");
   const pending = proposal.status === "pending";
   const mcpPayload = proposal.kind === "mcp_tool" ? proposal.sanitizedPayload : null;
-  return <div className="ml-10 overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50/50 shadow-sm dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]">
+  return <div id={`proposal-${proposal.id}`} className="ml-10 overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50/50 shadow-sm dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]">
     <div className="flex items-center justify-between border-b border-indigo-100 px-4 py-3 dark:border-indigo-500/15"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"><ShieldCheck className="h-3.5 w-3.5" /></span><div><p className="text-xs font-semibold text-slate-900 dark:text-white">{t("proposal_title")}</p><p className="text-[10px] text-slate-500">{proposal.targetType === "application" ? t("proposal_target", { id: proposal.targetId }) : t("proposal_target_connector", { id: proposal.targetId })}</p></div></div><span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${pending ? "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" : proposal.status === "applied" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-white/5"}`}>{t(`status_${proposal.status}` as "status_pending")}</span></div>
     <div className="space-y-2 p-4">
       {proposal.assumptions?.reason && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">{proposal.assumptions.reason}</p>}
@@ -314,12 +372,12 @@ function ProposalCard({ proposal, busy, onApprove, onReject }: { proposal: Actio
       {mcpPayload?.connectorVersion && <div className="text-xs"><span className="font-medium text-slate-500">{t("proposal_connector_version")}</span><span className="ml-3 font-mono text-slate-800 dark:text-slate-200">{mcpPayload.connectorVersion}</span></div>}
       {mcpPayload?.toolName && <div className="text-xs"><span className="font-medium text-slate-500">{t("proposal_tool")}</span><span className="ml-3 font-mono font-semibold text-slate-800 dark:text-slate-200">{mcpPayload.toolName}</span></div>}
       {mcpPayload?.arguments && <div className="text-xs"><div className="mb-1 font-medium text-slate-500">{t("proposal_arguments")}</div><pre className="overflow-x-auto rounded-xl bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">{JSON.stringify(mcpPayload.arguments, null, 2)}</pre></div>}
-      {proposal.expectedDiff.map((diff) => <div key={diff.field} className="grid grid-cols-[90px_1fr] gap-3 text-xs"><span className="font-medium capitalize text-slate-500">{fieldLabel(diff.field)}</span><span className="min-w-0 text-slate-700 dark:text-slate-300"><span className="line-through opacity-50">{formatValue(diff.from)}</span><ArrowRight className="mx-1.5 inline h-3 w-3 text-indigo-400" /><span className="font-medium">{formatValue(diff.to)}</span></span></div>)}
+      {proposal.expectedDiff.map((diff) => <div key={diff.field} className="grid grid-cols-[90px_1fr] gap-3 text-xs"><span className="font-medium capitalize text-slate-500">{t.has(`field_${diff.field}`) ? t(`field_${diff.field}` as "field_status") : t("field_other", { field: diff.field })}</span><span className="min-w-0 text-slate-700 dark:text-slate-300"><span className="line-through opacity-50">{formatValue(diff.from)}</span><ArrowRight className="mx-1.5 inline h-3 w-3 text-indigo-400" /><span className="font-medium">{formatValue(diff.to)}</span></span></div>)}
     </div>
     {pending && <div className="flex justify-end gap-2 border-t border-indigo-100 px-4 py-3 dark:border-indigo-500/15"><button onClick={onReject} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-600 hover:bg-white disabled:opacity-50 dark:text-slate-400 dark:hover:bg-white/5"><XCircle className="h-3.5 w-3.5" />{t("reject")}</button><button onClick={onApprove} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{t("approve")}</button></div>}
   </div>;
 }
 
 function formatValue(value: unknown) { if (value === null || value === undefined || value === "") return "—"; if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value); return JSON.stringify(value); }
-function fieldLabel(field: string) { return field.replace(/([A-Z])/g, " $1").trim(); }
+function formatDuration(value: number) { return value < 1_000 ? `${value} ms` : `${(value / 1_000).toFixed(1)} s`; }
 function relativeDate(value: string, today: string) { const date = new Date(value); const now = new Date(); if (date.toDateString() === now.toDateString()) return today; return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }

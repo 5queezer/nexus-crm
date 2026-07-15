@@ -32,14 +32,21 @@ describe("MCP destination policy", () => {
     "::ffff:a00:1",
     "0:0:0:0:0:ffff:7f00:1",
     "2001:db8::1",
-  ])("classifies %s as non-public", (address) => {
+  ])("classifies %s as non-public", (address: string) => {
     expect(isPublicAddress(address)).toBe(false);
   });
 
   it.each(["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"])(
     "classifies %s as public",
-    (address) => expect(isPublicAddress(address)).toBe(true),
+    (address: string) => expect(isPublicAddress(address)).toBe(true),
   );
+
+  it("accepts a public IPv6 literal without DNS resolution", async () => {
+    const result = await validateMcpDestination("https://[2606:4700:4700::1111]/mcp", {
+      resolve: async () => { throw new Error("literal must not use DNS"); },
+    });
+    expect(result.toString()).toBe("https://[2606:4700:4700::1111]/mcp");
+  });
 
   it("accepts an HTTPS destination only after public DNS resolution", async () => {
     const result = await validateMcpDestination("https://mcp.example.com/api", {
@@ -54,7 +61,7 @@ describe("MCP destination policy", () => {
     "https://user:pass@example.com/mcp",
     "https://example.com/mcp#fragment",
     "http://example.com/mcp",
-  ])("rejects unsafe URL %s", async (url) => {
+  ])("rejects unsafe URL %s", async (url: string) => {
     await expect(validateMcpDestination(url, { resolve: publicResolver })).rejects.toThrow(
       "Unsafe MCP destination",
     );

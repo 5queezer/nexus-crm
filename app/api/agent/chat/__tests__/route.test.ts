@@ -45,7 +45,7 @@ describe("POST /api/agent/chat preflight", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireAuth.mockResolvedValue({ userId: "user-a", authType: "session" });
-    mocks.requireSessionAuth.mockImplementation(async (options) => {
+    mocks.requireSessionAuth.mockImplementation(async (options: { allowDevBypass: boolean }) => {
       const authResult = await mocks.requireAuth(options);
       return authResult?.authType === "session" ? authResult : null;
     });
@@ -56,6 +56,41 @@ describe("POST /api/agent/chat preflight", () => {
     const response = await POST(request());
     expect(response.status).toBe(401);
     expect(mocks.getAgentThread).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 for declared and streamed oversized JSON before Zod or repository work", async () => {
+    const declared = new Request("http://test/api/agent/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": String(70 * 1024) },
+      body: "{}",
+    });
+    expect((await POST(declared)).status).toBe(413);
+
+    const chunk = new Uint8Array(40 * 1024).fill(120);
+    const streamed = new Request("http://test/api/agent/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk);
+          controller.enqueue(chunk);
+          controller.close();
+        },
+      }),
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect((await POST(streamed)).status).toBe(413);
+    expect(mocks.getAgentThread).not.toHaveBeenCalled();
+  });
+
+  it("returns a safe 400 for malformed JSON", async () => {
+    const response = await POST(new Request("http://test/api/agent/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{malformed",
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request body" });
   });
 
   it("does not disclose a thread owned by another user", async () => {

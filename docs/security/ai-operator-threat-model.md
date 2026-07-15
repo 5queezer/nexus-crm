@@ -148,7 +148,7 @@ This document covers the Nexus AI operator console, its per-user model credentia
 - Provider and connector credentials are omitted from metadata responses and model context.
 - Hidden chain-of-thought is not stored.
 
-**Residual risk:** User messages, application notes, and some structured tool inputs are intentionally persisted and may contain secrets pasted by the user. Nexus should display an explicit warning not to paste credentials, and future observability exports should apply field-level allowlists rather than broad event serialization.
+**Residual risk:** User messages and bounded application context are intentionally sent to the selected provider and persisted in Nexus; users can still paste secrets despite the in-product warning. Tool timeline serialization uses explicit metadata fields and omits tool inputs, and any future observability export must preserve field-level allowlists rather than broad event serialization.
 
 ### Supply-chain and provider risk
 

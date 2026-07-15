@@ -23,6 +23,11 @@ export interface ConnectorRepository {
     input: Omit<ConnectorRecord, "id" | "createdAt" | "updatedAt"> & { id?: string },
   ): Promise<ConnectorRecord>;
   remove(userId: string, id: string): Promise<boolean>;
+  updateHealth?(
+    userId: string,
+    id: string,
+    health: { checkedAt: Date; status: "healthy" | "failed"; errorCode: string | null },
+  ): Promise<boolean>;
 }
 
 export const prismaConnectorRepository: ConnectorRepository = {
@@ -46,11 +51,31 @@ export const prismaConnectorRepository: ConnectorRepository = {
     const result = await prisma.agentMcpConnection.deleteMany({ where: { id, userId } });
     return result.count > 0;
   },
+  async updateHealth(userId, id, health) {
+    // Health checks must not change updatedAt: that field is the proposal-pinned
+    // connector configuration version, not volatile operational metadata.
+    const count = await prisma.$executeRaw`
+      UPDATE "AgentMcpConnection"
+      SET "lastCheckedAt" = ${health.checkedAt},
+          "lastStatus" = ${health.status},
+          "lastErrorCode" = ${health.errorCode}
+      WHERE "id" = ${id} AND "userId" = ${userId}
+    `;
+    return count === 1;
+  },
 };
 
 export type ConnectorMetadata = Omit<ConnectorRecord, "userId" | "encryptedAuthorization"> & {
   hasAuthorization: boolean;
 };
+
+function sameUrlOrigin(left: string, right: URL): boolean {
+  try {
+    return new URL(left).origin === right.origin;
+  } catch {
+    return false;
+  }
+}
 
 function metadata(record: ConnectorRecord): ConnectorMetadata {
   return {
@@ -85,9 +110,7 @@ export async function saveConnector(
   const existing = input.id ? await repository.find(userId, input.id) : null;
   if (input.id && !existing) throw new Error("Connector not found");
   const authorization = input.authorization?.trim();
-  const sameOrigin = existing
-    ? new URL(existing.url).origin === validated.origin
-    : false;
+  const sameOrigin = existing ? sameUrlOrigin(existing.url, validated) : false;
   const encryptedAuthorization = authorization
     ? encryptSecret(authorization, `mcp:authorization:${userId}`)
     : input.authorization === null
@@ -135,6 +158,29 @@ export async function getConnectorSecret(
     authorization: record.encryptedAuthorization
       ? decryptSecret(record.encryptedAuthorization, `mcp:authorization:${userId}`)
       : null,
+  };
+}
+
+export async function recordConnectorHealth(
+  repository: ConnectorRepository,
+  userId: string,
+  id: string,
+  status: "healthy" | "failed",
+): Promise<{ lastCheckedAt: Date; lastStatus: "healthy" | "failed"; lastErrorCode: string | null }> {
+  const health = {
+    checkedAt: new Date(),
+    status,
+    errorCode: status === "failed" ? "DISCOVERY_FAILED" : null,
+  } as const;
+  try {
+    await repository.updateHealth?.(userId, id, health);
+  } catch {
+    console.error("Connector health persistence failed", { connectorId: id });
+  }
+  return {
+    lastCheckedAt: health.checkedAt,
+    lastStatus: health.status,
+    lastErrorCode: health.errorCode,
   };
 }
 

@@ -17,6 +17,22 @@ function json(body: unknown, status = 200) {
   );
 }
 
+function setCompactLayout(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn(() => ({
+      matches,
+      media: "(max-width: 1023px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 function renderOperator() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -32,8 +48,11 @@ function renderOperator() {
 
 describe("AiOperator", () => {
   beforeEach(() => {
-    Element.prototype.scrollIntoView = vi.fn();
     vi.restoreAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    setCompactLayout(true);
+    document.body.style.overflow = "";
+    document.body.style.paddingRight = "";
   });
 
   it("opens as an accessible dialog and guides a user without credentials through BYOK setup", async () => {
@@ -93,6 +112,26 @@ describe("AiOperator", () => {
     expect(document.activeElement).toBe(launcher);
   });
 
+  it("uses a non-modal alongside desktop drawer without locking page scroll", async () => {
+    setCompactLayout(false);
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith("/api/agent/credentials")) return json({ providers: [], credentials: [] });
+      if (url.endsWith("/api/agent/threads")) return json({ threads: [] });
+      return json({ error: "not found" }, 404);
+    });
+    const user = userEvent.setup();
+    renderOperator();
+
+    await user.click(screen.getByRole("button", { name: "Open AI operator" }));
+
+    const drawer = await screen.findByRole("complementary", { name: "Nexus Operator" });
+    expect(drawer.getAttribute("aria-modal")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+    expect(document.body.style.paddingRight).toBe("min(720px, 48vw)");
+    expect(screen.queryByRole("dialog", { name: "Nexus Operator" })).toBeNull();
+  });
+
   it("renders the exact sanitized MCP tool arguments before approval", async () => {
     const providerPayload = {
       providers: [
@@ -122,6 +161,28 @@ describe("AiOperator", () => {
           id: "message-1",
           role: "assistant",
           content: "I found one follow-up that needs attention.",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      activities: [
+        {
+          id: "run-1",
+          type: "run",
+          runId: "run-1",
+          toolName: null,
+          status: "completed",
+          durationMs: 1_500,
+          proposalId: null,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "tool-1",
+          type: "tool",
+          runId: "run-1",
+          toolName: "propose_mcp_tool_call",
+          status: "completed",
+          durationMs: 125,
+          proposalId: "proposal-1",
           createdAt: new Date().toISOString(),
         },
       ],
@@ -173,6 +234,65 @@ describe("AiOperator", () => {
     expect(screen.getByText(/"notify": true/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Approve change/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Reject/ })).toBeTruthy();
+    expect(screen.getByText("Run and tool activity")).toBeTruthy();
+    expect(screen.getByText("MCP call proposal")).toBeTruthy();
+    expect(screen.getByText("Duration 125 ms")).toBeTruthy();
+    expect(screen.getByText("Proposal proposal-1")).toBeTruthy();
+    expect(screen.getByText("External invocation")).toBeTruthy();
+    expect(screen.getByText(/sent to OpenAI, a third party/)).toBeTruthy();
+  });
+
+  it("refreshes expired proposal and thread state after an approval error", async () => {
+    const now = new Date().toISOString();
+    const baseThread = {
+      id: "thread-1",
+      title: "Review",
+      createdAt: now,
+      updatedAt: now,
+      messages: [{ id: "message-1", role: "assistant", content: "Review this change.", createdAt: now }],
+    };
+    let proposalRequests = 0;
+    let threadRequests = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/agent/credentials")) return json({
+        providers: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt", label: "GPT", description: "Fast" }] }],
+        credentials: [{ id: "credential-1", provider: "openai", keyHint: "••••1234", defaultModel: "gpt", status: "configured" }],
+      });
+      if (url.endsWith("/api/agent/threads")) return json({ threads: [baseThread] });
+      if (url.endsWith("/api/agent/threads/thread-1")) {
+        threadRequests += 1;
+        return json({ thread: threadRequests > 1 ? { ...baseThread, title: "Expired review" } : baseThread });
+      }
+      if (url.includes("/api/agent/proposals?threadId=")) {
+        proposalRequests += 1;
+        return json({ proposals: [{
+          id: "proposal-1",
+          kind: "update_application",
+          targetType: "application",
+          targetId: "application-1",
+          expectedDiff: [{ field: "status", from: "applied", to: "interview" }],
+          status: proposalRequests > 1 ? "expired" : "pending",
+          expiresAt: now,
+          createdAt: now,
+        }] });
+      }
+      if (url.endsWith("/api/agent/proposals/proposal-1/approve") && init?.method === "POST") {
+        return json({ error: "Proposal expired" }, 409);
+      }
+      return json({ error: "not found" }, 404);
+    });
+    const user = userEvent.setup();
+    renderOperator();
+
+    await user.click(screen.getByRole("button", { name: "Open AI operator" }));
+    await user.click(await screen.findByRole("button", { name: "Approve change" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Proposal expired");
+    expect(await screen.findByText("Expired")).toBeTruthy();
+    expect(screen.getAllByText("Expired review")).toHaveLength(2);
+    expect(proposalRequests).toBeGreaterThan(1);
+    expect(threadRequests).toBeGreaterThan(1);
   });
 
   it("keeps the current proposal visible and reports a proposal refresh failure", async () => {
