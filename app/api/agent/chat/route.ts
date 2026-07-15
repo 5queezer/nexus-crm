@@ -30,15 +30,20 @@ import {
 import { prismaProposalRepository } from "@/lib/agent/proposals";
 import { prismaConnectorRepository } from "@/lib/agent/connectors";
 import { AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
+import {
+	agentRequestErrorResponse,
+	readBoundedJson,
+} from "@/lib/agent/request";
 
 const requestSchema = z.object({
 	threadId: z.string().min(1).max(100),
 	provider: z
 		.string()
 		.trim()
+		.toLowerCase()
 		.min(1)
 		.max(32)
-		.refine((value) => SUPPORTED_PROVIDERS.includes(value as never), {
+		.refine((value: string) => SUPPORTED_PROVIDERS.includes(value as never), {
 			message: "Unsupported provider",
 		}),
 	message: z.string().trim().min(1).max(12_000),
@@ -48,9 +53,16 @@ export async function POST(request: Request) {
 	const session = await requireSessionAuth({ allowDevBypass: false });
 	if (!session)
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-	const parsed = requestSchema.safeParse(
-		await request.json().catch(() => null),
-	);
+	let body: unknown;
+	try {
+		body = await readBoundedJson(request);
+	} catch (error) {
+		return (
+			agentRequestErrorResponse(error) ??
+			NextResponse.json({ error: "Invalid chat request" }, { status: 400 })
+		);
+	}
+	const parsed = requestSchema.safeParse(body);
 	if (!parsed.success)
 		return NextResponse.json(
 			{ error: "Invalid chat request" },

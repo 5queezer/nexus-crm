@@ -1,18 +1,17 @@
 export type ProviderId =
 	| "openai"
-	| "chatgpt"
 	| "anthropic"
 	| "kimi"
 	| "minimax"
 	| "deepseek"
 	| "openrouter";
 
-export type ProviderAuthMode = "api_key" | "oauth";
+export type ProviderAuthMode = "api_key";
 
 export type ProviderOption = {
 	id: ProviderId;
 	label: string;
-	authMode?: ProviderAuthMode;
+	authMode: ProviderAuthMode;
 	models: Array<{ id: string; label: string; description: string }>;
 };
 
@@ -31,12 +30,24 @@ export type AgentMessage = {
 	createdAt: string;
 };
 
+export type AgentActivity = {
+	id: string;
+	type: "run" | "tool";
+	runId: string;
+	toolName: string | null;
+	status: string;
+	durationMs: number | null;
+	proposalId: string | null;
+	createdAt: string;
+};
+
 export type AgentThread = {
 	id: string;
 	title: string;
 	createdAt: string;
 	updatedAt: string;
 	messages?: AgentMessage[];
+	activities?: AgentActivity[];
 };
 
 export type ProposalDiff = { field: string; from: unknown; to: unknown };

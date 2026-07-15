@@ -21,6 +21,11 @@ export interface CredentialRepository {
 	upsert(
 		record: Omit<CredentialRecord, "id" | "createdAt" | "updatedAt">,
 	): Promise<CredentialRecord>;
+	updateModel(
+		userId: string,
+		provider: string,
+		defaultModel: string,
+	): Promise<CredentialRecord>;
 	remove(userId: string, provider: string): Promise<boolean>;
 }
 
@@ -60,6 +65,12 @@ export const prismaCredentialRepository: CredentialRepository = {
 			update: values,
 		});
 	},
+	updateModel(userId, provider, defaultModel) {
+		return prisma.llmCredential.update({
+			where: { userId_provider: { userId, provider } },
+			data: { defaultModel },
+		});
+	},
 	async remove(userId, provider) {
 		const result = await prisma.llmCredential.deleteMany({
 			where: { userId, provider },
@@ -84,15 +95,19 @@ function metadata(record: CredentialRecord): CredentialMetadata {
 export async function saveCredential(
 	repository: CredentialRepository,
 	userId: string,
-	input: { provider: string; model: string; apiKey: string },
+	input: { provider: string; model: string; apiKey?: string },
 ): Promise<CredentialMetadata> {
 	const provider = input.provider.trim().toLowerCase();
 	const model = input.model.trim();
-	const apiKey = input.apiKey.trim();
+	const apiKey = input.apiKey?.trim();
 	if (!provider) throw new Error("Provider is required");
 	if (!model) throw new Error("Model is required");
 	getProviderConfig(provider);
 
+	if (!apiKey) {
+		const saved = await repository.updateModel(userId, provider, model);
+		return metadata(saved);
+	}
 	if (apiKey.length < 8 || apiKey.length > 8192) {
 		throw new Error("Secret credential must be between 8 and 8192 characters");
 	}

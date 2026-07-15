@@ -39,6 +39,15 @@ class MemoryCredentialRepository implements CredentialRepository {
 		return saved;
 	}
 
+	async updateModel(userId: string, provider: string, defaultModel: string) {
+		const key = `${userId}:${provider}`;
+		const existing = this.records.get(key);
+		if (!existing) throw new Error("Credential not found");
+		const saved = { ...existing, defaultModel, updatedAt: new Date() };
+		this.records.set(key, saved);
+		return saved;
+	}
+
 	async remove(userId: string, provider: string) {
 		return this.records.delete(`${userId}:${provider}`);
 	}
@@ -108,6 +117,46 @@ describe("per-user credentials", () => {
 		).toMatchObject({
 			apiKey: "sk-other-2222",
 		});
+	});
+
+	it("atomically updates the model without restoring ciphertext during a concurrent key rotation", async () => {
+		await saveCredential(repository, "user-a", {
+			provider: "openai",
+			model: "old-model",
+			apiKey: "sk-original-1234",
+		});
+
+		let releaseModelUpdate!: () => void;
+		const modelUpdateBarrier = new Promise<void>((resolve) => {
+			releaseModelUpdate = resolve;
+		});
+		let modelUpdateStarted!: () => void;
+		const modelUpdateStart = new Promise<void>((resolve) => {
+			modelUpdateStarted = resolve;
+		});
+		const originalUpdateModel = repository.updateModel.bind(repository);
+		repository.updateModel = async (userId, provider, defaultModel) => {
+			modelUpdateStarted();
+			await modelUpdateBarrier;
+			return originalUpdateModel(userId, provider, defaultModel);
+		};
+
+		const modelUpdate = saveCredential(repository, "user-a", {
+			provider: "openai",
+			model: "new-model",
+		});
+		await modelUpdateStart;
+		await saveCredential(repository, "user-a", {
+			provider: "openai",
+			model: "rotation-model",
+			apiKey: "sk-rotated-5678",
+		});
+		releaseModelUpdate();
+		await modelUpdate;
+
+		expect(
+			await loadCredentialSecret(repository, "user-a", "openai"),
+		).toMatchObject({ apiKey: "sk-rotated-5678", model: "new-model" });
 	});
 
 	it("does not expose another user's metadata and scopes deletion", async () => {

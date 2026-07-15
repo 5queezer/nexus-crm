@@ -50,7 +50,20 @@ describe("HeaderUtilityMenuPanel", () => {
     expect(html).toContain("Abmelden");
     expect(html).toContain("theme-menu-control");
     expect(html).toContain("language-menu-control");
+    expect(html.match(/min-h-12/g)).toHaveLength(4);
     expect(html.match(/role="none"/g)).toHaveLength(4);
+  });
+
+  it("omits sharing when the share URL is not HTTP(S)", () => {
+    const html = renderToStaticMarkup(
+      <HeaderUtilityMenuPanel
+        user={{ email: "chris@example.com" }}
+        shareUrl="data:text/html,unsafe"
+        onLogout={vi.fn()}
+      />,
+    );
+
+    expect(html).not.toContain("Teilen");
   });
 
   it("omits sharing when no share URL is available", () => {
@@ -72,6 +85,7 @@ describe("HeaderUtilityMenuPanel", () => {
 
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("nexus-target");
     expect(html).not.toContain('role="menu"');
   });
 });

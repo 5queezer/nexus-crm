@@ -23,6 +23,35 @@ type DiscoveryClient = {
 };
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
+const MCP_INITIALIZATION_TIMEOUT_MS = 5_000;
+
+async function initializeMcpClient<T extends { close(): Promise<void> | void }>(
+  initialize: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const pending = initialize();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("MCP initialization timed out"));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([pending, timeout]);
+  } catch (error) {
+    if (timedOut) {
+      void pending.then(
+        (client) => Promise.resolve(client.close()).catch(() => undefined),
+        () => undefined,
+      );
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function connectorPrefix(name: string): string {
   return name
@@ -97,33 +126,39 @@ export function createPinnedTransport(
 }
 
 export async function closeMcpClientAndTransport(
-  client: { close(): Promise<void> },
+  client: { close(): Promise<void> | void },
   transport: { close(): Promise<void> },
 ): Promise<void> {
   try {
-    await client.close();
+    await Promise.resolve(client.close());
   } finally {
     await transport.close();
   }
 }
 
-async function productionClient(connector: McpConnectorSecret) {
+async function productionClient(connector: McpConnectorSecret): Promise<{
+  client: Awaited<ReturnType<typeof createMCPClient>>;
+  close: () => Promise<void>;
+}> {
   const destination = await resolveMcpDestination(connector.url);
   const transport = createPinnedTransport(destination);
   const headers: Record<string, string> = connector.authorization
     ? { Authorization: connector.authorization }
     : {};
   try {
-    const client = await createMCPClient({
-      transport: {
-        type: "http",
-        url: destination.url.toString(),
-        headers,
-        redirect: "error",
-        fetch: transport.fetch,
-      },
-      maxRetries: 0,
-    });
+    const client = await initializeMcpClient<Awaited<ReturnType<typeof createMCPClient>>>(
+      () => createMCPClient({
+        transport: {
+          type: "http",
+          url: destination.url.toString(),
+          headers,
+          redirect: "error",
+          fetch: transport.fetch,
+        },
+        maxRetries: 0,
+      }),
+      MCP_INITIALIZATION_TIMEOUT_MS,
+    );
     return {
       client,
       close: () => closeMcpClientAndTransport(client, transport),
@@ -142,6 +177,7 @@ export async function discoverMcpTools(
       url: string;
       headers: Record<string, string>;
     }) => Promise<DiscoveryClient>;
+    initializationTimeoutMs?: number;
   } = {},
 ) {
   let client: DiscoveryClient;
@@ -151,7 +187,10 @@ export async function discoverMcpTools(
     const headers: Record<string, string> = connector.authorization
       ? { Authorization: connector.authorization }
       : {};
-    client = await dependencies.connect({ url: destination.toString(), headers });
+    client = await initializeMcpClient(
+      () => dependencies.connect!({ url: destination.toString(), headers }),
+      dependencies.initializationTimeoutMs ?? MCP_INITIALIZATION_TIMEOUT_MS,
+    );
     close = async () => client.close();
   } else {
     const production = await productionClient(connector);

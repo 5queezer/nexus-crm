@@ -12,6 +12,17 @@ export type AgentMessageView = {
   createdAt: Date;
 };
 
+export type AgentActivityView = {
+  id: string;
+  type: "run" | "tool";
+  runId: string;
+  toolName: string | null;
+  status: string;
+  durationMs: number | null;
+  proposalId: string | null;
+  createdAt: Date;
+};
+
 export type AgentThreadView = {
   id: string;
   userId: string;
@@ -20,6 +31,7 @@ export type AgentThreadView = {
   updatedAt: Date;
   messages: AgentMessageView[];
   proposals: unknown[];
+  activities: AgentActivityView[];
 };
 
 export interface AgentRepository {
@@ -57,7 +69,46 @@ function mapThread(record: {
     createdAt: Date;
   }>;
   proposals?: unknown[];
+  runs?: Array<{
+    id: string;
+    status: string;
+    startedAt: Date;
+    finishedAt: Date | null;
+    toolInvocations: Array<{
+      id: string;
+      runId: string;
+      toolName: string;
+      status: string;
+      durationMs: number | null;
+      createdAt: Date;
+      proposal: { id: string } | null;
+    }>;
+  }>;
 }): AgentThreadView {
+  const activities: AgentActivityView[] = (record.runs ?? []).flatMap((run) => [
+    {
+      id: run.id,
+      type: "run" as const,
+      runId: run.id,
+      toolName: null,
+      status: run.status,
+      durationMs: run.finishedAt
+        ? Math.max(0, run.finishedAt.getTime() - run.startedAt.getTime())
+        : null,
+      proposalId: null,
+      createdAt: run.startedAt,
+    },
+    ...run.toolInvocations.map((invocation) => ({
+      id: invocation.id,
+      type: "tool" as const,
+      runId: invocation.runId,
+      toolName: invocation.toolName,
+      status: invocation.status,
+      durationMs: invocation.durationMs,
+      proposalId: invocation.proposal?.id ?? null,
+      createdAt: invocation.createdAt,
+    })),
+  ]).sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
   return {
     id: record.id,
     userId: record.userId,
@@ -71,6 +122,7 @@ function mapThread(record: {
         metadata: message.metadata ?? undefined,
       })),
     proposals: record.proposals ?? [],
+    activities,
   };
 }
 
@@ -95,6 +147,24 @@ export const prismaAgentRepository: AgentRepository = {
           orderBy: { createdAt: "desc" },
           take: 100,
           include: { verification: true },
+        },
+        runs: {
+          orderBy: { startedAt: "desc" },
+          take: 100,
+          include: {
+            toolInvocations: {
+              orderBy: { createdAt: "asc" },
+              select: {
+                id: true,
+                runId: true,
+                toolName: true,
+                status: true,
+                durationMs: true,
+                createdAt: true,
+                proposal: { select: { id: true } },
+              },
+            },
+          },
         },
       },
     });

@@ -4,15 +4,30 @@ import { requireSessionAuth } from "@/lib/session";
 import {
 	deleteCredential,
 	getCredentialMetadata,
-	getCredentialSecret,
 	listUserCredentials,
 	prismaCredentialRepository,
 	saveCredential,
 } from "@/lib/agent/credentials";
-import { getProviderConfig, listProviderOptions } from "@/lib/agent/providers";
+import {
+	SUPPORTED_PROVIDERS,
+	getProviderConfig,
+	listProviderOptions,
+} from "@/lib/agent/providers";
+import {
+	agentRequestErrorResponse,
+	readBoundedJson,
+} from "@/lib/agent/request";
+
+const providerSchema = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.refine((value) => SUPPORTED_PROVIDERS.includes(value as never), {
+		message: "Unsupported provider",
+	});
 
 const credentialSchema = z.object({
-	provider: z.string().trim().min(1).max(32),
+	provider: providerSchema,
 	model: z.string().trim().min(1).max(128),
 	apiKey: z.string().trim().min(8).max(8192).optional(),
 });
@@ -55,25 +70,12 @@ export async function GET() {
 		prismaCredentialRepository,
 		userId,
 	);
-	const providerSecrets = Object.fromEntries(
-		credentials
-			.map((credential) => {
-				try {
-					return [
-						credential.provider,
-						getCredentialSecret(credential),
-					] as const;
-				} catch {
-					return null;
-				}
-			})
-			.filter((item): item is [string, string] => item !== null),
-	);
-
-	const providers = await listProviderOptions({ providerSecrets });
-	const credentialMetadata = credentials.map(toMetadata);
-
-	return NextResponse.json({ providers, credentials: credentialMetadata });
+	// This endpoint intentionally remains metadata-only. Provider discovery is lazy.
+	const providers = await listProviderOptions();
+	return NextResponse.json({
+		providers,
+		credentials: credentials.map(toMetadata),
+	});
 }
 
 export async function PUT(request: Request) {
@@ -81,20 +83,34 @@ export async function PUT(request: Request) {
 	if (!userId)
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-	const parsed = credentialSchema.safeParse(
-		await request.json().catch(() => null),
-	);
-	if (!parsed.success) {
+	let body: unknown;
+	try {
+		body = await readBoundedJson(request);
+	} catch (error) {
+		return (
+			agentRequestErrorResponse(error) ??
+			NextResponse.json(
+				{ error: "Invalid credential configuration" },
+				{ status: 400 },
+			)
+		);
+	}
+	const parsed = credentialSchema.safeParse(body);
+	if (!parsed.success)
 		return NextResponse.json(
 			{ error: "Invalid credential configuration" },
 			{ status: 400 },
 		);
-	}
 
-	const providerConfig = getProviderConfig(parsed.data.provider);
-	if (providerConfig.authMode === "oauth" && !parsed.data.apiKey) {
+	const existing = await getCredentialMetadata(
+		prismaCredentialRepository,
+		userId,
+		parsed.data.provider,
+	);
+	getProviderConfig(parsed.data.provider);
+	if (!parsed.data.apiKey && !existing) {
 		return NextResponse.json(
-			{ error: "OAuth credentials must be configured via the OAuth flow" },
+			{ error: "API key is required for this provider" },
 			{ status: 400 },
 		);
 	}
@@ -103,7 +119,7 @@ export async function PUT(request: Request) {
 		const credential = await saveCredential(
 			prismaCredentialRepository,
 			userId,
-			parsed.data as { provider: string; model: string; apiKey: string },
+			parsed.data,
 		);
 		return NextResponse.json({ credential });
 	} catch (error) {
@@ -113,14 +129,9 @@ export async function PUT(request: Request) {
 			provider: parsed.data.provider,
 			errorCode,
 		});
-		const message =
-			error instanceof Error
-				? error.message
-				: "Credential configuration failed";
-		const status = message.startsWith("Unsupported") ? 400 : 500;
 		return NextResponse.json(
-			{ error: status === 400 ? message : "Credential configuration failed" },
-			{ status },
+			{ error: "Credential configuration failed" },
+			{ status: 500 },
 		);
 	}
 }
@@ -137,26 +148,28 @@ export async function DELETE(request: Request) {
 		return NextResponse.json({ error: "Invalid request URL" }, { status: 400 });
 	}
 
-	const provider = requestUrl.searchParams.get("provider")?.trim();
-	if (!provider) {
+	const parsedProvider = providerSchema.safeParse(
+		requestUrl.searchParams.get("provider"),
+	);
+	if (!parsedProvider.success)
 		return NextResponse.json(
 			{ error: "Provider is required" },
 			{ status: 400 },
 		);
-	}
-
 	const metadata = await getCredentialMetadata(
 		prismaCredentialRepository,
 		userId,
-		provider,
+		parsedProvider.data,
 	);
-	if (!metadata) {
+	if (!metadata)
 		return NextResponse.json(
 			{ error: "Credential not found" },
 			{ status: 404 },
 		);
-	}
-
-	await deleteCredential(prismaCredentialRepository, userId, provider);
+	await deleteCredential(
+		prismaCredentialRepository,
+		userId,
+		parsedProvider.data,
+	);
 	return new Response(null, { status: 204 });
 }

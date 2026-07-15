@@ -3,6 +3,7 @@ import { requireSessionAuth } from "@/lib/session";
 import {
   getConnectorSecret,
   prismaConnectorRepository,
+  recordConnectorHealth,
 } from "@/lib/agent/connectors";
 import { discoverMcpTools } from "@/lib/agent/mcp-client";
 
@@ -14,10 +15,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   if (!connector) return NextResponse.json({ error: "Connector not found" }, { status: 404 });
   try {
     const tools = await discoverMcpTools(connector);
-    return NextResponse.json({ tools });
-  } catch (error) {
-    const errorCode = error instanceof Error ? error.name.slice(0, 100) : "ConnectorDiscoveryError";
-    console.error("Connector discovery failed", { connectorId: id, errorCode });
-    return NextResponse.json({ error: "Connector discovery failed" }, { status: 502 });
+    const health = await recordConnectorHealth(prismaConnectorRepository, session.userId, id, "healthy");
+    return NextResponse.json({ tools, health });
+  } catch {
+    const health = await recordConnectorHealth(prismaConnectorRepository, session.userId, id, "failed");
+    console.error("Connector discovery failed", { connectorId: id, errorCode: health.lastErrorCode });
+    return NextResponse.json({ error: "Connector discovery failed", health }, { status: 502 });
   }
 }

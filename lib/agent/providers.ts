@@ -1,30 +1,27 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
+import { LRUCache } from "lru-cache";
 
-type RequestMode = "api_key" | "oauth";
+type RequestMode = "api_key";
 
 type CredentialSecret = {
 	accessToken?: string;
 	token?: string;
 	apiKey?: string;
 	api_key?: string;
-	model?: string;
 };
 
 export type SupportedProvider =
 	| "openai"
-	| "chatgpt"
 	| "anthropic"
 	| "kimi"
 	| "minimax"
 	| "deepseek"
 	| "openrouter";
-
 export const SUPPORTED_PROVIDERS: SupportedProvider[] = [
 	"openai",
-	"chatgpt",
 	"anthropic",
 	"kimi",
 	"minimax",
@@ -32,12 +29,7 @@ export const SUPPORTED_PROVIDERS: SupportedProvider[] = [
 	"openrouter",
 ];
 
-export type ModelOption = {
-	id: string;
-	label: string;
-	description: string;
-};
-
+export type ModelOption = { id: string; label: string; description: string };
 export type ProviderOption = {
 	id: SupportedProvider;
 	label: string;
@@ -49,8 +41,7 @@ type ProviderModelOptions = {
 	modelsUrl: string;
 	includeOnlyFreeModels: boolean;
 	requestHeaders?: Record<string, string>;
-	parseLabel?: (candidate: unknown) => string | null;
-	parseDescription?: (candidate: unknown, modelId: string) => string;
+	authStyle?: "bearer" | "anthropic";
 };
 
 type ProviderCatalogDefinition = {
@@ -61,242 +52,182 @@ type ProviderCatalogDefinition = {
 	modelOptions: ProviderModelOptions;
 };
 
+const MAX_PROVIDER_RESPONSE_BYTES = 1024 * 1024;
+const MAX_PROVIDER_MODELS = 500;
+const MAX_MODEL_ID_LENGTH = 256;
+const MAX_MODEL_LABEL_LENGTH = 256;
+const MAX_MODEL_DESCRIPTION_LENGTH = 2000;
+const CACHE_TTL_MS = 90_000;
+const MODEL_LIST_CACHE = new LRUCache<string, ModelOption[]>({
+	max: 128,
+	ttl: CACHE_TTL_MS,
+});
+
 function fromSecret(rawSecret: string): string {
 	try {
 		const payload = JSON.parse(rawSecret) as CredentialSecret;
 		const token =
 			payload.accessToken ?? payload.apiKey ?? payload.api_key ?? payload.token;
-		if (typeof token === "string" && token) {
-			return token;
-		}
+		if (typeof token === "string" && token) return token;
 	} catch {
-		// keep support for legacy raw-api-key secrets
+		/* legacy raw API key */
 	}
 	return rawSecret;
 }
 
-function now(): number {
-	return Date.now();
-}
-
-function normalizeModelId(value: unknown): string | null {
+function boundedString(value: unknown, maximum: number): string | null {
 	if (typeof value !== "string") return null;
 	const trimmed = value.trim();
-	return trimmed ? trimmed : null;
-}
-
-function parseDescriptionFromObject(
-	candidate: Record<string, unknown>,
-): string {
-	const parts: string[] = [];
-	const contextLength = candidate.context_length;
-	const context =
-		typeof contextLength === "number"
-			? contextLength
-			: typeof contextLength === "string" && contextLength.trim()
-				? Number(contextLength)
-				: NaN;
-
-	if (Number.isFinite(context)) {
-		parts.push(`${context.toLocaleString()} context`);
-	}
-
-	if (typeof candidate.provider === "string" && candidate.provider) {
-		parts.push(`provider ${candidate.provider}`);
-	}
-
-	if (
-		typeof candidate.architecture === "object" &&
-		candidate.architecture !== null
-	) {
-		const maxTokens = (candidate.architecture as { maxTokens?: unknown })
-			.maxTokens;
-		if (typeof maxTokens === "number" && Number.isFinite(maxTokens)) {
-			parts.push(`${maxTokens.toLocaleString()} max tokens`);
-		}
-	}
-
-	const description =
-		typeof candidate.description === "string" && candidate.description.trim()
-			? candidate.description.trim()
-			: null;
-	if (description) return description;
-	return parts.join(" • ");
+	return trimmed ? trimmed.slice(0, maximum) : null;
 }
 
 function extractModelList(payload: unknown): unknown[] {
-	if (!payload) return [];
-	if (Array.isArray(payload)) return payload;
-	if (Array.isArray((payload as { data?: unknown[] }).data)) {
-		return (payload as { data: unknown[] }).data;
-	}
-	if (Array.isArray((payload as { models?: unknown[] }).models)) {
-		return (payload as { models: unknown[] }).models;
-	}
-	if (Array.isArray((payload as { items?: unknown[] }).items)) {
-		return (payload as { items: unknown[] }).items;
-	}
-	return [];
+	if (Array.isArray(payload)) return payload.slice(0, MAX_PROVIDER_MODELS);
+	if (!payload || typeof payload !== "object") return [];
+	const object = payload as {
+		data?: unknown;
+		models?: unknown;
+		items?: unknown;
+	};
+	const list = Array.isArray(object.data)
+		? object.data
+		: Array.isArray(object.models)
+			? object.models
+			: Array.isArray(object.items)
+				? object.items
+				: [];
+	return list.slice(0, MAX_PROVIDER_MODELS);
 }
 
-function parseModelId(candidate: unknown): string | null {
-	if (!candidate || typeof candidate !== "object") return null;
-	const value = candidate as {
-		id?: unknown;
-		model?: unknown;
-		name?: unknown;
-	};
-	return normalizeModelId(
-		normalizeModelId(value.id) ??
-			normalizeModelId(value.model) ??
-			normalizeModelId(value.name),
+function parseModelId(candidate: Record<string, unknown>): string | null {
+	return (
+		boundedString(candidate.id, MAX_MODEL_ID_LENGTH) ??
+		boundedString(candidate.model, MAX_MODEL_ID_LENGTH) ??
+		boundedString(candidate.name, MAX_MODEL_ID_LENGTH)
 	);
 }
 
-function isZeroish(value: unknown): boolean {
-	if (typeof value === "number") return value <= 0;
-	if (typeof value !== "string") return false;
+function isZeroPrice(value: unknown): boolean {
+	if (typeof value === "number") return Number.isFinite(value) && value === 0;
+	if (typeof value !== "string" || !value.trim()) return false;
 	const parsed = Number(value.replace(/[,$\s]/g, ""));
-	return Number.isFinite(parsed) && parsed <= 0;
+	return Number.isFinite(parsed) && parsed === 0;
+}
+
+function inspectPriceLeaves(value: unknown): {
+	hasPopulatedLeaf: boolean;
+	allZero: boolean;
+} {
+	if (value === undefined || value === null || value === "") {
+		return { hasPopulatedLeaf: false, allZero: true };
+	}
+	if (typeof value !== "object") {
+		return { hasPopulatedLeaf: true, allZero: isZeroPrice(value) };
+	}
+	const children = Object.values(value);
+	if (children.length === 0) return { hasPopulatedLeaf: false, allZero: true };
+	return children.reduce(
+		(result, child) => {
+			const inspected = inspectPriceLeaves(child);
+			return {
+				hasPopulatedLeaf: result.hasPopulatedLeaf || inspected.hasPopulatedLeaf,
+				allZero: result.allZero && inspected.allZero,
+			};
+		},
+		{ hasPopulatedLeaf: false, allZero: true },
+	);
 }
 
 function isOpenRouterFree(candidate: Record<string, unknown>): boolean {
 	const pricing = candidate.pricing;
 	if (!pricing || typeof pricing !== "object") return false;
-	const cost: Record<string, unknown> = pricing as Record<string, unknown>;
-	const promptCost = isZeroish(cost.prompt) || isZeroish(cost.prompt_cache_hit);
-	const completionCost = isZeroish(cost.completion);
-	const requestCost = isZeroish(cost.request);
-
-	return promptCost || completionCost || requestCost;
+	const inspected = inspectPriceLeaves(pricing);
+	return inspected.hasPopulatedLeaf && inspected.allZero;
 }
 
-function modelDescription(
-	candidate: unknown,
-	options: ProviderModelOptions,
-	modelId: string,
-): string {
-	if (!candidate || typeof candidate !== "object") return modelId;
-	const parsed = candidate as Record<string, unknown>;
-	if (options.parseDescription) {
-		return options.parseDescription(parsed, modelId);
-	}
-	return parseDescriptionFromObject(parsed);
-}
-
-function modelLabel(
-	candidate: unknown,
-	options: ProviderModelOptions,
-	modelId: string,
-): string {
-	if (!candidate || typeof candidate !== "object") return modelId;
-	if (options.parseLabel) {
-		const value = options.parseLabel(candidate);
-		if (value) return value;
-	}
-	const candidateObject = candidate as Record<string, unknown>;
-	if (typeof candidateObject.name === "string" && candidateObject.name.trim()) {
-		return candidateObject.name.trim();
-	}
-	return modelId;
-}
-
-function dedupeModels(candidates: ModelOption[]): ModelOption[] {
-	const seen = new Set<string>();
-	const next: ModelOption[] = [];
-	for (const item of candidates) {
-		const id = item.id.toLowerCase();
-		if (seen.has(id)) continue;
-		seen.add(id);
-		next.push(item);
-	}
-	return next.sort((left, right) =>
-		left.label.localeCompare(right.label, undefined, { sensitivity: "base" }),
-	);
-}
-
-function normalizeCandidateModel(
+function normalizeCandidate(
 	candidate: unknown,
 	options: ProviderModelOptions,
 ): ModelOption | null {
 	if (!candidate || typeof candidate !== "object") return null;
-	const modelId = parseModelId(candidate);
-	if (!modelId) return null;
-	if (
-		options.includeOnlyFreeModels &&
-		!isOpenRouterFree(candidate as Record<string, unknown>)
-	) {
+	const object = candidate as Record<string, unknown>;
+	const id = parseModelId(object);
+	if (!id || (options.includeOnlyFreeModels && !isOpenRouterFree(object)))
 		return null;
-	}
-
-	return {
-		id: modelId,
-		label: modelLabel(candidate, options, modelId),
-		description: modelDescription(candidate, options, modelId),
-	};
+	const label = boundedString(object.name, MAX_MODEL_LABEL_LENGTH) ?? id;
+	const description =
+		boundedString(object.description, MAX_MODEL_DESCRIPTION_LENGTH) ?? "";
+	return { id, label, description };
 }
 
-const MODELS_BY_PROVIDER_TIMEOUT_MS = 90_000;
-const MODEL_LIST_CACHE = new Map<
-	string,
-	{ expiresAt: number; models: ModelOption[] }
->();
+function dedupeModels(models: ModelOption[]): ModelOption[] {
+	const byId = new Map<string, ModelOption>();
+	for (const model of models)
+		if (!byId.has(model.id.toLowerCase()))
+			byId.set(model.id.toLowerCase(), model);
+	return [...byId.values()].sort((a, b) =>
+		a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+	);
+}
 
 const MODEL_ENDPOINT_ORIGINS = new Set([
 	"https://api.openai.com",
 	"https://api.anthropic.com",
-	"https://api.moonshot.cn",
-	"https://api.minimax.chat",
+	"https://api.moonshot.ai",
+	"https://api.minimax.io",
 	"https://api.deepseek.com",
 	"https://openrouter.ai",
 ]);
 
-function getSafeModelsUrl(modelsUrl: string): string {
+function getSafeModelsUrl(value: string): string {
 	let url: URL;
 	try {
-		url = new URL(modelsUrl);
+		url = new URL(value);
 	} catch {
 		throw new Error("Unsupported provider models endpoint");
 	}
-
-	if (!MODEL_ENDPOINT_ORIGINS.has(url.origin)) {
+	if (url.protocol !== "https:" || !MODEL_ENDPOINT_ORIGINS.has(url.origin))
 		throw new Error("Unsupported provider models endpoint");
-	}
-
 	return url.toString();
 }
 
 function cacheKey(
-	providerId: SupportedProvider,
-	credential: string,
-	includeFreeOnly: boolean,
+	provider: SupportedProvider,
+	key: string,
+	freeOnly: boolean,
 ): string {
-	const hash = createHash("sha256").update(credential).digest("hex");
-	return `${providerId}:${includeFreeOnly ? "free" : "all"}:${hash}`;
+	return `${provider}:${freeOnly ? "free" : "all"}:${createHash("sha256").update(key).digest("hex")}`;
 }
 
-function getCachedModels(
-	providerId: SupportedProvider,
-	credential: string,
-	includeFreeOnly: boolean,
-): ModelOption[] | null {
-	const entry = MODEL_LIST_CACHE.get(
-		cacheKey(providerId, credential, includeFreeOnly),
-	);
-	if (!entry || entry.expiresAt <= now()) return null;
-	return entry.models;
-}
-
-function setCachedModels(
-	providerId: SupportedProvider,
-	credential: string,
-	includeFreeOnly: boolean,
-	models: ModelOption[],
-) {
-	MODEL_LIST_CACHE.set(cacheKey(providerId, credential, includeFreeOnly), {
-		models,
-		expiresAt: now() + MODELS_BY_PROVIDER_TIMEOUT_MS,
-	});
+async function readBoundedProviderJson(response: Response): Promise<unknown> {
+	if (!response.body) throw new Error("Provider returned an empty response");
+	const declared = response.headers.get("content-length");
+	if (declared && Number(declared) > MAX_PROVIDER_RESPONSE_BYTES)
+		throw new Error("Provider response too large");
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > MAX_PROVIDER_RESPONSE_BYTES) {
+			await reader.cancel().catch(() => undefined);
+			throw new Error("Provider response too large");
+		}
+		chunks.push(value);
+	}
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	try {
+		return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+	} catch {
+		throw new Error("Provider returned invalid JSON");
+	}
 }
 
 const PROVIDERS: ProviderCatalogDefinition[] = [
@@ -311,17 +242,6 @@ const PROVIDERS: ProviderCatalogDefinition[] = [
 		},
 	},
 	{
-		id: "chatgpt",
-		label: "ChatGPT",
-		authMode: "oauth",
-		createModel: ({ apiKey, model }) =>
-			createOpenAI({ apiKey, baseURL: "https://api.openai.com/v1" })(model),
-		modelOptions: {
-			modelsUrl: "https://api.openai.com/v1/models",
-			includeOnlyFreeModels: false,
-		},
-	},
-	{
 		id: "anthropic",
 		label: "Anthropic",
 		authMode: "api_key",
@@ -329,6 +249,7 @@ const PROVIDERS: ProviderCatalogDefinition[] = [
 		modelOptions: {
 			modelsUrl: "https://api.anthropic.com/v1/models",
 			includeOnlyFreeModels: false,
+			authStyle: "anthropic",
 		},
 	},
 	{
@@ -336,20 +257,20 @@ const PROVIDERS: ProviderCatalogDefinition[] = [
 		label: "Kimi",
 		authMode: "api_key",
 		createModel: ({ apiKey, model }) =>
-			createOpenAI({ apiKey, baseURL: "https://api.moonshot.cn/v1" })(model),
+			createOpenAI({ apiKey, baseURL: "https://api.moonshot.ai/v1" })(model),
 		modelOptions: {
-			modelsUrl: "https://api.moonshot.cn/v1/models",
+			modelsUrl: "https://api.moonshot.ai/v1/models",
 			includeOnlyFreeModels: false,
 		},
 	},
 	{
 		id: "minimax",
-		label: "Minimax",
+		label: "MiniMax",
 		authMode: "api_key",
 		createModel: ({ apiKey, model }) =>
-			createOpenAI({ apiKey, baseURL: "https://api.minimax.chat/v1" })(model),
+			createOpenAI({ apiKey, baseURL: "https://api.minimax.io/v1" })(model),
 		modelOptions: {
-			modelsUrl: "https://api.minimax.chat/v1/models",
+			modelsUrl: "https://api.minimax.io/v1/models",
 			includeOnlyFreeModels: false,
 		},
 	},
@@ -389,10 +310,9 @@ const PROVIDERS: ProviderCatalogDefinition[] = [
 ];
 
 function getDefinition(provider: string): ProviderCatalogDefinition {
-	const definition = PROVIDERS.find((candidate) => candidate.id === provider);
-	if (!definition) {
-		throw new Error(`Unsupported provider: ${provider}`);
-	}
+	const normalized = provider.trim().toLowerCase();
+	const definition = PROVIDERS.find((item) => item.id === normalized);
+	if (!definition) throw new Error("Unsupported provider");
 	return definition;
 }
 
@@ -401,48 +321,37 @@ async function fetchModelsFromProvider(
 	credential: string,
 ): Promise<ModelOption[]> {
 	const key = fromSecret(credential);
-	if (!key) {
-		return [];
-	}
-
-	const cached = getCachedModels(
+	if (!key) return [];
+	const cacheId = cacheKey(
 		provider.id,
 		key,
 		provider.modelOptions.includeOnlyFreeModels,
 	);
+	const cached = MODEL_LIST_CACHE.get(cacheId);
 	if (cached) return cached;
-
-	const headers = {
-		Authorization: `Bearer ${key}`,
-		"Content-Type": "application/json",
-		...provider.modelOptions.requestHeaders,
-	};
-	const modelsUrl = getSafeModelsUrl(provider.modelOptions.modelsUrl);
-	const response = await fetch(modelsUrl, {
-		headers,
-		method: "GET",
-		cache: "no-store",
-		signal: AbortSignal.timeout(10_000),
-	} as RequestInit);
-
-	if (!response.ok) {
-		throw new Error(`Failed to load models for ${provider.label}`);
-	}
-
-	const payload = await response.json().catch(() => null);
-	const rawModels = extractModelList(payload);
-	const parsed = rawModels
-		.map((candidate) =>
-			normalizeCandidateModel(candidate, provider.modelOptions),
-		)
-		.filter((item): item is ModelOption => item !== null);
-	const models = dedupeModels(parsed);
-	setCachedModels(
-		provider.id,
-		key,
-		provider.modelOptions.includeOnlyFreeModels,
-		models,
+	const headers: Record<string, string> =
+		provider.modelOptions.authStyle === "anthropic"
+			? { "x-api-key": key, "anthropic-version": "2023-06-01" }
+			: { Authorization: `Bearer ${key}` };
+	Object.assign(headers, provider.modelOptions.requestHeaders);
+	const response = await fetch(
+		getSafeModelsUrl(provider.modelOptions.modelsUrl),
+		{
+			method: "GET",
+			headers,
+			cache: "no-store",
+			redirect: "error",
+			signal: AbortSignal.timeout(10_000),
+		},
 	);
+	if (!response.ok) throw new Error("Provider model request failed");
+	const payload = await readBoundedProviderJson(response);
+	const models = dedupeModels(
+		extractModelList(payload)
+			.map((item) => normalizeCandidate(item, provider.modelOptions))
+			.filter((item): item is ModelOption => item !== null),
+	);
+	MODEL_LIST_CACHE.set(cacheId, models);
 	return models;
 }
 
@@ -451,17 +360,14 @@ export async function listProviderOptions(input?: {
 }): Promise<ProviderOption[]> {
 	return Promise.all(
 		PROVIDERS.map(async (provider) => {
-			const secret = input?.providerSecrets?.[provider.id];
 			let models: ModelOption[] = [];
-
-			if (secret) {
+			const secret = input?.providerSecrets?.[provider.id];
+			if (secret)
 				try {
 					models = await fetchModelsFromProvider(provider, secret);
 				} catch {
 					models = [];
 				}
-			}
-
 			return {
 				id: provider.id,
 				label: provider.label,
@@ -481,8 +387,7 @@ export function createUserLanguageModel(input: {
 	model: string;
 	apiKey: string;
 }): LanguageModel {
-	const normalizedProvider = input.provider.toLowerCase().trim();
-	const definition = getProviderConfig(normalizedProvider);
+	const definition = getDefinition(input.provider);
 	return definition.createModel({
 		apiKey: fromSecret(input.apiKey),
 		model: input.model,
@@ -494,7 +399,7 @@ export async function fetchModelsFromProviderApi(
 	credential: string,
 	options?: { onlyOpenRouterFree?: boolean },
 ) {
-	const definition = getProviderConfig(provider);
+	const definition = getDefinition(provider);
 	if (definition.id === "openrouter" && options?.onlyOpenRouterFree) {
 		return fetchModelsFromProvider(
 			{
@@ -507,14 +412,9 @@ export async function fetchModelsFromProviderApi(
 			credential,
 		);
 	}
-
 	return fetchModelsFromProvider(definition, credential);
 }
 
-export function randomOAuthState(length = 32): string {
-	return randomBytes(length).toString("base64url");
-}
-
-export function sha256Base64Url(value: string): string {
-	return createHash("sha256").update(value).digest("base64url");
+export function clearProviderModelCacheForTests(): void {
+	MODEL_LIST_CACHE.clear();
 }

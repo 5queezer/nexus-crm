@@ -143,12 +143,12 @@ This document covers the Nexus AI operator console, its per-user model credentia
 - Tool names and kinds are server-defined.
 - Tool schemas constrain structured input.
 - Tool records store completion summaries and error codes rather than raw provider/MCP responses.
-- MCP proposal audit records omit unvalidated arguments and free-text rationale; only connector/tool identifiers and an omission marker are persisted before canonical schema and sensitive-field validation.
-- Accepted MCP proposals persist only canonical, size-bounded, sensitive-key-screened arguments.
+- MCP proposal audit records omit unvalidated arguments and free-text rationale; only connector/tool identifiers and an omission marker are persisted before connector lookup, discovery, canonical schema validation, and sensitive-key/value validation.
+- Accepted MCP proposals persist only canonical, size-bounded, sensitive-key-and-value-screened arguments.
 - Provider and connector credentials are omitted from metadata responses and model context.
 - Hidden chain-of-thought is not stored.
 
-**Residual risk:** User messages, application notes, and some structured tool inputs are intentionally persisted and may contain secrets pasted by the user. Nexus should display an explicit warning not to paste credentials, and future observability exports should apply field-level allowlists rather than broad event serialization.
+**Residual risk:** User messages and bounded application context are intentionally sent to the selected provider and persisted in Nexus; users can still paste secrets despite the in-product warning. Tool timeline serialization uses explicit metadata fields and omits tool inputs, and any future observability export must preserve field-level allowlists rather than broad event serialization.
 
 ### Supply-chain and provider risk
 

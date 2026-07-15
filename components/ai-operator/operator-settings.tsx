@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
 	Cable,
@@ -27,7 +27,8 @@ import {
 type SettingsProps = {
 	providers: ProviderOption[];
 	credentials: Credential[];
-	onCredentialsChange: (credentials: Credential[]) => void;
+	onCredentialUpsert: (credential: Credential) => void;
+	onCredentialRemove: (provider: Credential["provider"]) => void;
 	onClose: () => void;
 };
 
@@ -50,10 +51,23 @@ function inputClass() {
 	return "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-3 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-white/[0.04] dark:text-white dark:placeholder:text-slate-600";
 }
 
+function includeConfiguredModel(
+	items: ProviderOption["models"],
+	configuredModel?: string,
+): ProviderOption["models"] {
+	return configuredModel && !items.some((item) => item.id === configuredModel)
+		? [
+				{ id: configuredModel, label: configuredModel, description: "" },
+				...items,
+			]
+		: items;
+}
+
 export function OperatorSettings({
 	providers,
 	credentials,
-	onCredentialsChange,
+	onCredentialUpsert,
+	onCredentialRemove,
 	onClose,
 }: SettingsProps) {
 	const t = useTranslations("ai_operator");
@@ -88,11 +102,32 @@ export function OperatorSettings({
 		setLoadingTools(connector.id);
 		setError("");
 		try {
-			const result = await apiJson<{ tools: McpTool[] }>(
-				`/api/agent/connectors/${connector.id}/tools`,
-			);
+			const result = await apiJson<{
+				tools: McpTool[];
+				health: Pick<
+					Connector,
+					"lastCheckedAt" | "lastStatus" | "lastErrorCode"
+				>;
+			}>(`/api/agent/connectors/${connector.id}/tools`);
 			setTools((current) => ({ ...current, [connector.id]: result.tools }));
+			setConnectors((current) =>
+				current.map((item) =>
+					item.id === connector.id ? { ...item, ...result.health } : item,
+				),
+			);
 		} catch (reason) {
+			setConnectors((current) =>
+				current.map((item) =>
+					item.id === connector.id
+						? {
+								...item,
+								lastCheckedAt: new Date().toISOString(),
+								lastStatus: "failed",
+								lastErrorCode: "DISCOVERY_FAILED",
+							}
+						: item,
+				),
+			);
 			setError(reason instanceof Error ? reason.message : t("error_generic"));
 		} finally {
 			setLoadingTools(null);
@@ -236,19 +271,8 @@ export function OperatorSettings({
 								credential={credentials.find(
 									(item) => item.provider === provider.id,
 								)}
-								onSaved={(credential) =>
-									onCredentialsChange([
-										...credentials.filter(
-											(item) => item.provider !== credential.provider,
-										),
-										credential,
-									])
-								}
-								onDeleted={() =>
-									onCredentialsChange(
-										credentials.filter((item) => item.provider !== provider.id),
-									)
-								}
+								onSaved={onCredentialUpsert}
+								onDeleted={() => onCredentialRemove(provider.id)}
 							/>
 						))}
 					</div>
@@ -373,7 +397,7 @@ export function OperatorSettings({
 								>
 									<div className="flex items-center gap-3 p-3">
 										<span
-											className={`h-2 w-2 rounded-full ${connector.enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"}`}
+											className={`h-2 w-2 rounded-full ${!connector.enabled ? "bg-slate-300 dark:bg-slate-700" : connector.lastStatus === "failed" ? "bg-red-500" : connector.lastStatus === "healthy" ? "bg-emerald-500" : "bg-amber-400"}`}
 										/>
 										<button
 											aria-expanded={expandedConnector === connector.id}
@@ -392,7 +416,16 @@ export function OperatorSettings({
 													{connector.name}
 												</span>
 												<span className="block truncate text-[11px] text-slate-500">
-													{connector.url}
+													{connector.url} ·{" "}
+													{t(
+														!connector.enabled
+															? "connector_status_disabled"
+															: connector.lastStatus === "healthy"
+																? "connector_status_healthy"
+																: connector.lastStatus === "failed"
+																	? "connector_status_failed"
+																	: "connector_status_unchecked",
+													)}
 												</span>
 											</span>
 											{expandedConnector === connector.id ? (
@@ -480,15 +513,20 @@ function CredentialCard({
 	onDeleted: () => void;
 }) {
 	const t = useTranslations("ai_operator");
-	const authMode = provider.authMode ?? "api_key";
 	const [model, setModel] = useState(
 		credential?.defaultModel ?? provider.models[0]?.id ?? "",
 	);
 	const [manualModel, setManualModel] = useState(
 		credential?.defaultModel ?? "",
 	);
-	const [models, setModels] = useState(provider.models);
+	const configuredModel = credential?.defaultModel;
+	const [models, setModels] = useState(() =>
+		includeConfiguredModel(provider.models, configuredModel),
+	);
 	const [apiKey, setApiKey] = useState("");
+	const apiKeyRef = useRef("");
+	const discoveredKeyRef = useRef<string | null>(null);
+	const discoveryGeneration = useRef(0);
 	const [editing, setEditing] = useState(!credential);
 	const [busy, setBusy] = useState(false);
 	const [loadingModels, setLoadingModels] = useState(false);
@@ -497,17 +535,19 @@ function CredentialCard({
 		() => models.find((item) => item.id === model),
 		[model, models],
 	);
-	const isApiProvider = authMode === "api_key";
-
 	useEffect(() => {
-		setModel(credential?.defaultModel ?? provider.models[0]?.id ?? "");
-		setManualModel(credential?.defaultModel ?? "");
-		setModels(provider.models);
+		setModel(configuredModel ?? provider.models[0]?.id ?? "");
+		setManualModel(configuredModel ?? "");
+		setModels(includeConfiguredModel(provider.models, configuredModel));
 		setApiKey("");
-	}, [provider.id, provider.models, credential?.defaultModel]);
+		apiKeyRef.current = "";
+		discoveredKeyRef.current = null;
+		discoveryGeneration.current += 1;
+	}, [provider.id, provider.models, configuredModel]);
 
 	async function loadModels() {
-		if (!isApiProvider) return;
+		const requestedKey = apiKey.trim();
+		const generation = ++discoveryGeneration.current;
 		setLoadingModels(true);
 		setError("");
 		try {
@@ -518,19 +558,38 @@ function CredentialCard({
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
 						provider: provider.id,
-						...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+						...(requestedKey ? { apiKey: requestedKey } : {}),
 					}),
 				},
 			);
-			setModels(response.models);
-			if (response.models.length > 0) {
+			if (
+				generation !== discoveryGeneration.current ||
+				apiKeyRef.current.trim() !== requestedKey
+			)
+				return;
+			const nextModels = includeConfiguredModel(
+				response.models,
+				configuredModel,
+			);
+			discoveredKeyRef.current = requestedKey;
+			setModels(nextModels);
+			if (nextModels.length > 0) {
 				setManualModel("");
-				setModel(response.models[0]?.id ?? "");
+				setModel((current) =>
+					nextModels.some((item) => item.id === current)
+						? current
+						: (nextModels[0]?.id ?? ""),
+				);
 			}
 		} catch (reason) {
+			if (
+				generation !== discoveryGeneration.current ||
+				apiKeyRef.current.trim() !== requestedKey
+			)
+				return;
 			setError(reason instanceof Error ? reason.message : t("error_generic"));
 		} finally {
-			setLoadingModels(false);
+			if (generation === discoveryGeneration.current) setLoadingModels(false);
 		}
 	}
 
@@ -540,7 +599,7 @@ function CredentialCard({
 			setError(t("model_placeholder"));
 			return;
 		}
-		if (isApiProvider && apiKey.trim().length < 8) {
+		if (!credential && apiKey.trim().length < 8) {
 			setError(t("api_key_placeholder"));
 			return;
 		}
@@ -556,12 +615,15 @@ function CredentialCard({
 					body: JSON.stringify({
 						provider: provider.id,
 						model: resolvedModel,
-						...(isApiProvider ? { apiKey: apiKey } : {}),
+						...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
 					}),
 				},
 			);
 			onSaved(result.credential);
 			setApiKey("");
+			apiKeyRef.current = "";
+			discoveredKeyRef.current = null;
+			discoveryGeneration.current += 1;
 			setEditing(false);
 			setManualModel(result.credential.defaultModel);
 			setModel(result.credential.defaultModel);
@@ -580,6 +642,9 @@ function CredentialCard({
 				method: "DELETE",
 			});
 			onDeleted();
+			apiKeyRef.current = "";
+			discoveredKeyRef.current = null;
+			discoveryGeneration.current += 1;
 			setEditing(true);
 			setModel("");
 		} catch (reason) {
@@ -615,7 +680,7 @@ function CredentialCard({
 						</p>
 					</div>
 				</div>
-				{credential && !editing && isApiProvider && (
+				{credential && !editing && (
 					<button
 						onClick={() => setEditing(true)}
 						className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
@@ -623,16 +688,8 @@ function CredentialCard({
 						{t("edit")}
 					</button>
 				)}
-				{credential && !editing && !isApiProvider && (
-					<button
-						onClick={remove}
-						className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-					>
-						{t("remove")}
-					</button>
-				)}
 			</div>
-			{isApiProvider && editing && (
+			{editing && (
 				<div className="mt-4 space-y-3">
 					<div className="flex items-center gap-2">
 						<select
@@ -681,14 +738,33 @@ function CredentialCard({
 					)}
 				</div>
 			)}
-			{isApiProvider && editing && (
+			{editing && (
 				<>
 					<input
 						aria-label={t("api_key_label", { provider: provider.label })}
 						className={inputClass()}
 						type="password"
 						value={apiKey}
-						onChange={(event) => setApiKey(event.target.value)}
+						onChange={(event) => {
+							const nextKey = event.target.value;
+							apiKeyRef.current = nextKey;
+							discoveryGeneration.current += 1;
+							setLoadingModels(false);
+							if (
+								discoveredKeyRef.current !== null &&
+								nextKey.trim() !== discoveredKeyRef.current
+							) {
+								const defaultModels = includeConfiguredModel(
+									provider.models,
+									configuredModel,
+								);
+								discoveredKeyRef.current = null;
+								setModels(defaultModels);
+								setModel(configuredModel ?? defaultModels[0]?.id ?? "");
+								setManualModel(configuredModel ?? "");
+							}
+							setApiKey(nextKey);
+						}}
 						placeholder={t("api_key_placeholder")}
 						autoComplete="off"
 					/>
@@ -703,13 +779,15 @@ function CredentialCard({
 					</button>
 				</>
 			)}
-			{isApiProvider && !editing && (
+			{!editing && (
 				<p className="mt-4 text-[11px] text-slate-500">{t("manual_hint")}</p>
 			)}
-			{editing && isApiProvider && (
+			{editing && (
 				<>
 					{error && (
-						<p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+						<p role="alert" className="text-xs text-red-600 dark:text-red-400">
+							{error}
+						</p>
 					)}
 					<div className="flex items-center justify-between">
 						<div>
@@ -740,7 +818,8 @@ function CredentialCard({
 									(models.length > 0
 										? !model
 										: manualModel.trim().length < 1) ||
-									apiKey.trim().length < 8
+									loadingModels ||
+									(!credential && apiKey.trim().length < 8)
 								}
 								className="flex h-9 items-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-40 dark:bg-indigo-500"
 							>
@@ -754,11 +833,6 @@ function CredentialCard({
 						</div>
 					</div>
 				</>
-			)}
-			{!isApiProvider && (
-				<div className="mt-3 text-xs text-slate-500">
-					{credential ? credential.defaultModel : t("oauth_configure_hint")}
-				</div>
 			)}
 		</div>
 	);

@@ -26,6 +26,14 @@ vi.mock("@/lib/agent/credentials", () => ({
 }));
 
 vi.mock("@/lib/agent/providers", () => ({
+	SUPPORTED_PROVIDERS: [
+		"openai",
+		"anthropic",
+		"kimi",
+		"minimax",
+		"deepseek",
+		"openrouter",
+	],
 	getProviderConfig: mocks.getProviderConfig,
 	listProviderOptions: mocks.listProviderOptions,
 }));
@@ -49,7 +57,7 @@ describe("/api/agent/credentials", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.requireAuth.mockResolvedValue(session);
-		mocks.requireSessionAuth.mockImplementation(async (options) => {
+		mocks.requireSessionAuth.mockImplementation(async (options: unknown) => {
 			const authResult = await mocks.requireAuth(options);
 			return authResult?.authType === "session" ? authResult : null;
 		});
@@ -83,7 +91,7 @@ describe("/api/agent/credentials", () => {
 				models: [{ id: "claude", label: "Claude", description: "" }],
 			},
 		]);
-		mocks.getProviderConfig.mockImplementation((provider) => ({
+		mocks.getProviderConfig.mockImplementation((provider: string) => ({
 			id: String(provider),
 			authMode: "api_key",
 			label: provider,
@@ -119,6 +127,8 @@ describe("/api/agent/credentials", () => {
 		expect(body.credentials).toHaveLength(1);
 		expect(body.credentials[0].keyHint).toBe("••••1234");
 		expect(JSON.stringify(body)).not.toContain("apiKey");
+		expect(mocks.getCredentialSecret).not.toHaveBeenCalled();
+		expect(mocks.listProviderOptions).toHaveBeenCalledWith();
 	});
 
 	it("stores a credential for the authenticated user without echoing the submitted key", async () => {
@@ -150,6 +160,45 @@ describe("/api/agent/credentials", () => {
 		);
 		expect(mocks.getProviderConfig).toHaveBeenCalledWith("openai");
 		expect(JSON.stringify(body)).not.toContain("sk-super-secret");
+	});
+
+	it("allows updating an existing model without resubmitting the key", async () => {
+		mocks.getCredentialMetadata.mockResolvedValue({
+			id: "cred-1",
+			provider: "openai",
+			defaultModel: "old",
+			keyHint: "••••1234",
+			status: "configured",
+		});
+		mocks.saveCredential.mockResolvedValue({
+			id: "cred-1",
+			provider: "openai",
+			defaultModel: "new",
+			keyHint: "••••1234",
+			status: "configured",
+		});
+		const response = await PUT(
+			new Request("http://localhost/api/agent/credentials", {
+				method: "PUT",
+				body: JSON.stringify({ provider: "OPENAI", model: "new" }),
+			}),
+		);
+		expect(response.status).toBe(200);
+		expect(mocks.saveCredential).toHaveBeenCalledWith(
+			expect.anything(),
+			"user-a",
+			{ provider: "openai", model: "new" },
+		);
+	});
+
+	it("requires a key for first-time configuration", async () => {
+		const response = await PUT(
+			new Request("http://localhost/api/agent/credentials", {
+				method: "PUT",
+				body: JSON.stringify({ provider: "openai", model: "new" }),
+			}),
+		);
+		expect(response.status).toBe(400);
 	});
 
 	it("deletes only the authenticated user's provider credential", async () => {

@@ -6,12 +6,22 @@ import {
 	prismaCredentialRepository,
 } from "@/lib/agent/credentials";
 import {
+	SUPPORTED_PROVIDERS,
 	fetchModelsFromProviderApi,
-	getProviderConfig,
 } from "@/lib/agent/providers";
+import {
+	agentRequestErrorResponse,
+	readBoundedJson,
+} from "@/lib/agent/request";
 
 const querySchema = z.object({
-	provider: z.string().trim().min(1).max(32),
+	provider: z
+		.string()
+		.trim()
+		.toLowerCase()
+		.refine((value: string) => SUPPORTED_PROVIDERS.includes(value as never), {
+			message: "Unsupported provider",
+		}),
 	apiKey: z.string().trim().min(8).max(8192).optional(),
 	freeOnly: z.boolean().optional(),
 });
@@ -26,78 +36,53 @@ export async function POST(request: Request) {
 	if (!userId)
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-	const parsed = querySchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) {
+	let body: unknown;
+	try {
+		body = await readBoundedJson(request);
+	} catch (error) {
+		return (
+			agentRequestErrorResponse(error) ??
+			NextResponse.json(
+				{ error: "Invalid provider model request" },
+				{ status: 400 },
+			)
+		);
+	}
+	const parsed = querySchema.safeParse(body);
+	if (!parsed.success)
 		return NextResponse.json(
 			{ error: "Invalid provider model request" },
 			{ status: 400 },
 		);
-	}
 
-	const providerConfig = getProviderConfig(parsed.data.provider);
-	const credential = await loadCredentialSecret(
-		prismaCredentialRepository,
-		userId,
-		parsed.data.provider,
-	);
-
-	if (providerConfig.authMode === "oauth") {
-		if (!credential) {
+	let key = parsed.data.apiKey;
+	if (!key) {
+		try {
+			key = (
+				await loadCredentialSecret(
+					prismaCredentialRepository,
+					userId,
+					parsed.data.provider,
+				)
+			)?.apiKey;
+		} catch {
 			return NextResponse.json(
-				{ error: "Use the provider OAuth flow to configure credentials first" },
+				{ error: "Stored provider credential could not be read" },
 				{ status: 400 },
 			);
 		}
-		if (parsed.data.apiKey) {
-			try {
-				const response = await fetchModelsFromProviderApi(
-					providerConfig.id,
-					parsed.data.apiKey,
-					{ onlyOpenRouterFree: parsed.data.freeOnly },
-				);
-				return NextResponse.json({ models: response });
-			} catch {
-				return NextResponse.json(
-					{ error: "Could not fetch models" },
-					{ status: 502 },
-				);
-			}
-		}
-		try {
-			const response = await fetchModelsFromProviderApi(
-				providerConfig.id,
-				credential.apiKey,
-				{ onlyOpenRouterFree: parsed.data.freeOnly },
-			);
-			return NextResponse.json({ models: response });
-		} catch {
-			return NextResponse.json(
-				{ error: "Could not fetch models" },
-				{ status: 502 },
-			);
-		}
 	}
-
-	if (!parsed.data.apiKey && !credential) {
+	if (!key)
 		return NextResponse.json(
 			{ error: "API key is required for this provider" },
 			{ status: 400 },
 		);
-	}
-
-	const key = parsed.data.apiKey ?? credential?.apiKey;
-	if (!key) {
-		return NextResponse.json(
-			{ error: "Unable to resolve provider credential" },
-			{ status: 500 },
-		);
-	}
 
 	try {
-		const response = await fetchModelsFromProviderApi(providerConfig.id, key, {
+		const models = await fetchModelsFromProviderApi(parsed.data.provider, key, {
 			onlyOpenRouterFree: parsed.data.freeOnly,
 		});
-		return NextResponse.json({ models: response });
+		return NextResponse.json({ models });
 	} catch {
 		return NextResponse.json(
 			{ error: "Could not fetch models" },
