@@ -131,19 +131,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const tokens = await exchangeRefreshToken({
+    // RFC 6749 §6: an optional `scope` on refresh may narrow but never widen the
+    // grant. Pass it through so a client that asks for a scope beyond its grant
+    // is told to re-authorize rather than silently handed a narrower token.
+    const requestedScopes = params.get("scope")?.split(" ").filter(Boolean);
+
+    const result = await exchangeRefreshToken({
       refreshToken,
       clientId,
+      requestedScopes,
     });
 
-    if (!tokens) {
+    if ("error" in result) {
+      // RFC 6749 §5.2: both invalid_grant and invalid_scope are 400 responses.
       return NextResponse.json(
-        { error: "invalid_grant", error_description: "Invalid or expired refresh token" },
+        { error: result.error, error_description: result.error_description },
         { status: 400 }
       );
     }
 
-    return NextResponse.json(tokens, {
+    return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },
     });
   }
