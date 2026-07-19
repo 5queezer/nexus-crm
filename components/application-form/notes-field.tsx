@@ -6,6 +6,7 @@ interface NotesFieldProps {
   value: string;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   size: "compact" | "large";
+  showLabel?: boolean;
 }
 
 /**
@@ -13,14 +14,21 @@ interface NotesFieldProps {
  * content where supported; the `min-h-*` + `resize-y` fallback keeps a
  * generous, manually resizable area everywhere else.
  */
-export function NotesField({ value, onChange, size }: NotesFieldProps) {
+export function NotesField({
+  value,
+  onChange,
+  size,
+  showLabel = true,
+}: NotesFieldProps) {
   const t = useTranslations("modal");
 
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-        {t("notes")}
-      </label>
+      {showLabel && (
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          {t("notes")}
+        </label>
+      )}
       <textarea
         name="notes"
         value={value}
