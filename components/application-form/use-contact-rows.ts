@@ -47,6 +47,7 @@ export function useContactRows(
     setContacts((prev) => [
       ...prev,
       {
+        clientId: crypto.randomUUID(),
         name: "",
         email: "",
         role: "",
@@ -60,14 +61,17 @@ export function useContactRows(
   async function saveContact(idx: number) {
     const c = contacts[idx];
     if (!c.name.trim()) return;
+    // Rows can be added/removed while the request is in flight, so target
+    // the stable clientId in every post-await updater instead of the index.
+    const clientId = c.clientId;
     setContactError(null);
     setSavingContactIdx(idx);
     try {
       if (c.isNew && !applicationId) {
         // Will be saved after application creation; just mark not dirty
         setContacts((prev) =>
-          prev.map((row, i) =>
-            i === idx ? { ...row, isDirty: false } : row,
+          prev.map((row) =>
+            row.clientId === clientId ? { ...row, isDirty: false } : row,
           ),
         );
         return;
@@ -81,8 +85,8 @@ export function useContactRows(
           linkedIn: c.linkedIn,
         });
         setContacts((prev) =>
-          prev.map((row, i) =>
-            i === idx
+          prev.map((row) =>
+            row.clientId === clientId
               ? { ...row, id: saved.id, isDirty: false, isNew: false }
               : row,
           ),
@@ -96,7 +100,9 @@ export function useContactRows(
           linkedIn: c.linkedIn,
         });
         setContacts((prev) =>
-          prev.map((row, i) => (i === idx ? { ...row, isDirty: false } : row)),
+          prev.map((row) =>
+            row.clientId === clientId ? { ...row, isDirty: false } : row,
+          ),
         );
         queryClient.invalidateQueries({ queryKey: ["applications"] });
       }
@@ -109,15 +115,16 @@ export function useContactRows(
 
   async function removeContact(idx: number) {
     const c = contacts[idx];
+    const clientId = c.clientId;
     setContactError(null);
     if (c.isNew || !c.id || !applicationId) {
-      setContacts((prev) => prev.filter((_, i) => i !== idx));
+      setContacts((prev) => prev.filter((row) => row.clientId !== clientId));
       return;
     }
     setDeletingContactId(c.id);
     try {
       await deleteContact(applicationId, c.id);
-      setContacts((prev) => prev.filter((_, i) => i !== idx));
+      setContacts((prev) => prev.filter((row) => row.clientId !== clientId));
       queryClient.invalidateQueries({ queryKey: ["applications"] });
     } catch {
       setContactError(t("error_contact"));

@@ -34,7 +34,7 @@ export function ContactsSection({
       )}
       {contacts.map((c, idx) => (
         <div
-          key={c.id ?? `new-${idx}`}
+          key={c.clientId}
           className="space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 dark:border-white/8 dark:bg-white/4"
         >
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

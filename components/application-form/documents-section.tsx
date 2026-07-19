@@ -56,7 +56,7 @@ function DocShareButton({
     }
 
     try {
-      navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(url);
     } catch {
       const ta = document.createElement("textarea");
       ta.value = url;

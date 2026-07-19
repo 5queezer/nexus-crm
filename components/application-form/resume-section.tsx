@@ -9,16 +9,19 @@ import { CollapsibleCard, SectionCard } from "./section-card";
 interface TailoredResume {
   resumeId: string;
   editUrl: string;
+  updatedAt?: string;
 }
 
 export function ResumeSection({
   applicationId,
   resumeId,
   variant = "collapsible",
+  onApplicationUpdated,
 }: {
   applicationId: string;
   resumeId: string | null;
   variant?: "collapsible" | "open";
+  onApplicationUpdated?: (updatedAt: string) => void;
 }) {
   const t = useTranslations("modal");
   const queryClient = useQueryClient();
@@ -65,6 +68,9 @@ export function ResumeSection({
       const resume = (await res.json()) as TailoredResume;
       setTailoredResume(resume);
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      // Creating the resume link advanced the application's updatedAt; let
+      // the host refresh its optimistic-concurrency baseline.
+      if (resume.updatedAt) onApplicationUpdated?.(resume.updatedAt);
     } catch {
       setError(t("resume_error"));
     } finally {

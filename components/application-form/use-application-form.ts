@@ -44,6 +44,14 @@ export function useApplicationForm(application: Application | null) {
     setBaselineUpdatedAt(saved.updatedAt);
   }
 
+  /**
+   * Adopt a server-side updatedAt produced outside the form (e.g. tailoring
+   * a resume), so the next save does not collide with a stale baseline.
+   */
+  function refreshBaselineUpdatedAt(updatedAt: string) {
+    setBaselineUpdatedAt(updatedAt);
+  }
+
   return {
     form,
     setForm,
@@ -52,5 +60,6 @@ export function useApplicationForm(application: Application | null) {
     isDirty: !shallowEqualForm(form, baseline),
     baselineUpdatedAt,
     markSaved,
+    refreshBaselineUpdatedAt,
   };
 }

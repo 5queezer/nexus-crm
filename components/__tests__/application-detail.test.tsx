@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/types";
+import { authClient } from "@/lib/auth-client";
 import { ApplicationDetail } from "../application-detail";
 
 vi.mock("next-intl", () => ({
@@ -295,5 +296,95 @@ describe("ApplicationDetail", () => {
     navLink.dispatchEvent(blockedClick);
     expect(confirmSpy).toHaveBeenCalledWith("leave_confirm");
     expect(blockedClick.defaultPrevented).toBe(true);
+  });
+
+  it("renews the save baseline after tailoring a resume", async () => {
+    const patchBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/tailor")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resumeId: "resume-new",
+              editUrl: "https://resume.example/edit/resume-new",
+              updatedAt: "2026-07-03T00:00:00.000Z",
+            }),
+          } as Response;
+        }
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          patchBodies.push(body);
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ...fixtureApplication(),
+              notes: body.notes,
+              updatedAt: "2026-07-04T00:00:00.000Z",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication({ resumeId: null }));
+
+    await user.click(screen.getByRole("button", { name: "resume_tailor" }));
+    await screen.findByRole("button", { name: "resume_open" });
+
+    await user.type(notesTextarea(), " nach Tailoring");
+    await user.click(saveButtons()[0]);
+
+    // Without the refreshed baseline this would be the stale fixture
+    // timestamp and the server would answer 409.
+    await waitFor(() => expect(patchBodies.length).toBe(1));
+    expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-03T00:00:00.000Z");
+  });
+
+  it("vetoes browser history navigation while edits are unsaved", async () => {
+    const confirmSpy = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const pushStateSpy = vi.spyOn(window.history, "pushState");
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+
+    window.dispatchEvent(new Event("popstate"));
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    await user.type(notesTextarea(), " ungespeichert");
+    window.dispatchEvent(new Event("popstate"));
+    expect(confirmSpy).toHaveBeenCalledWith("leave_confirm");
+    expect(pushStateSpy).toHaveBeenCalledWith(
+      null,
+      "",
+      "/applications/application-1",
+    );
+  });
+
+  it("confirms before logging out with unsaved edits", async () => {
+    const confirmSpy = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+
+    await user.type(notesTextarea(), " ungespeichert");
+    await user.click(screen.getAllByRole("button", { name: "account_menu" })[0]);
+    await user.click(await screen.findByRole("menuitem", { name: "logout" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("leave_confirm");
+    expect(authClient.signOut).not.toHaveBeenCalled();
   });
 });

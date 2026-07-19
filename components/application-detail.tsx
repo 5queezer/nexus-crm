@@ -48,6 +48,7 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
     isDirty: formDirty,
     baselineUpdatedAt,
     markSaved,
+    refreshBaselineUpdatedAt,
   } = useApplicationForm(application);
   const contactRows = useContactRows(application.id, application.contacts);
   // Contact rows persist individually; unsaved row edits must still guard
@@ -117,6 +118,21 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
     return () => document.removeEventListener("click", handleClick, true);
   }, [hasUnsavedChanges, td]);
 
+  // Veto browser Back/Forward while dirty: the app router treats those as
+  // client-side history navigation, so neither beforeunload nor the click
+  // guard fires. Listening in the capture phase lets us decline before
+  // Next's own popstate handler and re-push the detail URL.
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    function handlePopState(event: PopStateEvent) {
+      if (window.confirm(td("leave_confirm"))) return;
+      event.stopImmediatePropagation();
+      window.history.pushState(null, "", `/applications/${application.id}`);
+    }
+    window.addEventListener("popstate", handlePopState, true);
+    return () => window.removeEventListener("popstate", handlePopState, true);
+  }, [hasUnsavedChanges, td, application.id]);
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
@@ -134,7 +150,14 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
 
   return (
     <div className="nexus-shell">
-      <AppHeader user={user} />
+      <AppHeader
+        user={user}
+        onBeforeLogout={
+          hasUnsavedChanges
+            ? () => window.confirm(td("leave_confirm"))
+            : undefined
+        }
+      />
       <main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <form onSubmit={handleSubmit}>
           {/* Title row — sticky on desktop, plain flow on mobile */}
@@ -241,6 +264,7 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
               applicationId={application.id}
               resumeId={application.resumeId}
               variant="open"
+              onApplicationUpdated={refreshBaselineUpdatedAt}
             />
           </div>
 

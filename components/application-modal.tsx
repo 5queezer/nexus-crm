@@ -87,8 +87,14 @@ export function ApplicationModal({ onClose, onCreated }: ApplicationModalProps) 
   const createMutation = useMutation({
     mutationFn: createApplication,
     onSuccess: async (newApp) => {
-      // save any new contacts to the newly created application before leaving
-      await contactRows.persistPending(newApp.id);
+      // Save buffered contacts to the new application before leaving. A
+      // failure here must not mask the successful create (or invite a
+      // duplicate submission) — contacts can be re-added on the detail page.
+      try {
+        await contactRows.persistPending(newApp.id);
+      } catch {
+        // continue with the created application
+      }
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       if (onCreated) {
         onCreated(newApp);

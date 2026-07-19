@@ -33,6 +33,8 @@ export interface ApplicationFormData {
 }
 
 export interface ContactFormRow {
+  /** Stable identity so async updaters never target a shifted array index. */
+  clientId: string;
   id?: string; // set when persisted
   name: string;
   email: string;
@@ -138,9 +140,16 @@ export async function updateApplication(
   return res.json();
 }
 
+export interface ContactPayload {
+  name: string;
+  email: string;
+  role: string;
+  linkedIn: string;
+}
+
 export async function createContact(
   applicationId: string,
-  contact: Omit<ContactFormRow, "isDirty" | "isNew" | "id">,
+  contact: ContactPayload,
 ): Promise<Contact> {
   const res = await fetch(`/api/applications/${applicationId}/contacts`, {
     method: "POST",
@@ -183,6 +192,7 @@ export async function deleteContact(
 
 export function contactToRow(c: Contact): ContactFormRow {
   return {
+    clientId: c.id,
     id: c.id,
     name: c.name,
     email: c.email || "",
