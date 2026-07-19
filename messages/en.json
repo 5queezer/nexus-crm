@@ -91,7 +91,6 @@
   },
   "modal": {
     "title_new": "New Opportunity",
-    "title_edit": "Edit Opportunity",
     "company": "Account",
     "company_placeholder": "e.g. Acme Corp",
     "role": "Opportunity",

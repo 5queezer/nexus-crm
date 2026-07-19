@@ -4,11 +4,7 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Application } from "@/types";
-import {
-  createApplication,
-  updateApplication,
-  type ApplicationFormData,
-} from "./application-form/form-data";
+import { createApplication } from "./application-form/form-data";
 import { useApplicationForm } from "./application-form/use-application-form";
 import { useContactRows } from "./application-form/use-contact-rows";
 import { CoreFieldsSection } from "./application-form/core-fields-section";
@@ -17,20 +13,17 @@ import { NotesField } from "./application-form/notes-field";
 import { JobDescriptionSection } from "./application-form/job-description-section";
 import { TriageSection } from "./application-form/triage-section";
 import { ContactsSection } from "./application-form/contacts-section";
-import { DocumentsSection } from "./application-form/documents-section";
-import { ResumeSection } from "./application-form/resume-section";
 
 interface ApplicationModalProps {
-  application: Application | null;
   onClose: () => void;
   onCreated?: (application: Application) => void;
 }
 
-export function ApplicationModal({
-  application,
-  onClose,
-  onCreated,
-}: ApplicationModalProps) {
+/**
+ * Quick-create dialog. Editing lives on the `/applications/[id]` detail page;
+ * `onCreated` lets the caller navigate there once the record exists.
+ */
+export function ApplicationModal({ onClose, onCreated }: ApplicationModalProps) {
   const queryClient = useQueryClient();
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -39,13 +32,9 @@ export function ApplicationModal({
   });
   const t = useTranslations("modal");
   const ta = useTranslations("actions");
-  const isEditing = !!application;
 
-  const { form, handleChange, patch } = useApplicationForm(application);
-  const contactRows = useContactRows(
-    application?.id ?? null,
-    application?.contacts,
-  );
+  const { form, handleChange, patch } = useApplicationForm(null);
+  const contactRows = useContactRows(null, undefined);
 
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,17 +99,7 @@ export function ApplicationModal({
     onError: () => setError(t("error_create")),
   });
 
-  const updateMutation = useMutation({
-    mutationFn: (data: ApplicationFormData) =>
-      updateApplication(application!.id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["applications"] });
-      onClose();
-    },
-    onError: () => setError(t("error_update")),
-  });
-
-  const isPending = createMutation.isPending || updateMutation.isPending;
+  const isPending = createMutation.isPending;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -131,11 +110,7 @@ export function ApplicationModal({
       return;
     }
 
-    if (isEditing) {
-      updateMutation.mutate(form);
-    } else {
-      createMutation.mutate(form);
-    }
+    createMutation.mutate(form);
   }
 
   return (
@@ -163,7 +138,7 @@ export function ApplicationModal({
               id="application-modal-title"
               className="pr-2 text-base font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8] sm:text-lg"
             >
-              {isEditing ? t("title_edit") : t("title_new")}
+              {t("title_new")}
             </h2>
           </div>
           <button
@@ -215,28 +190,12 @@ export function ApplicationModal({
           <JobDescriptionSection
             value={form.jobDescription}
             onChange={handleChange}
-            applicationId={application?.id ?? null}
+            applicationId={null}
           />
 
           <TriageSection form={form} patch={patch} />
 
           <ContactsSection state={contactRows} />
-
-          {/* Documents — only when editing */}
-          {isEditing && (
-            <DocumentsSection
-              applicationId={application!.id}
-              resumeId={application!.resumeId}
-            />
-          )}
-
-          {/* Resume — only when editing */}
-          {isEditing && (
-            <ResumeSection
-              applicationId={application!.id}
-              resumeId={application!.resumeId}
-            />
-          )}
 
           {/* Actions */}
           <div className="nexus-safe-bottom sticky bottom-0 -mx-4 -mb-4 flex gap-3 border-t border-slate-200/80 bg-white/90 p-4 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/90 sm:-mx-6 sm:-mb-6 sm:p-6">
@@ -257,8 +216,6 @@ export function ApplicationModal({
                   <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                   {ta("saving")}
                 </span>
-              ) : isEditing ? (
-                ta("save")
               ) : (
                 ta("add")
               )}

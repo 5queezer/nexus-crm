@@ -91,7 +91,6 @@
   },
   "modal": {
     "title_new": "Neue Opportunity",
-    "title_edit": "Opportunity bearbeiten",
     "company": "Kunde",
     "company_placeholder": "z.B. Google",
     "role": "Projekt",

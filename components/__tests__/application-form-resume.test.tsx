@@ -4,46 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Application } from "@/types";
-import { ApplicationModal } from "../application-modal";
+import { DocumentsSection } from "../application-form/documents-section";
+import { ResumeSection } from "../application-form/resume-section";
 
 vi.mock("next-intl", () => ({
   useLocale: () => "en",
   useTranslations: () => (key: string) => key,
 }));
 
-function application(resumeId: string | null): Application {
-  return {
-    id: "application-1",
-    company: "Acme",
-    role: "Engineer",
-    status: "applied",
-    appliedAt: null,
-    lastContact: null,
-    followUpAt: null,
-    notes: null,
-    jobDescription: null,
-    source: null,
-    remote: false,
-    salaryMin: null,
-    salaryMax: null,
-    rating: null,
-    jobUrl: null,
-    resumeId,
-    companySize: null,
-    salaryBandMentioned: false,
-    triageQuality: null,
-    triageReason: null,
-    incomingSource: null,
-    autoRejected: false,
-    autoRejectReason: null,
-    archivedAt: null,
-    createdAt: "2026-07-01T00:00:00.000Z",
-    updatedAt: "2026-07-01T00:00:00.000Z",
-  };
-}
-
-function renderModal(resumeId: string | null) {
+function renderSections(resumeId: string | null) {
   return render(
     <QueryClientProvider
       client={
@@ -52,12 +21,13 @@ function renderModal(resumeId: string | null) {
         })
       }
     >
-      <ApplicationModal application={application(resumeId)} onClose={vi.fn()} />
+      <DocumentsSection applicationId="application-1" resumeId={resumeId} />
+      <ResumeSection applicationId="application-1" resumeId={resumeId} />
     </QueryClientProvider>,
   );
 }
 
-describe("ApplicationModal tailored resume identity", () => {
+describe("Application form resume sections", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "requestAnimationFrame",
@@ -72,7 +42,6 @@ describe("ApplicationModal tailored resume identity", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     document.body.replaceChildren();
-    document.body.style.overflow = "";
   });
 
   it("switches from tailor to resume state immediately after creating a resume", async () => {
@@ -95,7 +64,7 @@ describe("ApplicationModal tailored resume identity", () => {
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
     const user = userEvent.setup();
-    renderModal(null);
+    renderSections(null);
 
     await user.click(screen.getByRole("button", { name: "resume_section" }));
     await user.click(screen.getByRole("button", { name: "resume_tailor" }));
@@ -106,7 +75,7 @@ describe("ApplicationModal tailored resume identity", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
-  it("preserves the returned edit URL for an existing resume in the mounted modal", async () => {
+  it("preserves the returned edit URL for an existing resume in the mounted section", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).endsWith("/documents")) {
         return { ok: true, json: async () => [] } as Response;
@@ -122,7 +91,7 @@ describe("ApplicationModal tailored resume identity", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    renderModal("resume-existing");
+    renderSections("resume-existing");
 
     await waitFor(() =>
       expect(
@@ -154,7 +123,7 @@ describe("ApplicationModal tailored resume identity", () => {
       }),
     );
     const user = userEvent.setup();
-    renderModal("resume-existing");
+    renderSections("resume-existing");
 
     await user.click(screen.getByRole("button", { name: /documents_section/ }));
 
