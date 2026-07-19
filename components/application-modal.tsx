@@ -23,11 +23,13 @@ import { ResumeSection } from "./application-form/resume-section";
 interface ApplicationModalProps {
   application: Application | null;
   onClose: () => void;
+  onCreated?: (application: Application) => void;
 }
 
 export function ApplicationModal({
   application,
   onClose,
+  onCreated,
 }: ApplicationModalProps) {
   const queryClient = useQueryClient();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -96,9 +98,13 @@ export function ApplicationModal({
   const createMutation = useMutation({
     mutationFn: createApplication,
     onSuccess: async (newApp) => {
-      // save any new contacts to newly created application
+      // save any new contacts to the newly created application before leaving
       await contactRows.persistPending(newApp.id);
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      if (onCreated) {
+        onCreated(newApp);
+        return;
+      }
       onClose();
     },
     onError: () => setError(t("error_create")),
