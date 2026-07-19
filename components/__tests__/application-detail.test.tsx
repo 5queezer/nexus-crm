@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/types";
 import { ApplicationDetail } from "../application-detail";
@@ -15,6 +16,22 @@ vi.mock("next-intl", () => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => "/applications/application-1",
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
+// Render links as plain anchors so navigation clicks stay observable in the
+// test environment without pulling in the app router.
+vi.mock("next/link", () => ({
+  __esModule: true,
+  default: (
+    props: { href: string; children?: ReactNode } & AnchorHTMLAttributes<HTMLAnchorElement>,
+  ) => {
+    const { href, children, ...rest } = props;
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    );
+  },
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -200,5 +217,83 @@ describe("ApplicationDetail", () => {
     expect(notesTextarea().value).toBe("Erste Notiz wichtig");
     // The form stays dirty so the user can retry or reload deliberately.
     expect(saveButtons()[0].disabled).toBe(false);
+  });
+
+  it("guards internal navigation while the form has unsaved edits", async () => {
+    const confirmSpy = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+
+    const navLink = screen.getAllByRole("link", { name: "documents" })[0];
+
+    // Clean form: no prompt, nothing prevented.
+    const cleanClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    navLink.dispatchEvent(cleanClick);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(cleanClick.defaultPrevented).toBe(false);
+
+    await user.type(notesTextarea(), " ungespeichert");
+
+    const blockedClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    navLink.dispatchEvent(blockedClick);
+    expect(confirmSpy).toHaveBeenCalledWith("leave_confirm");
+    expect(blockedClick.defaultPrevented).toBe(true);
+  });
+
+  it("treats unsaved contact-row edits as unsaved changes", async () => {
+    const confirmSpy = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmSpy);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(
+      fixtureApplication({
+        contacts: [
+          {
+            id: "contact-1",
+            name: "Max",
+            email: null,
+            phone: null,
+            role: null,
+            linkedIn: null,
+            applicationId: "application-1",
+            createdAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    // The application form itself is untouched: no hint, main save disabled.
+    expect(saveButtons()[0].disabled).toBe(true);
+    expect(screen.queryByText("unsaved")).toBeNull();
+
+    await user.type(screen.getByPlaceholderText("contact_name_placeholder"), "x");
+
+    expect(screen.getAllByText("unsaved").length).toBeGreaterThan(0);
+    // Contact rows persist via their own save button, so the main save
+    // stays disabled — but navigation is guarded.
+    expect(saveButtons()[0].disabled).toBe(true);
+
+    const navLink = screen.getAllByRole("link", { name: "documents" })[0];
+    const blockedClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    navLink.dispatchEvent(blockedClick);
+    expect(confirmSpy).toHaveBeenCalledWith("leave_confirm");
+    expect(blockedClick.defaultPrevented).toBe(true);
   });
 });

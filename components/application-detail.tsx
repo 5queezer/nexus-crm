@@ -45,11 +45,14 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
     form,
     handleChange,
     patch,
-    isDirty,
+    isDirty: formDirty,
     baselineUpdatedAt,
     markSaved,
   } = useApplicationForm(application);
   const contactRows = useContactRows(application.id, application.contacts);
+  // Contact rows persist individually; unsaved row edits must still guard
+  // navigation even when the application form itself is clean.
+  const hasUnsavedChanges = formDirty || contactRows.hasDirtyRows;
 
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -86,19 +89,33 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
 
   // Warn before closing/reloading the tab while edits are unsaved.
   useEffect(() => {
-    if (!isDirty) return;
+    if (!hasUnsavedChanges) return;
     function handler(event: BeforeUnloadEvent) {
       event.preventDefault();
     }
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  }, [hasUnsavedChanges]);
 
-  function handleBack(event: React.MouseEvent<HTMLAnchorElement>) {
-    if (isDirty && !window.confirm(td("leave_confirm"))) {
-      event.preventDefault();
+  // Centralized leave guard for client-side navigation: the app router has
+  // no route-change blocker, so intercept clicks on internal links (header
+  // nav, back links, mobile sheet) while anything is unsaved.
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    function handleClick(event: MouseEvent) {
+      const anchor = (event.target as HTMLElement | null)
+        ?.closest?.("a[href]");
+      if (!anchor || anchor.getAttribute("target") === "_blank") return;
+      const href = anchor.getAttribute("href") ?? "";
+      if (!href.startsWith("/")) return;
+      if (!window.confirm(td("leave_confirm"))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
     }
-  }
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
+  }, [hasUnsavedChanges, td]);
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -125,7 +142,6 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
             <div className="flex flex-wrap items-center gap-3">
               <Link
                 href="/"
-                onClick={handleBack}
                 className="nexus-button-ghost nexus-target shrink-0"
               >
                 ← {td("back")}
@@ -145,16 +161,20 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
                 <span
                   aria-live="polite"
                   className={`text-xs font-medium ${
-                    savedFlash && !isDirty
+                    savedFlash && !hasUnsavedChanges
                       ? "text-green-600 dark:text-green-400"
                       : "text-slate-500 dark:text-slate-400"
                   }`}
                 >
-                  {isDirty ? td("unsaved") : savedFlash ? td("saved") : null}
+                  {hasUnsavedChanges
+                    ? td("unsaved")
+                    : savedFlash
+                      ? td("saved")
+                      : null}
                 </span>
                 <button
                   type="submit"
-                  disabled={!isDirty || isPending}
+                  disabled={!formDirty || isPending}
                   className="nexus-button-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saveLabel}
@@ -227,16 +247,12 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
           {/* Mobile save bar */}
           <div className="nexus-safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/90 px-4 pt-3 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/90 lg:hidden">
             <div className="flex gap-3">
-              <Link
-                href="/"
-                onClick={handleBack}
-                className="nexus-button-ghost flex-1"
-              >
+              <Link href="/" className="nexus-button-ghost flex-1">
                 {td("back")}
               </Link>
               <button
                 type="submit"
-                disabled={!isDirty || isPending}
+                disabled={!formDirty || isPending}
                 className="nexus-button-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saveLabel}

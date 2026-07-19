@@ -146,6 +146,7 @@ export function useContactRows(
     contactError,
     savingContactIdx,
     deletingContactId,
+    hasDirtyRows: contacts.some((c) => c.isDirty),
     handleContactChange,
     addContactRow,
     saveContact,
