@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { JobUrlField } from "../application-modal";
+import { JobUrlField } from "../application-form/job-url-field";
 
 describe("JobUrlField", () => {
   it("renders an existing job link as a touch-sized open control with an edit button", () => {

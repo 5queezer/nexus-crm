@@ -91,7 +91,6 @@
   },
   "modal": {
     "title_new": "Neue Opportunity",
-    "title_edit": "Opportunity bearbeiten",
     "company": "Kunde",
     "company_placeholder": "z.B. Google",
     "role": "Projekt",
@@ -181,6 +180,14 @@
     "documents_upload_error": "Hochladen fehlgeschlagen.",
     "close": "Opportunity-Editor schließen",
     "secondary_details": "Weitere Details"
+  },
+  "detail": {
+    "back": "Zurück zur Übersicht",
+    "saved": "Gespeichert",
+    "unsaved": "Ungespeicherte Änderungen",
+    "leave_confirm": "Ungespeicherte Änderungen verwerfen?",
+    "error_conflict": "Der Eintrag wurde inzwischen geändert. Seite neu laden und erneut versuchen.",
+    "section_details": "Details"
   },
   "status": {
     "inbound": "Neuer Lead",

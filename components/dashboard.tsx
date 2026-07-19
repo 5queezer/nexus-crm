@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
 import { KanbanView } from "./kanban-view";
@@ -118,6 +119,7 @@ export function Dashboard({
   initialSearch,
 }: DashboardProps) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const t = useTranslations("dashboard");
   const tn = useTranslations("nav");
   const ts = useTranslations("stats");
@@ -138,7 +140,6 @@ export function Dashboard({
   }, [customTitle]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingApp, setEditingApp] = useState<Application | null>(null);
   const modalOpenerRef = useRef<HTMLElement | null>(null);
   const compactViewport = useSyncExternalStore(
     subscribeCompactViewport,
@@ -192,11 +193,12 @@ export function Dashboard({
     },
   });
 
-  function handleEdit(app: Application) {
-    modalOpenerRef.current = document.activeElement as HTMLElement | null;
-    setEditingApp(app);
-    setIsModalOpen(true);
-  }
+  const handleEdit = useCallback(
+    (app: Application) => {
+      router.push(`/applications/${app.id}`);
+    },
+    [router],
+  );
 
   function handleDelete(id: string) {
     if (confirm(tc("delete"))) {
@@ -207,13 +209,11 @@ export function Dashboard({
 
   function handleNewApplication() {
     modalOpenerRef.current = document.activeElement as HTMLElement | null;
-    setEditingApp(null);
     setIsModalOpen(true);
   }
 
   function handleCloseModal() {
     setIsModalOpen(false);
-    setEditingApp(null);
     requestAnimationFrame(() => {
       const opener = modalOpenerRef.current;
       if (opener?.isConnected) {
@@ -717,6 +717,7 @@ export function Dashboard({
     showArchived,
     scopedSelectedIds,
     toggleSelect,
+    handleEdit,
   ]);
 
   if (isLoading) {
@@ -978,7 +979,10 @@ export function Dashboard({
 
       {/* Modal */}
       {isModalOpen && (
-        <ApplicationModal application={editingApp} onClose={handleCloseModal} />
+        <ApplicationModal
+          onClose={handleCloseModal}
+          onCreated={(app) => router.push(`/applications/${app.id}`)}
+        />
       )}
 
       {/* Command Palette */}

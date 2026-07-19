@@ -25,6 +25,8 @@ interface AppHeaderProps {
   };
   shareUrl?: string;
   title?: string;
+  /** Optional veto before signing out (e.g. unsaved changes on the page). */
+  onBeforeLogout?: () => boolean;
 }
 
 function MobileNavigationDisclosure({ isAdmin }: { isAdmin?: boolean }) {
@@ -58,12 +60,13 @@ function MobileNavigationDisclosure({ isAdmin }: { isAdmin?: boolean }) {
   );
 }
 
-export function AppHeader({ user, shareUrl, title }: AppHeaderProps) {
+export function AppHeader({ user, shareUrl, title, onBeforeLogout }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const tn = useTranslations("nav");
   const tapp = useTranslations("app");
   async function handleLogout() {
+    if (onBeforeLogout && !onBeforeLogout()) return;
     await authClient.signOut();
     router.push("/login");
     router.refresh();

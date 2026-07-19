@@ -38,11 +38,14 @@ export async function POST(
     const name = `${application.company} — ${application.role}`;
     const resumeId = await duplicateResume(name);
 
-    await db.updateApplication(id, auth.userId, { resumeId });
+    // Linking a resume advances the application's updatedAt; hand it back so
+    // clients tracking an optimistic-concurrency baseline can refresh it.
+    const updated = await db.updateApplication(id, auth.userId, { resumeId });
 
     return NextResponse.json({
       resumeId,
       editUrl: getResumeEditUrl(resumeId),
+      updatedAt: updated.updatedAt.toISOString(),
     });
   } catch (err) {
     console.error("Failed to create tailored resume:", err);

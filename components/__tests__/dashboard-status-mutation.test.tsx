@@ -50,6 +50,10 @@ function deferred<T>() {
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
 vi.mock("../app-header", () => ({ AppHeader: () => null }));
 vi.mock("../app-settings", () => ({
   loadAppSettings: () => ({ appTitle: "" }),

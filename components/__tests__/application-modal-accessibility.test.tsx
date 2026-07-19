@@ -37,7 +37,7 @@ describe("ApplicationModal accessibility", () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <ApplicationModal application={null} onClose={onClose} />
+          <ApplicationModal onClose={onClose} />
         </QueryClientProvider>,
       );
     });
@@ -88,7 +88,7 @@ describe("ApplicationModal accessibility", () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <ApplicationModal application={null} onClose={vi.fn()} />
+          <ApplicationModal onClose={vi.fn()} />
         </QueryClientProvider>,
       );
     });

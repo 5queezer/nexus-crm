@@ -91,7 +91,6 @@
   },
   "modal": {
     "title_new": "New Opportunity",
-    "title_edit": "Edit Opportunity",
     "company": "Account",
     "company_placeholder": "e.g. Acme Corp",
     "role": "Opportunity",
@@ -181,6 +180,14 @@
     "documents_upload_error": "Upload failed.",
     "close": "Close opportunity editor",
     "secondary_details": "Additional details"
+  },
+  "detail": {
+    "back": "Back to overview",
+    "saved": "Saved",
+    "unsaved": "Unsaved changes",
+    "leave_confirm": "Discard unsaved changes?",
+    "error_conflict": "This entry was changed elsewhere. Reload the page and try again.",
+    "section_details": "Details"
   },
   "status": {
     "inbound": "New Lead",

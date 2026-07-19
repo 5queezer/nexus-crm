@@ -41,6 +41,10 @@ vi.mock("next-intl", () => ({
   useLocale: () => "en",
   useTranslations: () => (key: string) => key,
 }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
 vi.mock("../../app-header", () => ({ AppHeader: () => <header>Header</header> }));
 vi.mock("../../onboarding-wizard", () => ({
   OnboardingWizard: ({ onComplete }: { onComplete: () => void }) => <button onClick={onComplete}>Complete onboarding</button>,
