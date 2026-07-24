@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
 import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
+import { validateApplicationSummary } from "@/lib/applications/events";
 
 const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
 const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
@@ -84,7 +85,9 @@ export async function POST(request: NextRequest) {
   }
 
   let structuredMetadata;
+  let validatedNotes: string | null;
   try {
+    validatedNotes = validateApplicationSummary(notes);
     structuredMetadata = parseStructuredApplicationMetadata(body as Record<string, unknown>);
   } catch (error) {
     return NextResponse.json(
@@ -101,7 +104,7 @@ export async function POST(request: NextRequest) {
       appliedAt: resolveAppliedAtForCreate(status || "inbound", appliedAt),
       lastContact: lastContact ? new Date(lastContact) : null,
       followUpAt: followUpAt ? new Date(followUpAt) : null,
-      notes: notes ? String(notes).slice(0, 10000) : null,
+      notes: validatedNotes,
       jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
       source: normalizeSource(source),
       remote: !!remote,

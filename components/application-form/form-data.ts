@@ -127,11 +127,16 @@ export async function updateApplication(
   data: ApplicationFormData,
   expectedUpdatedAt?: string | null,
 ): Promise<Application> {
+  const mutableFields: Record<string, unknown> = { ...serializeForm(data) };
+  delete mutableFields.status;
+  delete mutableFields.appliedAt;
+  delete mutableFields.lastContact;
+  delete mutableFields.followUpAt;
   const res = await fetch(`/api/applications/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ...serializeForm(data),
+      ...mutableFields,
       ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
     }),
   });

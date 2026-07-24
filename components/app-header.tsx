@@ -6,6 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   BarChart3,
+  Activity,
   FolderOpen,
   Bot,
   Settings,
@@ -77,6 +78,12 @@ export function AppHeader({ user, shareUrl, title, onBeforeLogout }: AppHeaderPr
       href: "/",
       label: tn("opportunities"),
       icon: BriefcaseBusiness,
+      show: true,
+    },
+    {
+      href: "/activity",
+      label: tn("activity"),
+      icon: Activity,
       show: true,
     },
     {

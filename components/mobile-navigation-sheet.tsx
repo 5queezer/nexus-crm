@@ -2,6 +2,7 @@
 
 import {
   BarChart3,
+  Activity,
   Bot,
   BriefcaseBusiness,
   FolderOpen,
@@ -33,6 +34,7 @@ export function MobileNavigationSheet({
   const panelRef = useRef<HTMLDivElement>(null);
   const routes = [
     { href: "/", label: tn("opportunities"), icon: BriefcaseBusiness },
+    { href: "/activity", label: tn("activity"), icon: Activity },
     { href: "/documents", label: tn("documents"), icon: FolderOpen },
     { href: "/analytics", label: tn("analytics"), icon: BarChart3 },
     { href: "/resume-review", label: tn("resume_ai"), icon: Bot },

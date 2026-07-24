@@ -11,9 +11,10 @@ interface CoreFieldsSectionProps {
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     >,
   ) => void;
+  lifecycleDisabled?: boolean;
 }
 
-export function CoreFieldsSection({ form, onChange }: CoreFieldsSectionProps) {
+export function CoreFieldsSection({ form, onChange, lifecycleDisabled = false }: CoreFieldsSectionProps) {
   const t = useTranslations("modal");
   const ts = useTranslations("status");
   const locale = useLocale();
@@ -60,7 +61,8 @@ export function CoreFieldsSection({ form, onChange }: CoreFieldsSectionProps) {
           name="status"
           value={form.status}
           onChange={onChange}
-          className="nexus-input"
+          disabled={lifecycleDisabled}
+          className="nexus-input disabled:cursor-not-allowed disabled:opacity-60"
         >
           {STATUS_ORDER.map((value) => (
             <option key={value} value={value}>
@@ -79,10 +81,12 @@ export function CoreFieldsSection({ form, onChange }: CoreFieldsSectionProps) {
           name="followUpAt"
           value={form.followUpAt}
           onChange={onChange}
+          disabled={lifecycleDisabled}
           lang={locale}
-          className="nexus-input"
+          className="nexus-input disabled:cursor-not-allowed disabled:opacity-60"
         />
       </div>
+      {lifecycleDisabled && <p className="text-xs text-slate-500 dark:text-slate-400">{t("lifecycle_timeline_help")}</p>}
     </>
   );
 }

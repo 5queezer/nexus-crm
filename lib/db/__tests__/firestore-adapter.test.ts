@@ -76,41 +76,72 @@ function makeDocRef(store: Map<string, Record<string, unknown>>, id: string): Mo
 function makeQuery(
   store: Map<string, Record<string, unknown>>,
   filters: Array<{ field: string; operator: string; value: unknown }> = [],
-  sort?: { field: string; direction: "asc" | "desc" },
+  sorts: Array<{ field: string; direction: "asc" | "desc" }> = [],
   max?: number,
+  after?: unknown[],
 ) {
+  const normalize = (item: unknown) => {
+    if (item && typeof item === "object" && "toDate" in item) {
+      return (item as { toDate: () => Date }).toDate().getTime();
+    }
+    if (item instanceof Date) return item.getTime();
+    return item ?? "";
+  };
+  const fieldValue = (id: string, data: Record<string, unknown>, field: string) =>
+    field === "__name__" ? id : data[field];
+  const compareValues = (left: unknown, right: unknown) => {
+    const a = normalize(left);
+    const b = normalize(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
   return {
     where(field: string, operator: string, value: unknown) {
-      if (!["==", "array-contains", "in"].includes(operator)) {
+      if (!["==", "array-contains", "in", ">=", "<="].includes(operator)) {
         throw new Error(`Unsupported mock operator: ${operator}`);
       }
-      return makeQuery(store, [...filters, { field, operator, value }], sort, max);
+      return makeQuery(store, [...filters, { field, operator, value }], sorts, max, after);
     },
     orderBy(field: string, direction: "asc" | "desc" = "asc") {
-      return makeQuery(store, filters, { field, direction }, max);
+      return makeQuery(store, filters, [...sorts, { field, direction }], max, after);
     },
     limit(value: number) {
-      return makeQuery(store, filters, sort, value);
+      return makeQuery(store, filters, sorts, value, after);
+    },
+    startAfter(...values: unknown[]) {
+      return makeQuery(store, filters, sorts, max, values);
     },
     async get() {
-      let entries = Array.from(store.entries()).filter(([, data]) =>
+      let entries = Array.from(store.entries()).filter(([id, data]) =>
         filters.every(({ field, operator, value }) => {
-          if (operator === "==") return data[field] === value;
-          if (operator === "array-contains") return Array.isArray(data[field]) && data[field].includes(value);
-          return Array.isArray(value) && value.includes(data[field]);
+          const actual = fieldValue(id, data, field);
+          if (operator === "==") return actual === value;
+          if (operator === "array-contains") return Array.isArray(actual) && actual.includes(value);
+          if (operator === "in") return Array.isArray(value) && value.includes(actual);
+          const comparison = compareValues(actual, value);
+          return operator === ">=" ? comparison >= 0 : comparison <= 0;
         }),
       );
-      if (sort) {
-        entries.sort(([, left], [, right]) => {
-          const a = left[sort.field] as { toDate?: () => Date } | Date | number | string | undefined;
-          const b = right[sort.field] as { toDate?: () => Date } | Date | number | string | undefined;
-          const normalize = (item: typeof a) => {
-            if (item && typeof item === "object" && "toDate" in item && item.toDate) return item.toDate().getTime();
-            if (item instanceof Date) return item.getTime();
-            return item ?? "";
-          };
-          const result = normalize(a) < normalize(b) ? -1 : normalize(a) > normalize(b) ? 1 : 0;
-          return sort.direction === "desc" ? -result : result;
+      if (sorts.length) {
+        entries.sort(([leftId, left], [rightId, right]) => {
+          for (const sort of sorts) {
+            const result = compareValues(
+              fieldValue(leftId, left, sort.field),
+              fieldValue(rightId, right, sort.field),
+            );
+            if (result) return sort.direction === "desc" ? -result : result;
+          }
+          return 0;
+        });
+      }
+      if (after?.length) {
+        entries = entries.filter(([id, data]) => {
+          for (let index = 0; index < sorts.length; index += 1) {
+            const sort = sorts[index];
+            const result = compareValues(fieldValue(id, data, sort.field), after[index]);
+            if (!result) continue;
+            return sort.direction === "desc" ? result < 0 : result > 0;
+          }
+          return false;
         });
       }
       if (max !== undefined) entries = entries.slice(0, max);
@@ -205,6 +236,9 @@ vi.mock("firebase-admin/firestore", () => ({
   Timestamp: {
     now: () => mockTimestamp,
     fromDate: (d: Date) => ({ toDate: () => d }),
+  },
+  FieldPath: {
+    documentId: () => "__name__",
   },
   FieldValue: {
     serverTimestamp: () => mockTimestamp,
@@ -400,6 +434,20 @@ describe("FirestoreAdapter — application metadata", () => {
     expect(stores.applicationCanonicalUrls.size).toBe(1);
     expect(Array.from(stores.applicationCanonicalUrls.values())[0].canonicalJobUrl)
       .toBe("https://example.com/jobs/1");
+  });
+
+  it("rejects lifecycle fields in batch updates", async () => {
+    const adapter = new FirestoreAdapter();
+    const result = await adapter.batchUpsertApplications("user-1", [{
+      id: "app-1",
+      status: "interview",
+    }]);
+
+    expect(result).toMatchObject({
+      succeeded: 0,
+      failed: 1,
+      results: [{ error: "lifecycle_event_required" }],
+    });
   });
 });
 
@@ -1071,5 +1119,266 @@ describe("FirestoreAdapter — document operations", () => {
       expect(mockGetAll).not.toHaveBeenCalled();
       expect(result.applications).toHaveLength(35);
     });
+  });
+});
+
+describe("FirestoreAdapter — first-class application events", () => {
+  const userId = "user-1";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.values(stores).forEach((store) => store.clear());
+    mockGetAll.mockImplementation(async (...refs: MockDocRef[]) =>
+      Promise.all(refs.map((ref) => ref.get())),
+    );
+  });
+
+  function seedEventApplication() {
+    stores.applications.set("app-1", {
+      userId,
+      company: "Acme",
+      role: "Engineer",
+      status: "applied",
+      currentStage: "recruiter_screen",
+      followUpAt: { toDate: () => new Date("2026-07-25T10:00:00Z") },
+      createdAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+    });
+  }
+
+  it("atomically records an interview schedule and updates the projection", async () => {
+    seedEventApplication();
+    const adapter = new FirestoreAdapter();
+    const result = await adapter.recordApplicationEvent("app-1", userId, {
+      type: "interview_scheduled",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: "schedule-123",
+      source: "test",
+      metadata: {
+        interviewType: "technical",
+        scheduledAt: "2026-07-28T12:30:00.000Z",
+      },
+      contactId: null,
+      outcome: null,
+    });
+
+    expect(result.replayed).toBe(false);
+    expect(result.application).toMatchObject({ status: "interview", currentStage: "interview_scheduled" });
+    expect(result.application.followUpAt?.toISOString()).toBe("2026-07-28T12:30:00.000Z");
+    expect(result.event.metadata).toMatchObject({
+      fromStage: "recruiter_screen",
+      toStage: "interview_scheduled",
+      fromStatus: "applied",
+      toStatus: "interview",
+    });
+    expect(stores.applicationEvents.size).toBe(1);
+    expect(result.event.metadata).not.toHaveProperty("requestHash");
+    expect([...stores.applicationEvents.values()][0].requestHash).toEqual(expect.any(String));
+  });
+
+  it("touches the application for event-only commands", async () => {
+    seedEventApplication();
+    stores.applications.get("app-1")!.updatedAt = { toDate: () => new Date("2024-01-01") };
+
+    const result = await new FirestoreAdapter().recordApplicationEvent("app-1", userId, {
+      type: "note_added",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      source: "test",
+      metadata: { note: "Chronological update" },
+      contactId: null,
+      outcome: null,
+    });
+
+    expect(result.application.updatedAt.toISOString()).toBe("2025-01-01T00:00:00.000Z");
+    expect(stores.applicationEvents.size).toBe(1);
+  });
+
+  it("replays the same command once and rejects a changed payload", async () => {
+    seedEventApplication();
+    const adapter = new FirestoreAdapter();
+    const base = {
+      type: "follow_up_scheduled" as const,
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: "follow-up-123",
+      source: "test",
+      metadata: { followUpAt: "2026-07-30T09:00:00.000Z" },
+      contactId: null,
+      outcome: null,
+    };
+    await adapter.recordApplicationEvent("app-1", userId, base);
+    const replay = await adapter.recordApplicationEvent("app-1", userId, base);
+    expect(replay.replayed).toBe(true);
+    expect(stores.applicationEvents.size).toBe(1);
+    await expect(adapter.recordApplicationEvent("app-1", userId, {
+      ...base,
+      metadata: { followUpAt: "2026-07-31T09:00:00.000Z" },
+    })).rejects.toThrow("idempotency_conflict");
+  });
+
+  it("replays a legacy idempotency hash after migration", async () => {
+    seedEventApplication();
+    const command = {
+      type: "follow_up_scheduled" as const,
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: "legacy-follow-up",
+      source: "test",
+      metadata: { followUpAt: "2026-07-30T09:00:00.000Z" },
+      contactId: null,
+      outcome: null,
+    };
+    const legacyHash = submissionRequestHash({
+      applicationId: "app-1",
+      type: command.type,
+      occurredAt: command.occurredAt,
+      metadata: command.metadata,
+    });
+    const eventId = submissionRequestHash({ userId, key: command.idempotencyKey }).slice(0, 40);
+    stores.applicationEvents.set(eventId, {
+      userId,
+      applicationId: "app-1",
+      type: command.type,
+      idempotencyKey: command.idempotencyKey,
+      occurredAt: mockTimestamp,
+      createdAt: mockTimestamp,
+      metadata: { ...command.metadata, requestHash: legacyHash },
+    });
+
+    const replay = await new FirestoreAdapter().recordApplicationEvent("app-1", userId, command);
+    expect(replay.replayed).toBe(true);
+    expect(replay.event.metadata).not.toHaveProperty("requestHash");
+    expect(replay.event).not.toHaveProperty("requestHash");
+    expect(stores.applicationEvents.size).toBe(1);
+  });
+
+  it.each([
+    {
+      label: "contact",
+      seed: () => stores.contacts.set("contact-1", { applicationId: "other-app", name: "Recruiter" }),
+      input: { contactId: "contact-1", metadata: { toStage: "technical" } },
+      code: "contact_not_found",
+    },
+    {
+      label: "document",
+      seed: () => stores.documents.set("document-1", { userId, applicationIds: ["other-app"] }),
+      input: { contactId: null, metadata: { toStage: "technical", documentId: "document-1" } },
+      code: "document_not_found",
+    },
+    {
+      label: "submission",
+      seed: () => stores.applicationSubmissions.set("submission-1", { userId, applicationId: "other-app" }),
+      input: { contactId: null, metadata: { toStage: "technical", submissionId: "submission-1" } },
+      code: "submission_not_found",
+    },
+  ])("rejects a linked $label outside the owner/application boundary", async ({ seed, input, code }) => {
+    seedEventApplication();
+    seed();
+    await expect(new FirestoreAdapter().recordApplicationEvent("app-1", userId, {
+      type: "stage_changed",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: `missing-${code}`,
+      source: "test",
+      outcome: null,
+      ...input,
+    })).rejects.toThrow(code);
+    expect(stores.applicationEvents.size).toBe(0);
+  });
+
+  it("rejects stale commands without writing an event", async () => {
+    seedEventApplication();
+    const adapter = new FirestoreAdapter();
+    await expect(adapter.recordApplicationEvent("app-1", userId, {
+      type: "application_rejected",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      expectedUpdatedAt: new Date("2026-01-01T00:00:00Z"),
+      metadata: { outcome: "declined" },
+      contactId: null,
+      outcome: "declined",
+    })).rejects.toThrow("conflict");
+    expect(stores.applicationEvents.size).toBe(0);
+    expect(stores.applications.get("app-1")!.status).toBe("applied");
+  });
+
+  it("allows unrelated updates to preserve an oversized legacy summary unchanged", async () => {
+    seedEventApplication();
+    const legacyNotes = "x".repeat(10_001);
+    stores.applications.set("app-1", { ...stores.applications.get("app-1")!, notes: legacyNotes });
+    await expect(new FirestoreAdapter().updateApplication("app-1", userId, {
+      company: "Acme 2",
+      notes: legacyNotes,
+    })).resolves.toMatchObject({ company: "Acme 2", notes: legacyNotes });
+  });
+
+  it("still rejects a newly changed oversized summary", async () => {
+    seedEventApplication();
+    stores.applications.set("app-1", { ...stores.applications.get("app-1")!, notes: "legacy" });
+    await expect(new FirestoreAdapter().updateApplication("app-1", userId, {
+      notes: "x".repeat(10_001),
+    })).rejects.toThrow("notes_too_long");
+  });
+
+  it("skips sparse scan windows before returning a filtered page", async () => {
+    seedApps([
+      { id: "app-acme", userId, company: "Acme", role: "Engineer" },
+      { id: "app-beta", userId, company: "Beta", role: "Engineer" },
+    ]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    for (let id = 1; id <= 7; id += 1) {
+      stores.applicationEvents.set(String(id), {
+        userId,
+        applicationId: id === 1 ? "app-beta" : "app-acme",
+        type: "stage_changed",
+        occurredAt: timestamp,
+        createdAt: timestamp,
+      });
+    }
+    const adapter = new FirestoreAdapter();
+    const page = await adapter.listApplicationEventsFiltered(userId, {
+      company: "Beta", order: "newest", limit: 1,
+    });
+    expect(page.items.map((event) => event.id)).toEqual(["1"]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("uses the same lexical ID tie-breaker for sorting and cursors", async () => {
+    seedApps([{ id: "app-1", userId, company: "Acme", role: "Engineer" }]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    stores.applicationEvents.set("2", { userId, applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    stores.applicationEvents.set("10", { userId, applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    const adapter = new FirestoreAdapter();
+    const first = await adapter.listApplicationEventsFiltered(userId, { order: "newest", limit: 1 });
+    expect(first.items.map((event) => event.id)).toEqual(["2"]);
+    const { decodeEventCursor } = await import("../../applications/events");
+    const second = await adapter.listApplicationEventsFiltered(userId, {
+      order: "newest", limit: 1, cursor: decodeEventCursor(first.nextCursor!),
+    });
+    expect(second.items.map((event) => event.id)).toEqual(["10"]);
+    const legacyList = await adapter.listApplicationEvents("app-1", userId, 2);
+    expect(legacyList.map((event) => event.id)).toEqual(["2", "10"]);
+  });
+
+  it("paginates owner-scoped filtered activity deterministically", async () => {
+    seedApps([
+      { id: "app-1", userId, company: "Acme", role: "Engineer" },
+      { id: "app-2", userId, company: "Beta", role: "Platform Engineer" },
+    ]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    stores.applicationEvents.set("1", { userId, applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    stores.applicationEvents.set("2", { userId, applicationId: "app-2", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    stores.applicationEvents.set("3", { userId: "other", applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    const adapter = new FirestoreAdapter();
+    const first = await adapter.listApplicationEventsFiltered(userId, {
+      types: ["stage_changed"], order: "newest", limit: 1,
+    });
+    expect(first.items).toHaveLength(1);
+    expect(first.items[0].id).toBe("2");
+    expect(first.items[0].application?.company).toBe("Beta");
+    expect(first.nextCursor).toBeTruthy();
+    const { decodeEventCursor } = await import("../../applications/events");
+    const second = await adapter.listApplicationEventsFiltered(userId, {
+      types: ["stage_changed"], order: "newest", limit: 1,
+      cursor: decodeEventCursor(first.nextCursor!),
+    });
+    expect(second.items.map((event) => event.id)).toEqual(["1"]);
+    expect(second.nextCursor).toBeNull();
   });
 });

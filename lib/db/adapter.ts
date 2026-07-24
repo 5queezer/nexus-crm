@@ -28,6 +28,10 @@ import type {
   RecordSubmissionInput,
   RecordSubmissionResult,
   CreateApplicationEventInput,
+  RecordApplicationEventInput,
+  RecordApplicationEventResult,
+  ListApplicationEventsFilter,
+  ApplicationEventPage,
   ListDocumentsFilter,
   UpdateDocumentMetadataInput,
 } from "./types";
@@ -53,7 +57,9 @@ export interface DatabaseAdapter {
   listUserSubmissions(userId: string): Promise<ApplicationSubmissionRecord[]>;
   getApplicationSubmission(id: string, userId: string): Promise<ApplicationSubmissionRecord | null>;
   createApplicationEvent(applicationId: string, userId: string, input: CreateApplicationEventInput): Promise<ApplicationEventRecord>;
+  recordApplicationEvent(applicationId: string, userId: string, input: RecordApplicationEventInput): Promise<RecordApplicationEventResult>;
   listApplicationEvents(applicationId: string, userId: string, limit?: number): Promise<ApplicationEventRecord[]>;
+  listApplicationEventsFiltered(userId: string, filter: ListApplicationEventsFilter): Promise<ApplicationEventPage>;
 
   /** List applications with optional filters and field selection. */
   listApplicationsFiltered(userId: string | null, filter: ListApplicationsFilter): Promise<Partial<ApplicationRecord>[]>;

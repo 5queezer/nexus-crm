@@ -146,12 +146,12 @@ describe("Dashboard status mutation coordinator", () => {
   it("serializes a newer bulk same-record intent behind an older per-record write and rolls back to the last confirmation", async () => {
     const firstResponse = deferred<Response>();
     const secondResponse = deferred<Response>();
-    const patchBodies: Array<{ status: ApplicationStatus }> = [];
+    const eventBodies: Array<{ type: string; metadata: { toStatus: ApplicationStatus } }> = [];
     let serverStatus: ApplicationStatus = "inbound";
 
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
-        if (init?.method !== "PATCH") {
+        if (init?.method !== "POST") {
           return new Response(JSON.stringify([application(serverStatus)]), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -159,13 +159,14 @@ describe("Dashboard status mutation coordinator", () => {
         }
 
         const body = JSON.parse(init.body as string) as {
-          status: ApplicationStatus;
+          type: string;
+          metadata: { toStatus: ApplicationStatus };
         };
-        patchBodies.push(body);
-        const response = await (patchBodies.length === 1
+        eventBodies.push(body);
+        const response = await (eventBodies.length === 1
           ? firstResponse.promise
           : secondResponse.promise);
-        if (response.ok) serverStatus = body.status;
+        if (response.ok) serverStatus = body.metadata.toStatus;
         return response;
       },
     );
@@ -193,27 +194,27 @@ describe("Dashboard status mutation coordinator", () => {
 
     await screen.findByText("cache-status-inbound");
     await user.click(screen.getByRole("button", { name: "per-record status" }));
-    await waitFor(() => expect(patchBodies).toEqual([{ status: "applied" }]));
+    await waitFor(() => expect(eventBodies.map((body) => body.metadata.toStatus)).toEqual(["applied"]));
 
     await user.click(screen.getByRole("button", { name: "select record" }));
     await user.click(screen.getByRole("button", { name: "bulk status" }));
 
     await screen.findByText("cache-status-interview");
-    expect(patchBodies).toEqual([{ status: "applied" }]);
+    expect(eventBodies.map((body) => body.metadata.toStatus)).toEqual(["applied"]);
     expect(screen.getByText("selected-1")).toBeTruthy();
 
     await act(async () => {
       firstResponse.resolve(
-        new Response(JSON.stringify(application("applied")), {
+        new Response(JSON.stringify({ application: application("applied") }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
       );
     });
     await waitFor(() =>
-      expect(patchBodies).toEqual([
-        { status: "applied" },
-        { status: "interview" },
+      expect(eventBodies.map((body) => body.metadata.toStatus)).toEqual([
+        "applied",
+        "interview",
       ]),
     );
 
@@ -233,7 +234,7 @@ describe("Dashboard status mutation coordinator", () => {
         ?.find((item) => item.id === "application-1")?.status,
     ).toBe("applied");
     expect(
-      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
     ).toHaveLength(2);
   });
 });

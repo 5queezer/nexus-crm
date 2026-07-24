@@ -10,11 +10,14 @@ import { resolveAppliedAtForCreate } from "@/lib/applications/defaults";
 import {
   canonicalizeJobUrl,
   computeApplicationHealth,
-  requireOccurredAtForIdempotency,
-  validateEventMetadata,
   validateSubmissionAnswers,
 } from "@/lib/applications/submission";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
+import {
+  APPLICATION_EVENT_TYPES,
+  parseApplicationEventCommand,
+  parseEventQuery,
+} from "@/lib/applications/events";
 import { submissionPolicyTransportSchema } from "@/lib/applications/submission-transport";
 import { verifyMcpAccessToken } from "@/lib/mcp-oauth";
 import { generateAndStoreCv } from "@/lib/cv/generate";
@@ -82,6 +85,26 @@ const SUBMISSION_ERROR_CODES = new Set([
   "verification_failed",
 ]);
 
+const EVENT_ERROR_CODES = new Set([
+  "event_type_invalid",
+  "event_metadata_invalid",
+  "event_metadata_too_large",
+  "event_occurred_at_invalid",
+  "occurred_at_required_for_idempotency",
+  "idempotency_key_invalid",
+  "idempotency_conflict",
+  "invalid_expected_updated_at",
+  "not_found",
+  "conflict",
+  "application_deleting",
+  "contact_not_found",
+  "document_not_found",
+  "submission_not_found",
+  "verification_failed",
+  "event_query_invalid",
+  "submission_event_requires_submission_workflow",
+]);
+
 function controlledErrorCode(error: unknown, allowed: Set<string>, fallback: string): string {
   if (!(error instanceof Error)) return fallback;
   return allowed.has(error.message) ? error.message : fallback;
@@ -136,7 +159,7 @@ async function authenticateFromRequest(
 
 // ── MCP server factory ──────────────────────────────────────────────────────
 
-function createMcpServer(auth: SessionAuthResult): McpServer {
+export function createMcpServer(auth: SessionAuthResult): McpServer {
   const server = new McpServer(
     { name: "nexus-crm", version: "1.0.0" },
     {
@@ -203,7 +226,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         .describe("Date applied (ISO 8601)"),
       lastContact: z.string().datetime().nullable().optional().describe("Last contact timestamp"),
       followUpAt: z.string().datetime().nullable().optional().describe("Follow-up timestamp"),
-      notes: z.string().optional().describe("Free-text notes"),
+      notes: z.string().max(10_000).optional().describe("Compact current-state summary"),
       jobDescription: z
         .string()
         .optional()
@@ -226,7 +249,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         appliedAt: resolveAppliedAtForCreate(args.status || "inbound", args.appliedAt),
         lastContact: args.lastContact ? new Date(args.lastContact) : null,
         followUpAt: args.followUpAt ? new Date(args.followUpAt) : null,
-        notes: args.notes?.slice(0, 10000) ?? null,
+        notes: args.notes ?? null,
         jobDescription: args.jobDescription?.slice(0, 50000) ?? null,
         source: args.source?.slice(0, 100) ?? null,
         remote: args.remote ?? false,
@@ -245,7 +268,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "update_application",
-    "Update an existing application. Supports linking a Reactive Resume via resumeId.",
+    "Update non-lifecycle application fields. Use record_application_event for status, stage, contact, follow-up, and submission changes.",
     {
       id: z.string().describe("Application ID"),
       company: z.string().optional().describe("Company name"),
@@ -257,7 +280,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       appliedAt: z.string().nullable().optional().describe("Date applied (ISO 8601)"),
       lastContact: z.string().nullable().optional().describe("Last contact date"),
       followUpAt: z.string().nullable().optional().describe("Follow-up date"),
-      notes: z.string().nullable().optional().describe("Free-text notes"),
+      notes: z.string().max(10_000).nullable().optional().describe("Compact current-state summary"),
       jobDescription: z.string().nullable().optional().describe("Job description"),
       source: z.string().nullable().optional().describe("Source"),
       remote: z.boolean().optional().describe("Remote position?"),
@@ -271,6 +294,14 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
       ...structuredApplicationToolFields,
     },
     async ({ id, ...data }) => {
+      const lifecycleFields = ["status", "appliedAt", "lastContact", "followUpAt", "currentStage"]
+        .filter((field) => (data as Record<string, unknown>)[field] !== undefined);
+      if (lifecycleFields.length) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: { code: "lifecycle_event_required", fields: lifecycleFields } }) }],
+          isError: true,
+        };
+      }
       try {
         const update: Record<string, unknown> = {};
         if (data.company !== undefined) update.company = data.company.slice(0, 255);
@@ -282,7 +313,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           update.lastContact = data.lastContact ? new Date(data.lastContact) : null;
         if (data.followUpAt !== undefined)
           update.followUpAt = data.followUpAt ? new Date(data.followUpAt) : null;
-        if (data.notes !== undefined) update.notes = data.notes?.slice(0, 10000) ?? null;
+        if (data.notes !== undefined) update.notes = data.notes ?? null;
         if (data.jobDescription !== undefined)
           update.jobDescription = data.jobDescription?.slice(0, 50000) ?? null;
         if (data.source !== undefined) update.source = data.source?.slice(0, 100) ?? null;
@@ -453,7 +484,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "append_application_note",
-    "Append a note without a read-modify-write race and add an immutable note_added timeline event.",
+    "Record an immutable note_added timeline event without changing the compact application summary.",
     {
       applicationId: z.string().min(1),
       note: z.string().trim().min(1).max(5000),
@@ -463,23 +494,23 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async (args) => {
       try {
-        const result = await getDb().appendApplicationNote(
+        const command = parseApplicationEventCommand({
+          type: "note_added",
+          idempotencyKey: args.idempotencyKey,
+          expectedUpdatedAt: args.expectedUpdatedAt,
+          occurredAt: args.occurredAt,
+          source: "mcp",
+          actor: auth.user.email,
+          metadata: { note: args.note },
+        });
+        const result = await getDb().recordApplicationEvent(
           args.applicationId,
           auth.userId,
-          args.note,
-          {
-            type: "note_added",
-            idempotencyKey: args.idempotencyKey,
-            expectedUpdatedAt: args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt) : undefined,
-            occurredAt: new Date(args.occurredAt),
-            source: "mcp",
-            actor: auth.user.email,
-            metadata: {},
-          },
+          command,
         );
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
-        const code = error instanceof Error ? error.message : "append_failed";
+        const code = controlledErrorCode(error, EVENT_ERROR_CODES, "append_failed");
         return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
       }
     },
@@ -487,29 +518,30 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "record_application_event",
-    "Append an immutable owner-scoped application timeline event.",
+    "Atomically append a canonical immutable application event and update the current-state projection when the event changes lifecycle state.",
     {
       applicationId: z.string().min(1),
-      type: z.string().trim().min(1).max(100),
+      type: z.enum(APPLICATION_EVENT_TYPES),
       idempotencyKey: z.string().min(8).max(128).optional(),
       occurredAt: z.string().datetime().optional(),
-      metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+      expectedUpdatedAt: z.string().datetime().optional(),
+      metadata: z.record(z.unknown()).optional(),
     },
     async (args) => {
-      if (args.type === "application_submitted" && !canAccessSubmissions) return submissionScopeError();
       try {
-        requireOccurredAtForIdempotency(args.idempotencyKey, args.occurredAt);
-        const event = await getDb().createApplicationEvent(args.applicationId, auth.userId, {
+        const command = parseApplicationEventCommand({
           type: args.type,
           idempotencyKey: args.idempotencyKey,
-          occurredAt: args.occurredAt ? new Date(args.occurredAt) : new Date(),
+          occurredAt: args.occurredAt,
+          expectedUpdatedAt: args.expectedUpdatedAt,
           source: "mcp",
           actor: auth.user.email,
-          metadata: validateEventMetadata(args.metadata),
+          metadata: args.metadata,
         });
-        return { content: [{ type: "text", text: JSON.stringify(event, null, 2) }] };
+        const result = await getDb().recordApplicationEvent(args.applicationId, auth.userId, command);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
-        const code = error instanceof Error ? error.message : "event_failed";
+        const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_failed");
         return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
       }
     },
@@ -517,18 +549,53 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "list_application_events",
-    "List immutable timeline events for an application, newest first.",
+    "List an owner-scoped immutable application timeline with deterministic cursor pagination.",
     {
       applicationId: z.string().min(1),
-      limit: z.number().int().min(1).max(500).default(100),
+      cursor: z.string().optional(),
+      order: z.enum(["newest", "oldest"]).default("newest"),
+      limit: z.number().int().min(1).max(100).default(50),
     },
-    async ({ applicationId, limit }) => {
-      if (!canAccessSubmissions) return submissionScopeError();
+    async ({ applicationId, cursor, order, limit }) => {
       try {
-        const events = await getDb().listApplicationEvents(applicationId, auth.userId, limit);
-        return { content: [{ type: "text", text: JSON.stringify(events, null, 2) }] };
-      } catch {
-        return { content: [{ type: "text", text: "Application not found or access denied" }], isError: true };
+        const db = getDb();
+        const application = await db.getApplication(applicationId, auth.userId);
+        if (!application) throw new Error("not_found");
+        const filter = parseEventQuery({ applicationId, cursor, order, limit });
+        const page = await db.listApplicationEventsFiltered(auth.userId, filter);
+        return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
+      } catch (error) {
+        const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_query_failed");
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+      }
+    },
+  );
+
+  server.tool(
+    "list_application_activity",
+    "List the authenticated owner's application activity across all applications with canonical filters and deterministic cursor pagination.",
+    {
+      applicationId: z.string().min(1).optional(),
+      company: z.string().max(255).optional(),
+      types: z.array(z.enum(APPLICATION_EVENT_TYPES)).max(APPLICATION_EVENT_TYPES.length).optional(),
+      occurredAfter: z.string().datetime().optional(),
+      occurredBefore: z.string().datetime().optional(),
+      source: z.string().max(255).optional(),
+      actor: z.string().max(255).optional(),
+      contactId: z.string().max(255).optional(),
+      outcome: z.string().max(255).optional(),
+      cursor: z.string().optional(),
+      order: z.enum(["newest", "oldest"]).default("newest"),
+      limit: z.number().int().min(1).max(100).default(50),
+    },
+    async (args) => {
+      try {
+        const filter = parseEventQuery(args);
+        const page = await getDb().listApplicationEventsFiltered(auth.userId, filter);
+        return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
+      } catch (error) {
+        const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_query_failed");
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
       }
     },
   );
@@ -597,23 +664,36 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
         const db = getDb();
         const existing = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
         const metadata = parseStructuredApplicationMetadata(args as unknown as Record<string, unknown>);
-        const updateExisting = (applicationId: string) => db.updateApplication(applicationId, auth.userId, {
-          company: args.company,
-          role: args.role,
-          ...(args.status !== undefined && { status: args.status }),
-          ...(args.notes !== undefined && { notes: args.notes }),
-          ...(args.jobDescription !== undefined && { jobDescription: args.jobDescription }),
-          ...(args.source !== undefined && { source: args.source }),
-          ...(args.remote !== undefined && { remote: args.remote }),
-          ...(args.salaryMin !== undefined && { salaryMin: args.salaryMin }),
-          ...(args.salaryMax !== undefined && { salaryMax: args.salaryMax }),
-          ...(args.rating !== undefined && { rating: args.rating }),
-          ...(args.resumeId !== undefined && { resumeId: args.resumeId }),
-          jobUrl: args.jobUrl,
-          canonicalJobUrl,
-          ...metadata,
-        });
+        const assertNoLifecycleUpdate = (application: { status: string; currentStage?: string | null }) => {
+          if (args.status !== undefined && args.status !== application.status) {
+            throw new Error("lifecycle_event_required");
+          }
+          if (metadata.currentStage !== undefined && metadata.currentStage !== application.currentStage) {
+            throw new Error("lifecycle_event_required");
+          }
+        };
+        const updateExisting = (application: { id: string; status: string; currentStage?: string | null }) => {
+          assertNoLifecycleUpdate(application);
+          const mutableMetadata = { ...metadata };
+          delete mutableMetadata.currentStage;
+          return db.updateApplication(application.id, auth.userId, {
+            company: args.company,
+            role: args.role,
+            ...(args.notes !== undefined && { notes: args.notes }),
+            ...(args.jobDescription !== undefined && { jobDescription: args.jobDescription }),
+            ...(args.source !== undefined && { source: args.source }),
+            ...(args.remote !== undefined && { remote: args.remote }),
+            ...(args.salaryMin !== undefined && { salaryMin: args.salaryMin }),
+            ...(args.salaryMax !== undefined && { salaryMax: args.salaryMax }),
+            ...(args.rating !== undefined && { rating: args.rating }),
+            ...(args.resumeId !== undefined && { resumeId: args.resumeId }),
+            jobUrl: args.jobUrl,
+            canonicalJobUrl,
+            ...mutableMetadata,
+          });
+        };
         if (args.dryRun) {
+          if (existing) assertNoLifecycleUpdate(existing);
           return {
             content: [{
               type: "text",
@@ -627,7 +707,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           };
         }
         if (existing) {
-          const application = await updateExisting(existing.id);
+          const application = await updateExisting(existing);
           return { content: [{ type: "text", text: JSON.stringify({ operation: "updated", application }, null, 2) }] };
         }
         const status = args.status ?? "inbound";
@@ -658,7 +738,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           if (code !== "canonical_job_url_conflict") throw error;
           const concurrent = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
           if (!concurrent) throw error;
-          application = await updateExisting(concurrent.id);
+          application = await updateExisting(concurrent);
           operation = "updated";
         }
         return { content: [{ type: "text", text: JSON.stringify({ operation, application }, null, 2) }] };
@@ -717,7 +797,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
             appliedAt: z.string().nullable().optional().describe("Date applied (ISO 8601)"),
             lastContact: z.string().nullable().optional().describe("Last contact date"),
             followUpAt: z.string().nullable().optional().describe("Follow-up date"),
-            notes: z.string().nullable().optional().describe("Free-text notes"),
+            notes: z.string().max(10_000).nullable().optional().describe("Compact current-state summary"),
             jobDescription: z.string().nullable().optional().describe("Job description"),
             source: z.string().nullable().optional().describe("Source"),
             remote: z.boolean().optional().describe("Remote position?"),
@@ -743,7 +823,7 @@ function createMcpServer(auth: SessionAuthResult): McpServer {
           appliedAt: item.appliedAt !== undefined ? (item.appliedAt ? new Date(item.appliedAt) : null) : undefined,
           lastContact: item.lastContact !== undefined ? (item.lastContact ? new Date(item.lastContact) : null) : undefined,
           followUpAt: item.followUpAt !== undefined ? (item.followUpAt ? new Date(item.followUpAt) : null) : undefined,
-          notes: item.notes !== undefined ? (item.notes?.slice(0, 10000) ?? null) : undefined,
+          notes: item.notes !== undefined ? (item.notes ?? null) : undefined,
           jobDescription: item.jobDescription !== undefined ? (item.jobDescription?.slice(0, 50000) ?? null) : undefined,
           source: item.source !== undefined ? (item.source?.slice(0, 100) ?? null) : undefined,
           remote: item.remote,

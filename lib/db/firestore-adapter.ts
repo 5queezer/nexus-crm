@@ -1,4 +1,4 @@
-import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, Timestamp, FieldValue, FieldPath } from "firebase-admin/firestore";
 import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
@@ -11,6 +11,11 @@ import {
   validateSubmissionDocumentIds,
   validateSubmissionPolicy,
 } from "@/lib/applications/submission";
+import {
+  deriveEventProjection,
+  encodeEventCursor,
+  validateApplicationSummary,
+} from "@/lib/applications/events";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -42,6 +47,10 @@ import type {
   RecordSubmissionInput,
   RecordSubmissionResult,
   CreateApplicationEventInput,
+  RecordApplicationEventInput,
+  RecordApplicationEventResult,
+  ListApplicationEventsFilter,
+  ApplicationEventPage,
   ListDocumentsFilter,
   UpdateDocumentMetadataInput,
 } from "./types";
@@ -184,6 +193,13 @@ function mapSubmission(
   };
 }
 
+function publicEventMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const metadata = { ...(value as Record<string, unknown>) };
+  delete metadata.requestHash;
+  return metadata;
+}
+
 function mapEvent(id: string, data: FirebaseFirestore.DocumentData): ApplicationEventRecord {
   return {
     id,
@@ -194,8 +210,11 @@ function mapEvent(id: string, data: FirebaseFirestore.DocumentData): Application
     occurredAt: toDate(data.occurredAt) ?? new Date(),
     source: data.source ?? null,
     actor: data.actor ?? null,
-    metadata: data.metadata ?? null,
+    contactId: data.contactId ?? null,
+    outcome: data.outcome ?? null,
+    metadata: publicEventMetadata(data.metadata),
     createdAt: toDate(data.createdAt) ?? new Date(),
+    application: data._application,
   };
 }
 
@@ -302,6 +321,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord> {
+    validateApplicationSummary(data.notes);
     const now = Timestamp.now();
     const reference = this.apps.doc();
     const payload = {
@@ -383,6 +403,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const existing = await transaction.get(ref);
       if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
       if (existing.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      if (data.notes !== undefined) {
+        if (existing.data()!.notes === data.notes) delete update.notes;
+        else {
+          validateApplicationSummary(data.notes);
+          update.notes = data.notes;
+        }
+      }
       const currentCanonicalJobUrl = existing.data()!.canonicalJobUrl as string | null | undefined;
       let nextCanonicalIndex: FirebaseFirestore.DocumentReference | null = null;
       let nextCanonicalIndexExists = false;
@@ -546,7 +573,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
       const existingNotes = appSnapshot.data()!.notes as string | null | undefined;
       const notes = existingNotes ? `${existingNotes}\n\n${note}` : note;
-      if (notes.length > 50_000) throw new Error("notes_too_large");
+      if (notes.length > 10_000) throw new Error("notes_too_long");
       const now = Timestamp.now();
       const eventData = {
         userId,
@@ -557,10 +584,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         occurredAt: toTimestamp(eventInput.occurredAt),
         source: eventInput.source ?? null,
         actor: eventInput.actor ?? null,
-        metadata: {
-          ...(eventInput.metadata ?? {}),
-          requestHash,
-        },
+        metadata: eventInput.metadata ?? {},
         createdAt: now,
       };
       transaction.update(appRef, { notes, updatedAt: now });
@@ -899,6 +923,225 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return mapEvent(eventId, eventData);
   }
 
+  async recordApplicationEvent(
+    applicationId: string,
+    userId: string,
+    input: RecordApplicationEventInput,
+  ): Promise<RecordApplicationEventResult> {
+    const requestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      source: input.source ?? null,
+      actor: input.actor ?? null,
+      metadata: input.metadata ?? {},
+      contactId: input.contactId ?? null,
+      outcome: input.outcome ?? null,
+      expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+    });
+    const legacyRequestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      metadata: input.metadata ?? {},
+    });
+    const acceptedRequestHashes = new Set([requestHash, legacyRequestHash]);
+    const eventId = input.idempotencyKey
+      ? submissionRequestHash({ userId, key: input.idempotencyKey }).slice(0, 40)
+      : this.events.doc().id;
+    const eventRef = this.events.doc(eventId);
+    const appRef = this.apps.doc(applicationId);
+
+    const transactionResult = await this.db.runTransaction(async (transaction) => {
+      const [application, existing] = await Promise.all([
+        transaction.get(appRef),
+        transaction.get(eventRef),
+      ]);
+      if (!application.exists || application.data()!.userId !== userId) throw new Error("not_found");
+      const applicationData = application.data()!;
+      if (applicationData.deletionState === "in_progress") throw new Error("application_deleting");
+      if (existing.exists) {
+        const existingData = existing.data()!;
+        const persistedRequestHash = existingData.requestHash ?? existingData.metadata?.requestHash;
+        if (
+          !input.idempotencyKey
+          || existingData.userId !== userId
+          || typeof persistedRequestHash !== "string"
+          || !acceptedRequestHashes.has(persistedRequestHash)
+        ) throw new Error("idempotency_conflict");
+        return { replayed: true, eventData: existingData };
+      }
+      const metadataInput = input.metadata ?? {};
+      if (input.contactId) {
+        const contact = await transaction.get(this.contacts.doc(input.contactId));
+        if (!contact.exists || contact.data()!.applicationId !== applicationId) {
+          throw new Error("contact_not_found");
+        }
+      }
+      const documentId = typeof metadataInput.documentId === "string" ? metadataInput.documentId : null;
+      if (documentId) {
+        const document = await transaction.get(this.docs.doc(documentId));
+        const documentData = document.exists ? document.data()! : null;
+        if (
+          !documentData
+          || documentData.userId !== userId
+          || !Array.isArray(documentData.applicationIds)
+          || !documentData.applicationIds.includes(applicationId)
+        ) {
+          throw new Error("document_not_found");
+        }
+      }
+      const submissionId = typeof metadataInput.submissionId === "string" ? metadataInput.submissionId : null;
+      if (submissionId) {
+        const submission = await transaction.get(this.submissions.doc(submissionId));
+        if (
+          !submission.exists
+          || submission.data()!.userId !== userId
+          || submission.data()!.applicationId !== applicationId
+        ) {
+          throw new Error("submission_not_found");
+        }
+      }
+      const updatedAt = toDate(applicationData.updatedAt);
+      if (input.expectedUpdatedAt && updatedAt?.getTime() !== input.expectedUpdatedAt.getTime()) {
+        throw new Error("conflict");
+      }
+      const { patch, metadata } = deriveEventProjection(
+        { type: input.type, occurredAt: input.occurredAt, metadata: input.metadata ?? {} },
+        {
+        status: applicationData.status,
+        currentStage: applicationData.currentStage ?? null,
+        followUpAt: toDate(applicationData.followUpAt),
+      });
+      const firestorePatch = Object.fromEntries(
+        Object.entries(patch).map(([key, value]) => [
+          key,
+          value instanceof Date ? toTimestamp(value) : value,
+        ]),
+      );
+      transaction.update(appRef, { ...firestorePatch, updatedAt: Timestamp.now() });
+      const eventData = {
+        userId,
+        applicationId,
+        type: input.type,
+        idempotencyKey: input.idempotencyKey ?? null,
+        requestHash,
+        occurredAt: toTimestamp(input.occurredAt),
+        source: input.source ?? null,
+        actor: input.actor ?? null,
+        contactId: input.contactId ?? null,
+        outcome: input.outcome ?? null,
+        metadata,
+        createdAt: Timestamp.now(),
+      };
+      transaction.create(eventRef, eventData);
+      return { replayed: false, eventData };
+    });
+
+    const application = await this.getApplication(applicationId, userId);
+    if (!application) throw new Error("verification_failed");
+    const eventSnapshot = await eventRef.get();
+    if (!eventSnapshot.exists) throw new Error("verification_failed");
+    return {
+      event: mapEvent(eventId, eventSnapshot.data() ?? transactionResult.eventData),
+      application,
+      replayed: transactionResult.replayed,
+    };
+  }
+
+  async listApplicationEventsFiltered(
+    userId: string,
+    filter: ListApplicationEventsFilter,
+  ): Promise<ApplicationEventPage> {
+    const direction = filter.order === "oldest" ? "asc" : "desc";
+    let query: FirebaseFirestore.Query = this.events.where("userId", "==", userId);
+
+    // Use one indexed equality dimension as the native narrowing predicate.
+    // Remaining filters are applied to the bounded page below so arbitrary
+    // combinations do not require a combinatorial set of Firestore indexes.
+    if (filter.applicationId) query = query.where("applicationId", "==", filter.applicationId);
+    else if (filter.types?.length) query = query.where("type", "in", filter.types);
+    else if (filter.source) query = query.where("source", "==", filter.source);
+    else if (filter.actor) query = query.where("actor", "==", filter.actor);
+    else if (filter.contactId) query = query.where("contactId", "==", filter.contactId);
+    else if (filter.outcome) query = query.where("outcome", "==", filter.outcome);
+
+    if (filter.occurredAfter) {
+      query = query.where("occurredAt", ">=", Timestamp.fromDate(filter.occurredAfter));
+    }
+    if (filter.occurredBefore) {
+      query = query.where("occurredAt", "<=", Timestamp.fromDate(filter.occurredBefore));
+    }
+    query = query
+      .orderBy("occurredAt", direction)
+      .orderBy(FieldPath.documentId(), direction);
+    if (filter.cursor) {
+      query = query.startAfter(
+        Timestamp.fromDate(new Date(filter.cursor.occurredAt)),
+        filter.cursor.id,
+      );
+    }
+
+    const scanLimit = Math.min(500, Math.max(filter.limit * 2, 50));
+    const matchingEvents: Array<{
+      document: FirebaseFirestore.QueryDocumentSnapshot;
+      event: ApplicationEventRecord;
+    }> = [];
+
+    // Residual filters (notably company and arbitrary filter combinations) are
+    // evaluated in memory. Keep advancing the indexed query until this logical
+    // page has a real match/lookahead or the query is exhausted; never expose
+    // internal scan windows as empty client pages.
+    while (matchingEvents.length <= filter.limit) {
+      const snapshot = await query.limit(scanLimit).get();
+      if (!snapshot.docs.length) break;
+      const scannedEvents = snapshot.docs.map((document) => ({
+        document,
+        event: mapEvent(document.id, document.data()),
+      }));
+      const appMap = await this.loadVerifiedAppRefs([
+        ...new Set(scannedEvents.map(({ event }) => event.applicationId)),
+      ], userId);
+      for (const { event } of scannedEvents) event.application = appMap.get(event.applicationId);
+      matchingEvents.push(...scannedEvents.filter(({ event }) =>
+        (!filter.applicationId || event.applicationId === filter.applicationId)
+        && (!filter.company || event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
+        && (!filter.types?.length || filter.types.includes(event.type))
+        && (!filter.occurredAfter || event.occurredAt >= filter.occurredAfter)
+        && (!filter.occurredBefore || event.occurredAt <= filter.occurredBefore)
+        && (!filter.source || event.source === filter.source)
+        && (!filter.actor || event.actor === filter.actor)
+        && (!filter.contactId || event.contactId === filter.contactId)
+        && (!filter.outcome || event.outcome === filter.outcome)
+      ));
+      if (matchingEvents.length > filter.limit || snapshot.docs.length < scanLimit) break;
+      const lastDocument = snapshot.docs.at(-1)!;
+      const lastEvent = mapEvent(lastDocument.id, lastDocument.data());
+      query = query.startAfter(
+        Timestamp.fromDate(lastEvent.occurredAt),
+        lastEvent.id,
+      );
+    }
+
+    const items = matchingEvents.slice(0, filter.limit).map(({ event }) => event);
+    const cursorDocument = matchingEvents.length > filter.limit
+      ? matchingEvents[filter.limit - 1]?.document
+      : null;
+    const cursorEvent = cursorDocument
+      ? mapEvent(cursorDocument.id, cursorDocument.data())
+      : null;
+    return {
+      items,
+      nextCursor: cursorEvent
+        ? encodeEventCursor({
+          version: 1,
+          occurredAt: cursorEvent.occurredAt.toISOString(),
+          id: cursorEvent.id,
+        })
+        : null,
+    };
+  }
+
   async listApplicationEvents(
     applicationId: string,
     userId: string,
@@ -910,9 +1153,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       .where("applicationId", "==", applicationId)
       .where("userId", "==", userId)
       .orderBy("occurredAt", "desc")
-      .limit(Math.max(1, Math.min(500, limit)))
       .get();
-    return snapshot.docs.map((document) => mapEvent(document.id, document.data()));
+    const events = snapshot.docs.map((document) => mapEvent(document.id, document.data()));
+    return events.sort((left, right) => {
+      const time = right.occurredAt.getTime() - left.occurredAt.getTime();
+      if (time) return time;
+      return left.id === right.id ? 0 : left.id < right.id ? 1 : -1;
+    }).slice(0, Math.max(1, Math.min(500, limit)));
   }
 
   async listApplicationsFiltered(
@@ -1020,6 +1267,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const item = items[i];
       try {
         if (item.id) {
+          const lifecycleFields = ["status", "appliedAt", "lastContact", "followUpAt", "currentStage"] as const;
+          if (lifecycleFields.some((field) => item[field] !== undefined)) {
+            results.push({ index: i, id: item.id, operation: "updated", error: "lifecycle_event_required" });
+            failed++;
+            continue;
+          }
           const update = { ...item } as BatchUpsertItem & { id?: string };
           delete update.id;
           const application = await this.updateApplication(

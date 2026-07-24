@@ -11,6 +11,11 @@ import {
   validateSubmissionDocumentIds,
   validateSubmissionPolicy,
 } from "@/lib/applications/submission";
+import {
+  deriveEventProjection,
+  encodeEventCursor,
+  validateApplicationSummary,
+} from "@/lib/applications/events";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -42,6 +47,10 @@ import type {
   RecordSubmissionInput,
   RecordSubmissionResult,
   CreateApplicationEventInput,
+  RecordApplicationEventInput,
+  RecordApplicationEventResult,
+  ListApplicationEventsFilter,
+  ApplicationEventPage,
   ListDocumentsFilter,
   UpdateDocumentMetadataInput,
 } from "./types";
@@ -109,12 +118,34 @@ function mapSubmission(
   };
 }
 
-function mapEvent(row: ApplicationEvent): ApplicationEventRecord {
+type EventWithApplication = ApplicationEvent & {
+  application?: { id: number; company: string; role: string };
+};
+
+function publicEventMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const metadata = { ...(value as Record<string, unknown>) };
+  delete metadata.requestHash;
+  return metadata;
+}
+
+function mapEvent(row: EventWithApplication): ApplicationEventRecord {
   return {
-    ...row,
     id: sid(row.id),
+    userId: row.userId,
     applicationId: sid(row.applicationId),
-    metadata: row.metadata as unknown as Record<string, unknown> | null,
+    type: row.type,
+    idempotencyKey: row.idempotencyKey,
+    occurredAt: row.occurredAt,
+    source: row.source,
+    actor: row.actor,
+    contactId: row.contactId ?? null,
+    outcome: row.outcome ?? null,
+    metadata: publicEventMetadata(row.metadata),
+    createdAt: row.createdAt,
+    application: row.application
+      ? { id: sid(row.application.id), company: row.application.company, role: row.application.role }
+      : undefined,
   };
 }
 
@@ -286,6 +317,7 @@ export class PrismaAdapter implements DatabaseAdapter {
   }
 
   async createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord> {
+    validateApplicationSummary(data.notes);
     try {
       const row = await prisma.application.create({
         data: {
@@ -310,8 +342,18 @@ export class PrismaAdapter implements DatabaseAdapter {
   }
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
-    const { expectedUpdatedAt, ...update } = data;
     const applicationId = nid(id);
+    const mutableData = { ...data };
+    if (data.notes !== undefined) {
+      const current = await prisma.application.findFirst({
+        where: { id: applicationId, userId },
+        select: { notes: true },
+      });
+      if (!current) throw new Error("not_found");
+      if (current.notes === data.notes) delete mutableData.notes;
+      else validateApplicationSummary(data.notes);
+    }
+    const { expectedUpdatedAt, ...update } = mutableData;
     try {
       if (expectedUpdatedAt) {
         const result = await prisma.application.updateMany({
@@ -319,6 +361,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           data: {
             ...update,
             ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
+            eventVersion: { increment: 1 },
           },
         });
         if (result.count !== 1) {
@@ -340,6 +383,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         data: {
           ...update,
           ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
+          eventVersion: { increment: 1 },
         },
         include: { contacts: true },
       });
@@ -408,8 +452,8 @@ export class PrismaAdapter implements DatabaseAdapter {
         },
       });
       if (!event) return null;
-      const metadata = (event.metadata ?? {}) as Record<string, unknown>;
-      if (metadata.requestHash !== requestHash) throw new Error("idempotency_conflict");
+      const legacyHash = ((event.metadata ?? {}) as Record<string, unknown>).requestHash;
+      if ((event.requestHash ?? legacyHash) !== requestHash) throw new Error("idempotency_conflict");
       const application = await prisma.application.findFirst({
         where: { id: nid(id), userId },
         include: { contacts: true },
@@ -437,8 +481,8 @@ export class PrismaAdapter implements DatabaseAdapter {
             },
           });
           if (replay) {
-            const metadata = (replay.metadata ?? {}) as Record<string, unknown>;
-            if (metadata.requestHash !== requestHash) throw new Error("idempotency_conflict");
+            const legacyHash = ((replay.metadata ?? {}) as Record<string, unknown>).requestHash;
+            if ((replay.requestHash ?? legacyHash) !== requestHash) throw new Error("idempotency_conflict");
             return { application: mapApp(existing), event: mapEvent(replay) };
           }
         }
@@ -451,7 +495,8 @@ export class PrismaAdapter implements DatabaseAdapter {
                     WHEN "notes" IS NULL OR "notes" = '' THEN ${note}
                     ELSE "notes" || E'\n\n' || ${note}
                   END,
-                  "updatedAt" = NOW()
+                  "updatedAt" = NOW(),
+                  "eventVersion" = "eventVersion" + 1
               WHERE "id" = ${nid(id)}
                 AND "userId" = ${userId}
                 AND "updatedAt" = ${expectedUpdatedAt}
@@ -460,7 +505,7 @@ export class PrismaAdapter implements DatabaseAdapter {
                     WHEN "notes" IS NULL OR "notes" = '' THEN ${note}
                     ELSE "notes" || E'\n\n' || ${note}
                   END
-                ) <= 50000
+                ) <= 10000
             `
           : await tx.$executeRaw`
               UPDATE "Application"
@@ -468,7 +513,8 @@ export class PrismaAdapter implements DatabaseAdapter {
                     WHEN "notes" IS NULL OR "notes" = '' THEN ${note}
                     ELSE "notes" || E'\n\n' || ${note}
                   END,
-                  "updatedAt" = NOW()
+                  "updatedAt" = NOW(),
+                  "eventVersion" = "eventVersion" + 1
               WHERE "id" = ${nid(id)}
                 AND "userId" = ${userId}
                 AND char_length(
@@ -476,7 +522,7 @@ export class PrismaAdapter implements DatabaseAdapter {
                     WHEN "notes" IS NULL OR "notes" = '' THEN ${note}
                     ELSE "notes" || E'\n\n' || ${note}
                   END
-                ) <= 50000
+                ) <= 10000
             `;
         if (changed !== 1) {
           const current = await tx.application.findFirst({ where: { id: nid(id), userId } });
@@ -484,7 +530,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (expectedUpdatedAt && current.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
             throw new Error("conflict");
           }
-          throw new Error("notes_too_large");
+          throw new Error("notes_too_long");
         }
         const application = await tx.application.findFirstOrThrow({
           where: { id: nid(id), userId },
@@ -496,13 +542,11 @@ export class PrismaAdapter implements DatabaseAdapter {
             applicationId: nid(id),
             type: eventInput.type,
             idempotencyKey: eventInput.idempotencyKey ?? null,
+            requestHash,
             occurredAt: eventInput.occurredAt,
             source: eventInput.source ?? null,
             actor: eventInput.actor ?? null,
-            metadata: {
-              ...(eventInput.metadata ?? {}),
-              requestHash,
-            } as Prisma.InputJsonValue,
+            metadata: (eventInput.metadata ?? {}) as Prisma.InputJsonValue,
           },
         });
         return { application: mapApp(application), event: mapEvent(event) };
@@ -741,6 +785,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       const applicationUpdate = {
         status: "applied",
         appliedAt: input.submittedAt,
+        eventVersion: { increment: 1 },
         ...(input.followUpAt !== undefined ? { followUpAt: input.followUpAt } : {}),
         ...(input.atsName !== undefined ? { atsName: input.atsName } : {}),
         ...(input.requisitionId !== undefined ? { requisitionId: input.requisitionId } : {}),
@@ -875,27 +920,32 @@ export class PrismaAdapter implements DatabaseAdapter {
         },
       });
       if (!replay) return null;
-      const metadata = (replay.metadata ?? {}) as Record<string, unknown>;
-      if (metadata.requestHash !== requestHash) throw new Error("idempotency_conflict");
+      const legacyHash = ((replay.metadata ?? {}) as Record<string, unknown>).requestHash;
+      if ((replay.requestHash ?? legacyHash) !== requestHash) throw new Error("idempotency_conflict");
       return mapEvent(replay);
     };
     const replay = await loadReplay();
     if (replay) return replay;
     try {
-      const row = await prisma.applicationEvent.create({
-        data: {
-          userId,
-          applicationId: nid(applicationId),
-          type: input.type,
-          idempotencyKey: input.idempotencyKey ?? null,
-          occurredAt: input.occurredAt,
-          source: input.source ?? null,
-          actor: input.actor ?? null,
-          metadata: {
-            ...(input.metadata ?? {}),
+      const row = await prisma.$transaction(async (tx) => {
+        const bumped = await tx.application.updateMany({
+          where: { id: nid(applicationId), userId },
+          data: { eventVersion: { increment: 1 } },
+        });
+        if (bumped.count !== 1) throw new Error("not_found");
+        return tx.applicationEvent.create({
+          data: {
+            userId,
+            applicationId: nid(applicationId),
+            type: input.type,
+            idempotencyKey: input.idempotencyKey ?? null,
             requestHash,
-          } as Prisma.InputJsonValue,
-        },
+            occurredAt: input.occurredAt,
+            source: input.source ?? null,
+            actor: input.actor ?? null,
+            metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+          },
+        });
       });
       return mapEvent(row);
     } catch (error) {
@@ -907,6 +957,221 @@ export class PrismaAdapter implements DatabaseAdapter {
     }
   }
 
+  async recordApplicationEvent(
+    applicationId: string,
+    userId: string,
+    input: RecordApplicationEventInput,
+  ): Promise<RecordApplicationEventResult> {
+    const applicationNumericId = nid(applicationId);
+    const requestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      source: input.source ?? null,
+      actor: input.actor ?? null,
+      metadata: input.metadata ?? {},
+      contactId: input.contactId ?? null,
+      outcome: input.outcome ?? null,
+      expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+    });
+    const legacyRequestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      metadata: input.metadata ?? {},
+    });
+    const acceptedRequestHashes = new Set([requestHash, legacyRequestHash]);
+
+    const loadReplay = async (): Promise<RecordApplicationEventResult | null> => {
+      if (!input.idempotencyKey) return null;
+      const event = await prisma.applicationEvent.findUnique({
+        where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
+      });
+      if (!event) return null;
+      const persistedRequestHash = event.requestHash ?? (
+        event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+          ? (event.metadata as Record<string, unknown>).requestHash
+          : undefined
+      );
+      if (typeof persistedRequestHash !== "string" || !acceptedRequestHashes.has(persistedRequestHash)) {
+        throw new Error("idempotency_conflict");
+      }
+      const application = await prisma.application.findFirst({
+        where: { id: applicationNumericId, userId },
+        include: { contacts: true },
+      });
+      if (!application) throw new Error("not_found");
+      return { event: mapEvent(event), application: mapApp(application), replayed: true };
+    };
+
+    const replay = await loadReplay();
+    if (replay) return replay;
+
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const application = await tx.application.findFirst({
+          where: { id: applicationNumericId, userId },
+          include: { contacts: true },
+        });
+        if (!application) throw new Error("not_found");
+        if (input.expectedUpdatedAt && application.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+          throw new Error("conflict");
+        }
+        if (input.idempotencyKey) {
+          const existing = await tx.applicationEvent.findUnique({
+            where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
+          });
+          if (existing) {
+            const persistedRequestHash = existing.requestHash ?? (
+              existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+                ? (existing.metadata as Record<string, unknown>).requestHash
+                : undefined
+            );
+            if (typeof persistedRequestHash !== "string" || !acceptedRequestHashes.has(persistedRequestHash)) {
+              throw new Error("idempotency_conflict");
+            }
+            return { event: mapEvent(existing), application: mapApp(application), replayed: true };
+          }
+        }
+
+        const metadataInput = input.metadata ?? {};
+        const referenceId = (value: string, errorCode: string) => {
+          try {
+            return nid(value);
+          } catch {
+            throw new Error(errorCode);
+          }
+        };
+        if (input.contactId) {
+          const count = await tx.contact.count({
+            where: { id: referenceId(input.contactId, "contact_not_found"), applicationId: applicationNumericId },
+          });
+          if (count !== 1) throw new Error("contact_not_found");
+        }
+        const documentId = typeof metadataInput.documentId === "string" ? metadataInput.documentId : null;
+        if (documentId) {
+          const count = await tx.document.count({
+            where: {
+              id: referenceId(documentId, "document_not_found"),
+              userId,
+              applications: { some: { id: applicationNumericId } },
+            },
+          });
+          if (count !== 1) throw new Error("document_not_found");
+        }
+        const submissionId = typeof metadataInput.submissionId === "string" ? metadataInput.submissionId : null;
+        if (submissionId) {
+          const count = await tx.applicationSubmission.count({
+            where: {
+              id: referenceId(submissionId, "submission_not_found"),
+              userId,
+              applicationId: applicationNumericId,
+            },
+          });
+          if (count !== 1) throw new Error("submission_not_found");
+        }
+
+        const { patch, metadata } = deriveEventProjection(
+          { type: input.type, occurredAt: input.occurredAt, metadata: metadataInput },
+          {
+          status: application.status,
+          currentStage: application.currentStage,
+          followUpAt: application.followUpAt,
+        });
+        const eventVersion = application.eventVersion;
+        const updated = await tx.application.updateMany({
+          where: { id: applicationNumericId, userId, eventVersion },
+          data: { ...patch, eventVersion: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw new Error("conflict");
+        const updatedApplication = await tx.application.findFirst({
+          where: { id: applicationNumericId, userId },
+          include: { contacts: true },
+        });
+        if (!updatedApplication) throw new Error("not_found");
+        const event = await tx.applicationEvent.create({
+          data: {
+            userId,
+            applicationId: applicationNumericId,
+            type: input.type,
+            idempotencyKey: input.idempotencyKey ?? null,
+            requestHash,
+            occurredAt: input.occurredAt,
+            source: input.source ?? null,
+            actor: input.actor ?? null,
+            contactId: input.contactId ?? null,
+            outcome: input.outcome ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+        });
+        return {
+          event: mapEvent(event),
+          application: mapApp(updatedApplication),
+          replayed: false,
+        };
+      });
+    } catch (error) {
+      if (
+        input.idempotencyKey
+        && error instanceof Error
+        && error.message === "conflict"
+      ) {
+        const concurrentReplay = await loadReplay();
+        if (concurrentReplay) return concurrentReplay;
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const concurrentReplay = await loadReplay();
+        if (concurrentReplay) return concurrentReplay;
+      }
+      throw error;
+    }
+  }
+
+  async listApplicationEventsFiltered(
+    userId: string,
+    filter: ListApplicationEventsFilter,
+  ): Promise<ApplicationEventPage> {
+    const direction = filter.order === "oldest" ? "asc" : "desc";
+    const where: Prisma.ApplicationEventWhereInput = {
+      userId,
+      ...(filter.applicationId ? { applicationId: nid(filter.applicationId) } : {}),
+      ...(filter.company ? { application: { company: { contains: filter.company, mode: "insensitive" } } } : {}),
+      ...(filter.types?.length ? { type: { in: filter.types } } : {}),
+      ...(filter.source ? { source: filter.source } : {}),
+      ...(filter.actor ? { actor: filter.actor } : {}),
+      ...(filter.contactId ? { contactId: filter.contactId } : {}),
+      ...(filter.outcome ? { outcome: filter.outcome } : {}),
+    };
+    const occurredAt: Prisma.DateTimeFilter = {};
+    if (filter.occurredAfter) occurredAt.gte = filter.occurredAfter;
+    if (filter.occurredBefore) occurredAt.lte = filter.occurredBefore;
+    if (Object.keys(occurredAt).length) where.occurredAt = occurredAt;
+    if (filter.cursor) {
+      const cursorDate = new Date(filter.cursor.occurredAt);
+      const cursorId = nid(filter.cursor.id);
+      const cursorPredicate: Prisma.ApplicationEventWhereInput = filter.order === "oldest"
+        ? { OR: [{ occurredAt: { gt: cursorDate } }, { occurredAt: cursorDate, id: { gt: cursorId } }] }
+        : { OR: [{ occurredAt: { lt: cursorDate } }, { occurredAt: cursorDate, id: { lt: cursorId } }] };
+      where.AND = [cursorPredicate];
+    }
+    const rows = await prisma.applicationEvent.findMany({
+      where,
+      orderBy: [{ occurredAt: direction }, { id: direction }],
+      take: filter.limit + 1,
+      include: { application: { select: { id: true, company: true, role: true } } },
+    });
+    const hasMore = rows.length > filter.limit;
+    const pageRows = hasMore ? rows.slice(0, filter.limit) : rows;
+    const items = pageRows.map(mapEvent);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: hasMore && last
+        ? encodeEventCursor({ version: 1, occurredAt: last.occurredAt.toISOString(), id: last.id })
+        : null,
+    };
+  }
+
   async listApplicationEvents(
     applicationId: string,
     userId: string,
@@ -916,7 +1181,7 @@ export class PrismaAdapter implements DatabaseAdapter {
     if (!owns) throw new Error("not_found");
     const rows = await prisma.applicationEvent.findMany({
       where: { applicationId: nid(applicationId), userId },
-      orderBy: { occurredAt: "desc" },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
       take: Math.max(1, Math.min(500, limit)),
     });
     return rows.map(mapEvent);
@@ -998,6 +1263,12 @@ export class PrismaAdapter implements DatabaseAdapter {
       const item = items[i];
       try {
         if (item.id) {
+          const lifecycleFields = ["status", "appliedAt", "lastContact", "followUpAt", "currentStage"] as const;
+          if (lifecycleFields.some((field) => item[field] !== undefined)) {
+            results.push({ index: i, id: item.id, operation: "updated", error: "lifecycle_event_required" });
+            failed++;
+            continue;
+          }
           // Pre-check ownership to avoid a throwing update on missing rows
           const existing = await prisma.application.findFirst({
             where: { id: nid(item.id), userId },
@@ -1016,7 +1287,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (item.appliedAt !== undefined) data.appliedAt = item.appliedAt;
           if (item.lastContact !== undefined) data.lastContact = item.lastContact;
           if (item.followUpAt !== undefined) data.followUpAt = item.followUpAt;
-          if (item.notes !== undefined) data.notes = item.notes;
+          if (item.notes !== undefined) data.notes = validateApplicationSummary(item.notes);
           if (item.jobDescription !== undefined) data.jobDescription = item.jobDescription;
           if (item.source !== undefined) data.source = item.source;
           if (item.remote !== undefined) data.remote = item.remote;
@@ -1027,6 +1298,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (item.resumeId !== undefined) data.resumeId = item.resumeId;
           Object.assign(data, structuredApplicationData(item as unknown as Record<string, unknown>));
           Object.assign(data, sanitizeTriageFields(item as Record<string, unknown>));
+          data.eventVersion = { increment: 1 };
 
           const row = await prisma.application.update({
             where: { id: nid(item.id), userId },
@@ -1050,7 +1322,7 @@ export class PrismaAdapter implements DatabaseAdapter {
               appliedAt: resolveAppliedAtForCreate(item.status || "inbound", item.appliedAt),
               lastContact: item.lastContact ?? null,
               followUpAt: item.followUpAt ?? null,
-              notes: item.notes ?? null,
+              notes: validateApplicationSummary(item.notes),
               jobDescription: item.jobDescription ?? null,
               source: item.source ?? null,
               remote: item.remote ?? false,

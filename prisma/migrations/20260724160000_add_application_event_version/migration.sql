@@ -1,0 +1,2 @@
+ALTER TABLE "Application"
+ADD COLUMN "eventVersion" INTEGER NOT NULL DEFAULT 0;

@@ -1,3 +1,5 @@
+import type { ApplicationEventType } from "@/lib/applications/events";
+
 // ── Submission policy contract ───────────────────────────────────────────────
 
 export type ProfileConsistencyStatus = "verified" | "unavailable_reviewed";
@@ -156,8 +158,51 @@ export interface ApplicationEventRecord {
   occurredAt: Date;
   source: string | null;
   actor: string | null;
+  contactId: string | null;
+  outcome: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
+  application?: ApplicationRef;
+}
+
+export interface ApplicationEventCursor {
+  version: 1;
+  occurredAt: string;
+  id: string;
+}
+
+export interface ListApplicationEventsFilter {
+  applicationId?: string;
+  company?: string;
+  types?: string[];
+  occurredAfter?: Date;
+  occurredBefore?: Date;
+  source?: string;
+  actor?: string;
+  contactId?: string;
+  outcome?: string;
+  cursor?: ApplicationEventCursor;
+  order: "newest" | "oldest";
+  limit: number;
+}
+
+export interface ApplicationEventPage {
+  items: ApplicationEventRecord[];
+  nextCursor: string | null;
+}
+
+export interface RecordApplicationEventInput extends CreateApplicationEventInput {
+  type: ApplicationEventType;
+  idempotencyKey?: string;
+  expectedUpdatedAt?: Date;
+  contactId?: string | null;
+  outcome?: string | null;
+}
+
+export interface RecordApplicationEventResult {
+  event: ApplicationEventRecord;
+  application: ApplicationRecord;
+  replayed: boolean;
 }
 
 export interface ApplicationRef {

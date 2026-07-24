@@ -1,1 +1,16 @@
 schema: spec-driven
+
+context: |
+  Nexus CRM is a Next.js/TypeScript career-operations CRM with a shared DatabaseAdapter implemented by Prisma/PostgreSQL and Firestore. REST, MCP, and UI behavior must remain owner-scoped and backend-equivalent. Application is the authoritative current-state projection; immutable ApplicationSubmission and ApplicationEvent records preserve evidence and history. Changes require test-first implementation, OpenAPI/MCP runtime parity, English/German localization, and additive migrations without destructive legacy-note rewrites.
+
+rules:
+  proposal:
+    - Keep Application as the current operational projection; do not introduce full event sourcing.
+    - Identify REST, MCP, Prisma, Firestore, UI, migration, and compatibility impact.
+  specs:
+    - Require owner scoping, bounded inputs, deterministic idempotency, and controlled error codes.
+    - Include backend parity and legacy-preservation scenarios.
+  design:
+    - Document transaction boundaries, cursor semantics, metadata validation, and rollback.
+  tasks:
+    - Order implementation as RED-GREEN vertical slices and include full verification gates.

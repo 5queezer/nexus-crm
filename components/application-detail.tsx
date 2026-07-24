@@ -22,6 +22,7 @@ import { TriageSection } from "./application-form/triage-section";
 import { ContactsSection } from "./application-form/contacts-section";
 import { DocumentsSection } from "./application-form/documents-section";
 import { ResumeSection } from "./application-form/resume-section";
+import { ApplicationTimeline } from "./application-timeline";
 
 interface ApplicationDetailProps {
   user: {
@@ -226,16 +227,17 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
             <SectionCard title={td("section_details")}>
               <div className="space-y-5">
-                <CoreFieldsSection form={form} onChange={handleChange} />
+                <CoreFieldsSection form={form} onChange={handleChange} lifecycleDisabled />
                 <DetailFieldsSection
                   form={form}
                   onChange={handleChange}
                   patch={patch}
+                  lifecycleDisabled
                 />
               </div>
             </SectionCard>
             <div className="space-y-5">
-              <SectionCard title={tm("notes")}>
+              <SectionCard title={tm("summary")}>
                 <NotesField
                   value={form.notes}
                   onChange={handleChange}
@@ -254,7 +256,9 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
 
           <div className="mt-5 space-y-5">
             <TriageSection form={form} patch={patch} variant="open" />
-            <ContactsSection state={contactRows} variant="open" />
+            <div id="contacts">
+              <ContactsSection state={contactRows} variant="open" />
+            </div>
             <DocumentsSection
               applicationId={application.id}
               resumeId={application.resumeId}
@@ -284,6 +288,14 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
             </div>
           </div>
         </form>
+        <div className="mt-5">
+          <ApplicationTimeline
+            applicationId={application.id}
+            expectedUpdatedAt={baselineUpdatedAt}
+            disabled={hasUnsavedChanges}
+            onProjectionUpdated={() => window.location.reload()}
+          />
+        </div>
       </main>
     </div>
   );

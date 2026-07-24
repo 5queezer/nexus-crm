@@ -2,6 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { fetchNewMessages, getMessageDetail } from "./gmail";
 import { classifyEmail } from "./classifier";
 import { logger } from "@/lib/logger";
+import {
+  createEmailApplicationWithLifecycle,
+  recordEmailLifecycleTransition,
+} from "./application-events";
 
 export interface ScanResult {
   userId: string;
@@ -49,6 +53,7 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
     select: { messageId: true },
   });
   const existingMessageIds = new Set(existingScans.map(scan => scan.messageId));
+  let retryFromCurrentHistory = false;
 
   for (const msg of messages) {
     result.processed++;
@@ -82,9 +87,6 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
         role: classification.role,
       });
 
-      const status =
-        integration.autoImport === "auto" ? "imported" : "pending";
-
       const scanned = await prisma.scannedEmail.create({
         data: {
           userId,
@@ -95,7 +97,7 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
           classification: classification.classification,
           confidence: classification.confidence,
           extractedData,
-          status,
+          status: "pending",
         },
       });
 
@@ -103,8 +105,16 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
 
       // Auto-import if configured
       if (integration.autoImport === "auto" && classification.company) {
-        await autoImportAsApplication(userId, scanned.id, classification);
-        result.autoImported++;
+        try {
+          await autoImportAsApplication(userId, scanned.id, detail.receivedAt, classification);
+          result.autoImported++;
+        } catch (error) {
+          // Leave the Gmail message retryable instead of stranding an
+          // "imported" row without an application or lifecycle event.
+          retryFromCurrentHistory = true;
+          await prisma.scannedEmail.delete({ where: { id: scanned.id } });
+          throw error;
+        }
       }
     } catch (err) {
       logger.error(`Failed to process message ${msg.id}:`, err);
@@ -115,7 +125,9 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
   await prisma.emailIntegration.update({
     where: { userId },
     data: {
-      lastHistoryId: latestHistoryId ?? integration.lastHistoryId,
+      lastHistoryId: retryFromCurrentHistory
+        ? integration.lastHistoryId
+        : latestHistoryId ?? integration.lastHistoryId,
       lastScanAt: new Date(),
     },
   });
@@ -126,6 +138,7 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
 async function autoImportAsApplication(
   userId: string,
   scannedEmailId: number,
+  occurredAt: Date,
   data: { company: string | null; role: string | null; classification: string | null }
 ): Promise<void> {
   if (!data.company) return;
@@ -153,9 +166,13 @@ async function autoImportAsApplication(
     const isProgression = appStatus === "rejected" || (newRank > currentRank && currentRank >= 0);
 
     if (isProgression && existing.status !== "rejected") {
-      await prisma.application.update({
-        where: { id: existing.id },
-        data: { status: appStatus },
+      await recordEmailLifecycleTransition({
+        applicationId: existing.id,
+        userId,
+        status: appStatus,
+        occurredAt,
+        scannedEmailId,
+        expectedUpdatedAt: existing.updatedAt,
       });
     }
 
@@ -167,21 +184,21 @@ async function autoImportAsApplication(
     return;
   }
 
-  // Create new application
-  const app = await prisma.application.create({
-    data: {
-      userId,
-      company: data.company,
-      role: data.role ?? "Unknown Role",
-      status: data.classification === "rejection" ? "rejected" : (data.classification ?? "applied"),
-      source: "email",
-      appliedAt: new Date(),
-    },
+  const status = data.classification === "rejection"
+    ? "rejected"
+    : data.classification ?? "applied";
+  const applicationId = await createEmailApplicationWithLifecycle({
+    userId,
+    company: data.company,
+    role: data.role ?? "Unknown Role",
+    status,
+    occurredAt,
+    scannedEmailId,
   });
 
   await prisma.scannedEmail.update({
     where: { id: scannedEmailId },
-    data: { applicationId: app.id, status: "imported" },
+    data: { applicationId, status: "imported" },
   });
 }
 

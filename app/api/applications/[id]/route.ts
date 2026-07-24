@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
+import { validateApplicationSummary } from "@/lib/applications/events";
+import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
 
 const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
 const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
@@ -46,6 +48,9 @@ export async function PATCH(
   }
 
   const { id } = await params;
+  const db = getDb();
+  const current = await db.getApplication(id, auth.userId);
+  if (!current) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const body = await request.json();
   const { company, role, status, appliedAt, lastContact, followUpAt, notes, jobDescription, source, remote, salaryMin, salaryMax, rating, jobUrl, resumeId, archivedAt, companySize, salaryBandMentioned, triageQuality, triageReason, incomingSource, autoRejected, autoRejectReason } = body;
 
@@ -69,7 +74,11 @@ export async function PATCH(
   }
 
   let structuredMetadata;
+  let validatedNotes: string | null | undefined;
+  const rawNotes: unknown = notes === undefined ? undefined : notes === null || notes === "" ? null : notes;
+  const notesChanged = notes !== undefined && rawNotes !== current.notes;
   try {
+    validatedNotes = notesChanged ? validateApplicationSummary(rawNotes) : undefined;
     structuredMetadata = parseStructuredApplicationMetadata(body as Record<string, unknown>);
   } catch (error) {
     return NextResponse.json(
@@ -86,21 +95,48 @@ export async function PATCH(
     }
   }
 
+  const parseLifecycleDate = (raw: unknown): Date | null | "invalid" => {
+    if (raw === null || raw === "") return null;
+    if (typeof raw !== "string") return "invalid";
+    return parseLocalCalendarDate(raw) ?? "invalid";
+  };
+  const sameDate = (raw: unknown, existing: Date | null) => {
+    const next = parseLifecycleDate(raw);
+    if (next === "invalid") return false;
+    if (next === null) return existing === null;
+    if (next.getTime() === existing?.getTime()) return true;
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw as string)
+      && raw === existing?.toISOString().slice(0, 10);
+  };
+  const lifecycleDates = { appliedAt, lastContact, followUpAt };
+  const invalidLifecycleFields = Object.entries(lifecycleDates)
+    .filter(([, raw]) => raw !== undefined && parseLifecycleDate(raw) === "invalid")
+    .map(([field]) => field);
+  if (invalidLifecycleFields.length) {
+    return NextResponse.json(
+      { error: "invalid_lifecycle_date", fields: invalidLifecycleFields },
+      { status: 400 },
+    );
+  }
+  const lifecycleFields: string[] = [];
+  if (status !== undefined && normalizeStatus(status) !== current.status) lifecycleFields.push("status");
+  if (appliedAt !== undefined && !sameDate(appliedAt, current.appliedAt)) lifecycleFields.push("appliedAt");
+  if (lastContact !== undefined && !sameDate(lastContact, current.lastContact)) lifecycleFields.push("lastContact");
+  if (followUpAt !== undefined && !sameDate(followUpAt, current.followUpAt)) lifecycleFields.push("followUpAt");
+  if (structuredMetadata.currentStage !== undefined && structuredMetadata.currentStage !== current.currentStage) {
+    lifecycleFields.push("currentStage");
+  }
+  if (lifecycleFields.length) {
+    return NextResponse.json({ error: "lifecycle_event_required", fields: lifecycleFields }, { status: 409 });
+  }
+  const nonLifecycleMetadata = { ...structuredMetadata };
+  delete nonLifecycleMetadata.currentStage;
+
   try {
-    const application = await getDb().updateApplication(id, auth.userId, {
+    const application = await db.updateApplication(id, auth.userId, {
     ...(company !== undefined && { company: String(company).slice(0, 255) }),
     ...(role !== undefined && { role: String(role).slice(0, 255) }),
-    ...(status !== undefined && { status: normalizeStatus(status) }),
-    ...(appliedAt !== undefined && {
-      appliedAt: appliedAt ? new Date(appliedAt) : null,
-    }),
-    ...(lastContact !== undefined && {
-      lastContact: lastContact ? new Date(lastContact) : null,
-    }),
-    ...(followUpAt !== undefined && {
-      followUpAt: followUpAt ? new Date(followUpAt) : null,
-    }),
-    ...(notes !== undefined && { notes: notes ? String(notes).slice(0, 10000) : null }),
+    ...(notesChanged && { notes: validatedNotes }),
     ...(jobDescription !== undefined && {
       jobDescription: jobDescription ? String(jobDescription).slice(0, 50000) : null,
     }),
@@ -139,7 +175,7 @@ export async function PATCH(
     ...(archivedAt !== undefined && {
       archivedAt: archivedAt ? new Date(archivedAt) : null,
     }),
-    ...structuredMetadata,
+    ...nonLifecycleMetadata,
     ...(expectedUpdatedAt !== undefined && {
       expectedUpdatedAt,
     }),

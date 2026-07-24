@@ -280,7 +280,8 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
               {documents.map((doc) => (
                 <li
                   key={doc.id}
-                  className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 dark:hover:bg-gray-700/50 transition-colors"
+                  id={`document-${encodeURIComponent(doc.id)}`}
+                  className="scroll-mt-6 flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 dark:hover:bg-gray-700/50 transition-colors"
                 >
                   <span className="text-2xl shrink-0">{fileIcon(doc.mimeType)}</span>
                   <div className="flex-1 min-w-0">
