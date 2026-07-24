@@ -50,6 +50,7 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
     select: { messageId: true },
   });
   const existingMessageIds = new Set(existingScans.map(scan => scan.messageId));
+  let retryFromCurrentHistory = false;
 
   for (const msg of messages) {
     result.processed++;
@@ -107,6 +108,7 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
         } catch (error) {
           // Leave the Gmail message retryable instead of stranding an
           // "imported" row without an application or lifecycle event.
+          retryFromCurrentHistory = true;
           await prisma.scannedEmail.delete({ where: { id: scanned.id } });
           throw error;
         }
@@ -120,7 +122,9 @@ export async function scanUserInbox(userId: string): Promise<ScanResult> {
   await prisma.emailIntegration.update({
     where: { userId },
     data: {
-      lastHistoryId: latestHistoryId ?? integration.lastHistoryId,
+      lastHistoryId: retryFromCurrentHistory
+        ? integration.lastHistoryId
+        : latestHistoryId ?? integration.lastHistoryId,
       lastScanAt: new Date(),
     },
   });
