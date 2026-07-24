@@ -10,11 +10,15 @@ export async function GET(request: NextRequest) {
   const values: Record<string, unknown> = Object.fromEntries(request.nextUrl.searchParams.entries());
   const allTypes = request.nextUrl.searchParams.getAll("type");
   if (allTypes.length) values.types = allTypes;
+  let filter;
   try {
-    const filter = parseEventQuery(values);
+    filter = parseEventQuery(values);
+  } catch {
+    return NextResponse.json({ error: "event_query_invalid" }, { status: 400 });
+  }
+  try {
     return NextResponse.json(await getDb().listApplicationEventsFiltered(auth.userId, filter));
-  } catch (error) {
-    const code = error instanceof Error ? error.message : "event_query_invalid";
-    return NextResponse.json({ error: code }, { status: 400 });
+  } catch {
+    return NextResponse.json({ error: "event_query_failed" }, { status: 500 });
   }
 }

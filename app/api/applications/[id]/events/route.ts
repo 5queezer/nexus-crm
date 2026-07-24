@@ -3,6 +3,17 @@ import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
 import { parseApplicationEventCommand, parseEventQuery } from "@/lib/applications/events";
 
+const WRITE_ERROR_CODES = new Set([
+  "not_found",
+  "conflict",
+  "idempotency_conflict",
+  "application_deleting",
+  "contact_not_found",
+  "document_not_found",
+  "submission_not_found",
+  "verification_failed",
+]);
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -17,12 +28,16 @@ export async function GET(
   const values: Record<string, unknown> = Object.fromEntries(request.nextUrl.searchParams.entries());
   const allTypes = request.nextUrl.searchParams.getAll("type");
   if (allTypes.length) values.types = allTypes;
+  let filter;
   try {
-    const filter = parseEventQuery({ ...values, applicationId: id });
+    filter = parseEventQuery({ ...values, applicationId: id });
+  } catch {
+    return NextResponse.json({ error: "event_query_invalid" }, { status: 400 });
+  }
+  try {
     return NextResponse.json(await db.listApplicationEventsFiltered(auth.userId, filter));
-  } catch (error) {
-    const code = error instanceof Error ? error.message : "event_query_invalid";
-    return NextResponse.json({ error: code }, { status: 400 });
+  } catch {
+    return NextResponse.json({ error: "event_query_failed" }, { status: 500 });
   }
 }
 
@@ -68,12 +83,15 @@ export async function POST(
       headers: result.replayed ? { "X-Idempotent-Replay": "true" } : undefined,
     });
   } catch (error) {
-    const code = error instanceof Error ? error.message : "event_failed";
+    const rawCode = error instanceof Error ? error.message : "";
+    const code = WRITE_ERROR_CODES.has(rawCode) ? rawCode : "event_failed";
     const status = code === "not_found"
       ? 404
-      : code === "conflict" || code.includes("idempotency") || code === "application_deleting"
+      : code === "conflict" || code === "idempotency_conflict" || code === "application_deleting"
         ? 409
-        : 400;
+        : code === "event_failed" || code === "verification_failed"
+          ? 500
+          : 400;
     return NextResponse.json({ error: code }, { status });
   }
 }

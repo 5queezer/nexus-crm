@@ -1013,8 +1013,45 @@ export class PrismaAdapter implements DatabaseAdapter {
           }
         }
 
+        const metadataInput = input.metadata ?? {};
+        const referenceId = (value: string, errorCode: string) => {
+          try {
+            return nid(value);
+          } catch {
+            throw new Error(errorCode);
+          }
+        };
+        if (input.contactId) {
+          const count = await tx.contact.count({
+            where: { id: referenceId(input.contactId, "contact_not_found"), applicationId: applicationNumericId },
+          });
+          if (count !== 1) throw new Error("contact_not_found");
+        }
+        const documentId = typeof metadataInput.documentId === "string" ? metadataInput.documentId : null;
+        if (documentId) {
+          const count = await tx.document.count({
+            where: {
+              id: referenceId(documentId, "document_not_found"),
+              userId,
+              applications: { some: { id: applicationNumericId } },
+            },
+          });
+          if (count !== 1) throw new Error("document_not_found");
+        }
+        const submissionId = typeof metadataInput.submissionId === "string" ? metadataInput.submissionId : null;
+        if (submissionId) {
+          const count = await tx.applicationSubmission.count({
+            where: {
+              id: referenceId(submissionId, "submission_not_found"),
+              userId,
+              applicationId: applicationNumericId,
+            },
+          });
+          if (count !== 1) throw new Error("submission_not_found");
+        }
+
         const { patch, metadata } = deriveEventProjection(
-          { type: input.type, occurredAt: input.occurredAt, metadata: input.metadata ?? {} },
+          { type: input.type, occurredAt: input.occurredAt, metadata: metadataInput },
           {
           status: application.status,
           currentStage: application.currentStage,

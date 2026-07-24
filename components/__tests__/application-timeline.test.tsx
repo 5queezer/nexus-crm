@@ -49,6 +49,38 @@ describe("ApplicationTimeline", () => {
     expect(screen.queryByText(/secret/)).toBeNull();
   });
 
+  it("uses safe fallbacks, an explicit metadata allowlist, and exact entity targets", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      items: [{
+        id: "event-future",
+        applicationId: "42",
+        type: "future_private_event",
+        occurredAt: "2026-07-24T09:00:00.000Z",
+        createdAt: "2026-07-24T09:00:01.000Z",
+        source: "rest",
+        actor: null,
+        contactId: "contact-1",
+        outcome: null,
+        metadata: {
+          note: "Visible note",
+          privatePolicyBlob: "must-not-render",
+          documentId: "document-1",
+          submissionId: "submission-1",
+        },
+      }],
+      nextCursor: null,
+    }), { status: 200 }));
+
+    renderTimeline();
+    expect(await screen.findByText("Unknown event (future_private_event)")).toBeTruthy();
+    expect(screen.getByText("Timeline note: Visible note")).toBeTruthy();
+    expect(screen.queryByText(/must-not-render/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Contact contact-1" }).getAttribute("href")).toBe("#contact-contact-1");
+    expect(screen.getByRole("link", { name: "Document document-1" }).getAttribute("href")).toBe("/documents#document-document-1");
+    expect(screen.queryByRole("link", { name: "Submission submission-1" })).toBeNull();
+    expect(screen.getByText("Submission submission-1")).toBeTruthy();
+  });
+
   it("loads more pages and switches deterministic order", async () => {
     const pageEvent = (id: string, type: string) => ({
       id, applicationId: "42", type,

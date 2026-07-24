@@ -71,9 +71,15 @@ const fake = vi.hoisted(() => {
       return row;
     }),
   };
+  const contactApi = { count: vi.fn(async () => 1) };
+  const documentApi = { count: vi.fn(async () => 1) };
+  const submissionApi = { count: vi.fn(async () => 1) };
   Object.assign(prisma, {
     application: applicationApi,
     applicationEvent: eventApi,
+    contact: contactApi,
+    document: documentApi,
+    applicationSubmission: submissionApi,
     $transaction: vi.fn(async (callback: (transaction: unknown) => Promise<unknown>) => {
       const applicationBefore = structuredClone(application);
       const eventsBefore = structuredClone(events);
@@ -93,6 +99,9 @@ const fake = vi.hoisted(() => {
     app: () => application,
     events: () => events,
     seedEvent: (row: Row) => events.push(row),
+    contactCount: contactApi.count,
+    documentCount: documentApi.count,
+    submissionCount: submissionApi.count,
     setFailCreate: (value: boolean) => { failCreate = value; },
   };
 });
@@ -174,6 +183,31 @@ describe("PrismaAdapter — atomic application events", () => {
       ...command,
       metadata: { toStage: "onsite", toStatus: "interview" },
     })).rejects.toThrow("idempotency_conflict");
+  });
+
+  it.each([
+    {
+      label: "contact",
+      fail: () => fake.contactCount.mockResolvedValueOnce(0),
+      input: { ...command, idempotencyKey: "missing-contact", contactId: "7" },
+      code: "contact_not_found",
+    },
+    {
+      label: "document",
+      fail: () => fake.documentCount.mockResolvedValueOnce(0),
+      input: { ...command, idempotencyKey: "missing-document", metadata: { ...command.metadata, documentId: "8" } },
+      code: "document_not_found",
+    },
+    {
+      label: "submission",
+      fail: () => fake.submissionCount.mockResolvedValueOnce(0),
+      input: { ...command, idempotencyKey: "missing-submission", metadata: { ...command.metadata, submissionId: "9" } },
+      code: "submission_not_found",
+    },
+  ])("rejects a linked $label outside the owner/application boundary", async ({ fail, input, code }) => {
+    fail();
+    await expect(new PrismaAdapter().recordApplicationEvent("1", "owner-1", input)).rejects.toThrow(code);
+    expect(fake.events()).toHaveLength(0);
   });
 
   it("rejects stale and cross-owner commands without an event", async () => {

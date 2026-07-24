@@ -43,24 +43,41 @@ function localDateTimeValue(date = new Date()): string {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
+const VISIBLE_METADATA_KEYS = [
+  "fromStage",
+  "toStage",
+  "interviewType",
+  "scheduledAt",
+  "followUpAt",
+  "nextAction",
+  "outcome",
+  "reason",
+  "note",
+  "durationMinutes",
+  "location",
+  "meetingUrl",
+  "offerType",
+  "compensationSummary",
+  "atsName",
+  "requisitionId",
+  "filename",
+  "documentCount",
+] as const;
+
 function metadataSummary(
   metadata: Record<string, unknown> | null,
   labelFor: (key: string) => string,
 ): string[] {
   if (!metadata) return [];
-  const hidden = new Set(["requestHash", "fromStatus", "toStatus", "contactId", "documentId", "submissionId"]);
-  return Object.entries(metadata)
-    .filter(([key, value]) => !hidden.has(key) && value !== null && value !== "")
-    .slice(0, 6)
-    .map(([key, value]) => {
-      const label = labelFor(key);
-      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-        return `${label}: ${new Date(value).toLocaleString()}`;
-      }
-      if (Array.isArray(value)) return `${label}: ${value.join(", ")}`;
-      if (typeof value === "object") return `${label}: recorded`;
-      return `${label}: ${String(value)}`;
-    });
+  return VISIBLE_METADATA_KEYS.flatMap((key) => {
+    const value = metadata[key];
+    if (value === undefined || value === null || value === "" || typeof value === "object") return [];
+    const label = labelFor(key);
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+      return [`${label}: ${new Date(value).toLocaleString()}`];
+    }
+    return [`${label}: ${String(value)}`];
+  });
 }
 
 async function loadTimeline(applicationId: string, order: "newest" | "oldest", cursor: string): Promise<TimelinePage> {
@@ -287,7 +304,7 @@ export function ApplicationTimeline({
             const details = metadataSummary(event.metadata, (key) => tm(key));
             const title = APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType)
               ? te(event.type as ApplicationEventType)
-              : event.type;
+              : t("unknown_event", { type: event.type });
             const documentId = typeof event.metadata?.documentId === "string" ? event.metadata.documentId : null;
             const submissionId = typeof event.metadata?.submissionId === "string" ? event.metadata.submissionId : null;
             return (
@@ -305,9 +322,9 @@ export function ApplicationTimeline({
                 {details.length > 0 && <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">{details.map((detail) => <li key={detail}>{detail}</li>)}</ul>}
                 {(event.contactId || documentId || submissionId) && (
                   <div className="mt-2 flex flex-wrap gap-3 text-xs">
-                    {event.contactId && <Link className="text-[#5e6ad2] hover:underline" href="#contacts">{t("contact_link", { id: event.contactId })}</Link>}
-                    {documentId && <Link className="text-[#5e6ad2] hover:underline" href="/documents">{t("document_link", { id: documentId })}</Link>}
-                    {submissionId && <Link className="text-[#5e6ad2] hover:underline" href={`/api/applications/${encodeURIComponent(applicationId)}/submissions`}>{t("submission_link", { id: submissionId })}</Link>}
+                    {event.contactId && <Link className="text-[#5e6ad2] hover:underline" href={`#contact-${encodeURIComponent(event.contactId)}`}>{t("contact_link", { id: event.contactId })}</Link>}
+                    {documentId && <Link className="text-[#5e6ad2] hover:underline" href={`/documents#document-${encodeURIComponent(documentId)}`}>{t("document_link", { id: documentId })}</Link>}
+                    {submissionId && <span className="text-slate-500 dark:text-slate-400">{t("submission_link", { id: submissionId })}</span>}
                   </div>
                 )}
               </li>

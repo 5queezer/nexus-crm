@@ -48,6 +48,13 @@ describe("GET /api/applications/:id/events", () => {
     }));
   });
 
+  it("sanitizes unexpected query failures", async () => {
+    mockListApplicationEventsFiltered.mockRejectedValueOnce(new Error("postgres://secret-internal-detail"));
+    const response = await GET(new NextRequest("http://localhost/api/applications/app-1/events"), params);
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "event_query_failed" });
+  });
+
   it("returns 404 without querying events when the application is not owned", async () => {
     mockGetApplication.mockResolvedValue(null);
     const response = await GET(new NextRequest("http://localhost/api/applications/app-1/events"), params);
@@ -116,6 +123,17 @@ describe("POST /api/applications/:id/events", () => {
     }), params);
     expect(response.status).toBe(200);
     expect(response.headers.get("X-Idempotent-Replay")).toBe("true");
+  });
+
+  it("sanitizes unexpected write failures", async () => {
+    mockRecordApplicationEvent.mockRejectedValueOnce(new Error("postgres://secret-internal-detail"));
+    const response = await POST(request({
+      type: "stage_changed",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: { toStage: "screen" },
+    }), params);
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "event_failed" });
   });
 
   it("maps stale projections and idempotency conflicts to 409", async () => {

@@ -784,6 +784,7 @@
   "timeline": {
     "title": "Application timeline",
     "description": "Immutable activity history; the application remains the current state.",
+    "unknown_event": "Unknown event ({type})",
     "order": "Timeline order", "newest": "Newest first", "oldest": "Oldest first",
     "record_activity": "Record activity", "cancel": "Cancel", "save_first": "Save application edits before recording activity",
     "activity": "Activity", "occurred_at": "Occurred at", "recorded_at": "Recorded {date}",

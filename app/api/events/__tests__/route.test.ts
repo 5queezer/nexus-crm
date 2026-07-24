@@ -39,6 +39,13 @@ describe("GET /api/events", () => {
     expect(mockListApplicationEventsFiltered).not.toHaveBeenCalled();
   });
 
+  it("sanitizes unexpected storage failures", async () => {
+    mockListApplicationEventsFiltered.mockRejectedValueOnce(new Error("postgres://secret-internal-detail"));
+    const response = await GET(new NextRequest("http://localhost/api/events"));
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "event_query_failed" });
+  });
+
   it("requires authentication", async () => {
     mockRequireAuth.mockResolvedValue(null);
     const response = await GET(new NextRequest("http://localhost/api/events"));

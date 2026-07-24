@@ -98,6 +98,9 @@ const EVENT_ERROR_CODES = new Set([
   "not_found",
   "conflict",
   "application_deleting",
+  "contact_not_found",
+  "document_not_found",
+  "submission_not_found",
   "verification_failed",
   "event_query_invalid",
 ]);
@@ -507,7 +510,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         );
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
-        const code = error instanceof Error ? error.message : "append_failed";
+        const code = controlledErrorCode(error, EVENT_ERROR_CODES, "append_failed");
         return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
       }
     },
@@ -661,22 +664,26 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         const db = getDb();
         const existing = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
         const metadata = parseStructuredApplicationMetadata(args as unknown as Record<string, unknown>);
-        const updateExisting = (applicationId: string) => db.updateApplication(applicationId, auth.userId, {
-          company: args.company,
-          role: args.role,
-          ...(args.status !== undefined && { status: args.status }),
-          ...(args.notes !== undefined && { notes: args.notes }),
-          ...(args.jobDescription !== undefined && { jobDescription: args.jobDescription }),
-          ...(args.source !== undefined && { source: args.source }),
-          ...(args.remote !== undefined && { remote: args.remote }),
-          ...(args.salaryMin !== undefined && { salaryMin: args.salaryMin }),
-          ...(args.salaryMax !== undefined && { salaryMax: args.salaryMax }),
-          ...(args.rating !== undefined && { rating: args.rating }),
-          ...(args.resumeId !== undefined && { resumeId: args.resumeId }),
-          jobUrl: args.jobUrl,
-          canonicalJobUrl,
-          ...metadata,
-        });
+        const updateExisting = (application: { id: string; status: string }) => {
+          if (args.status !== undefined && args.status !== application.status) {
+            throw new Error("lifecycle_event_required");
+          }
+          return db.updateApplication(application.id, auth.userId, {
+            company: args.company,
+            role: args.role,
+            ...(args.notes !== undefined && { notes: args.notes }),
+            ...(args.jobDescription !== undefined && { jobDescription: args.jobDescription }),
+            ...(args.source !== undefined && { source: args.source }),
+            ...(args.remote !== undefined && { remote: args.remote }),
+            ...(args.salaryMin !== undefined && { salaryMin: args.salaryMin }),
+            ...(args.salaryMax !== undefined && { salaryMax: args.salaryMax }),
+            ...(args.rating !== undefined && { rating: args.rating }),
+            ...(args.resumeId !== undefined && { resumeId: args.resumeId }),
+            jobUrl: args.jobUrl,
+            canonicalJobUrl,
+            ...metadata,
+          });
+        };
         if (args.dryRun) {
           return {
             content: [{
@@ -691,7 +698,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           };
         }
         if (existing) {
-          const application = await updateExisting(existing.id);
+          const application = await updateExisting(existing);
           return { content: [{ type: "text", text: JSON.stringify({ operation: "updated", application }, null, 2) }] };
         }
         const status = args.status ?? "inbound";
@@ -722,7 +729,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           if (code !== "canonical_job_url_conflict") throw error;
           const concurrent = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
           if (!concurrent) throw error;
-          application = await updateExisting(concurrent.id);
+          application = await updateExisting(concurrent);
           operation = "updated";
         }
         return { content: [{ type: "text", text: JSON.stringify({ operation, application }, null, 2) }] };

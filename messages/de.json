@@ -784,6 +784,7 @@
   "timeline": {
     "title": "Bewerbungszeitleiste",
     "description": "Unveränderlicher Aktivitätsverlauf; die Bewerbung bleibt der aktuelle Zustand.",
+    "unknown_event": "Unbekanntes Ereignis ({type})",
     "order": "Reihenfolge der Zeitleiste", "newest": "Neueste zuerst", "oldest": "Älteste zuerst",
     "record_activity": "Aktivität erfassen", "cancel": "Abbrechen", "save_first": "Bewerbungsänderungen vor dem Erfassen speichern",
     "activity": "Aktivität", "occurred_at": "Zeitpunkt", "recorded_at": "Erfasst {date}",

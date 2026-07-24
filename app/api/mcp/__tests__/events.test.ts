@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   recordApplicationEvent: vi.fn(),
   listApplicationEventsFiltered: vi.fn(),
   getApplication: vi.fn(),
+  findApplicationByCanonicalJobUrl: vi.fn(),
+  updateApplication: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -13,6 +15,8 @@ vi.mock("@/lib/db", () => ({
     recordApplicationEvent: mocks.recordApplicationEvent,
     listApplicationEventsFiltered: mocks.listApplicationEventsFiltered,
     getApplication: mocks.getApplication,
+    findApplicationByCanonicalJobUrl: mocks.findApplicationByCanonicalJobUrl,
+    updateApplication: mocks.updateApplication,
   }),
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
@@ -23,19 +27,19 @@ vi.mock("@/lib/documents/service", () => ({ deleteDocumentWithContent: vi.fn() }
 
 import { createMcpServer } from "../route";
 
-const auth = {
+const auth = (scopes = ["mcp:tools"]) => ({
   userId: "owner-1",
   readScopeUserId: "owner-1",
   user: { id: "owner-1", name: "Owner", email: "owner@example.com", image: null, isAdmin: false },
   authType: "mcp_oauth" as const,
-  scopes: ["mcp:tools"],
-};
+  scopes,
+});
 
 let client: Client;
 let server: ReturnType<typeof createMcpServer>;
 
-async function connect() {
-  server = createMcpServer(auth);
+async function connect(scopes?: string[]) {
+  server = createMcpServer(auth(scopes));
   client = new Client({ name: "event-contract-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -95,6 +99,22 @@ describe("MCP application event contracts", () => {
     expect(mocks.listApplicationEventsFiltered).toHaveBeenCalledWith("owner-1", expect.objectContaining({
       applicationId: "app-1", order: "oldest", limit: 20,
     }));
+  });
+
+  it("does not let duplicate-safe upserts bypass lifecycle events", async () => {
+    mocks.findApplicationByCanonicalJobUrl.mockResolvedValue({ id: "app-1", status: "inbound" });
+    const result = await client.callTool({
+      name: "upsert_application_by_job_url",
+      arguments: {
+        company: "Acme",
+        role: "Engineer",
+        jobUrl: "https://example.com/jobs/1",
+        status: "offer",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatchObject({ error: { code: "lifecycle_event_required" } });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
   });
 
   it("rejects lifecycle changes through update_application", async () => {

@@ -33,4 +33,4 @@
 - [x] 5.1 Run focused tests after each RED-GREEN slice and the complete Vitest suite
 - [x] 5.2 Run Prisma validation/generation, TypeScript, lint, production build, OpenAPI validation, and strict OpenSpec validation
 - [x] 5.3 Complete independent security/spec/code review and resolve every blocking finding
-- [ ] 5.4 Commit, push, open a PR that closes #153, and verify GitHub CI
+- [x] 5.4 Commit, push, open a PR that closes #153, and verify GitHub CI

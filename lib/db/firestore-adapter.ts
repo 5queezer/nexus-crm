@@ -965,6 +965,37 @@ export class FirestoreAdapter implements DatabaseAdapter {
         ) throw new Error("idempotency_conflict");
         return { replayed: true, eventData: existingData };
       }
+      const metadataInput = input.metadata ?? {};
+      if (input.contactId) {
+        const contact = await transaction.get(this.contacts.doc(input.contactId));
+        if (!contact.exists || contact.data()!.applicationId !== applicationId) {
+          throw new Error("contact_not_found");
+        }
+      }
+      const documentId = typeof metadataInput.documentId === "string" ? metadataInput.documentId : null;
+      if (documentId) {
+        const document = await transaction.get(this.docs.doc(documentId));
+        const documentData = document.exists ? document.data()! : null;
+        if (
+          !documentData
+          || documentData.userId !== userId
+          || !Array.isArray(documentData.applicationIds)
+          || !documentData.applicationIds.includes(applicationId)
+        ) {
+          throw new Error("document_not_found");
+        }
+      }
+      const submissionId = typeof metadataInput.submissionId === "string" ? metadataInput.submissionId : null;
+      if (submissionId) {
+        const submission = await transaction.get(this.submissions.doc(submissionId));
+        if (
+          !submission.exists
+          || submission.data()!.userId !== userId
+          || submission.data()!.applicationId !== applicationId
+        ) {
+          throw new Error("submission_not_found");
+        }
+      }
       const updatedAt = toDate(applicationData.updatedAt);
       if (input.expectedUpdatedAt && updatedAt?.getTime() !== input.expectedUpdatedAt.getTime()) {
         throw new Error("conflict");

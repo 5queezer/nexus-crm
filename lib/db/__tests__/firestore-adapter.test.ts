@@ -1185,6 +1185,39 @@ describe("FirestoreAdapter — first-class application events", () => {
     expect(stores.applicationEvents.size).toBe(1);
   });
 
+  it.each([
+    {
+      label: "contact",
+      seed: () => stores.contacts.set("contact-1", { applicationId: "other-app", name: "Recruiter" }),
+      input: { contactId: "contact-1", metadata: { toStage: "technical" } },
+      code: "contact_not_found",
+    },
+    {
+      label: "document",
+      seed: () => stores.documents.set("document-1", { userId, applicationIds: ["other-app"] }),
+      input: { contactId: null, metadata: { toStage: "technical", documentId: "document-1" } },
+      code: "document_not_found",
+    },
+    {
+      label: "submission",
+      seed: () => stores.applicationSubmissions.set("submission-1", { userId, applicationId: "other-app" }),
+      input: { contactId: null, metadata: { toStage: "technical", submissionId: "submission-1" } },
+      code: "submission_not_found",
+    },
+  ])("rejects a linked $label outside the owner/application boundary", async ({ seed, input, code }) => {
+    seedEventApplication();
+    seed();
+    await expect(new FirestoreAdapter().recordApplicationEvent("app-1", userId, {
+      type: "stage_changed",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: `missing-${code}`,
+      source: "test",
+      outcome: null,
+      ...input,
+    })).rejects.toThrow(code);
+    expect(stores.applicationEvents.size).toBe(0);
+  });
+
   it("rejects stale commands without writing an event", async () => {
     seedEventApplication();
     const adapter = new FirestoreAdapter();

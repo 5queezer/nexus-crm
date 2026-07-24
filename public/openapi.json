@@ -612,7 +612,8 @@
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "description": "An unexpected storage failure was sanitized as `event_query_failed`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       },
       "post": {
@@ -644,7 +645,8 @@
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" },
-          "409": { "description": "Idempotency or optimistic-concurrency conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+          "409": { "description": "Idempotency or optimistic-concurrency conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "500": { "description": "Verification or an unexpected event write failed and was returned as a controlled error.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
@@ -671,7 +673,8 @@
         "responses": {
           "200": { "description": "Deterministically ordered, owner-scoped activity page.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApplicationEventPage" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "description": "An unexpected storage failure was sanitized as `event_query_failed`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }
     },
