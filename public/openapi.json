@@ -674,6 +674,7 @@
           "200": { "description": "Deterministically ordered, owner-scoped activity page.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApplicationEventPage" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "The selected application is outside the authenticated read scope.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
           "500": { "description": "An unexpected storage failure was sanitized as `event_query_failed`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
         }
       }

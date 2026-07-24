@@ -17,7 +17,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "event_query_invalid" }, { status: 400 });
   }
   try {
-    return NextResponse.json(await getDb().listApplicationEventsFiltered(auth.userId, filter));
+    const db = getDb();
+    let ownerUserId = auth.userId;
+    if (filter.applicationId) {
+      const application = await db.getApplication(filter.applicationId, auth.readScopeUserId);
+      if (!application) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      ownerUserId = application.userId;
+    }
+    return NextResponse.json(await db.listApplicationEventsFiltered(ownerUserId, filter));
   } catch {
     return NextResponse.json({ error: "event_query_failed" }, { status: 500 });
   }
