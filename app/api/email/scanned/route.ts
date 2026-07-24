@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
+import { recordEmailLifecycleTransition } from "@/lib/email/application-events";
 
 /**
  * GET /api/email/scanned — list scanned emails for the current user
@@ -120,9 +121,13 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       const currentRank = statusOrder[existing.status] ?? -1;
       const isProgression = status === "rejected" || (newRank > currentRank && currentRank >= 0);
       if (isProgression && existing.status !== "rejected") {
-        await prisma.application.update({
-          where: { id: existing.id },
-          data: { status, eventVersion: { increment: 1 } },
+        await recordEmailLifecycleTransition({
+          applicationId: existing.id,
+          userId: auth.userId,
+          status,
+          occurredAt: email.receivedAt,
+          scannedEmailId: email.id,
+          expectedUpdatedAt: existing.updatedAt,
         });
       }
     } else {
