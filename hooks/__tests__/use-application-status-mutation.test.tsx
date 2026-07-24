@@ -172,24 +172,26 @@ describe("useApplicationStatusMutation concurrency", () => {
       serverStatus = "applied";
       firstRequest.resolve({
         ok: true,
-        json: async () => application("a", serverStatus),
+        json: async () => ({ application: application("a", serverStatus) }),
       } as Response);
       await firstMutation;
     });
 
     expect(serverStatus).toBe("applied");
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(
-      fetchMock.mock.calls.map(([, init]) =>
-        JSON.parse((init as RequestInit).body as string),
-      ),
-    ).toEqual([{ status: "applied" }, { status: "interview" }]);
+    const writtenEvents = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string),
+    );
+    expect(writtenEvents.map(({ type, metadata }) => ({ type, status: metadata.toStatus }))).toEqual([
+      { type: "stage_changed", status: "applied" },
+      { type: "stage_changed", status: "interview" },
+    ]);
 
     await act(async () => {
       serverStatus = "interview";
       secondRequest.resolve({
         ok: true,
-        json: async () => application("a", serverStatus),
+        json: async () => ({ application: application("a", serverStatus) }),
       } as Response);
       await secondMutation;
     });
@@ -242,16 +244,18 @@ describe("useApplicationStatusMutation concurrency", () => {
         .getQueryData<Application[]>(["applications"])
         ?.find((item) => item.id === "a")?.status,
     ).toBe("interview");
-    expect(
-      fetchMock.mock.calls.map(([, init]) =>
-        JSON.parse((init as RequestInit).body as string),
-      ),
-    ).toEqual([{ status: "applied" }, { status: "interview" }]);
+    const writtenEvents = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string),
+    );
+    expect(writtenEvents.map(({ type, metadata }) => ({ type, status: metadata.toStatus }))).toEqual([
+      { type: "stage_changed", status: "applied" },
+      { type: "stage_changed", status: "interview" },
+    ]);
 
     await act(async () => {
       secondRequest.resolve({
         ok: true,
-        json: async () => application("a", "interview"),
+        json: async () => ({ application: application("a", "interview") }),
       } as Response);
       await secondMutation;
     });
@@ -288,7 +292,7 @@ describe("useApplicationStatusMutation concurrency", () => {
     await act(async () => {
       firstRequest.resolve({
         ok: true,
-        json: async () => application("a", "applied"),
+        json: async () => ({ application: application("a", "applied") }),
       } as Response);
       await firstMutation;
     });
@@ -343,7 +347,7 @@ describe("useApplicationStatusMutation concurrency", () => {
       .mockReturnValueOnce(firstRequest.promise)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => successfulB,
+        json: async () => ({ application: successfulB }),
       } as Response);
     vi.stubGlobal("fetch", fetchMock);
 

@@ -1073,3 +1073,173 @@ describe("FirestoreAdapter — document operations", () => {
     });
   });
 });
+
+describe("FirestoreAdapter — first-class application events", () => {
+  const userId = "user-1";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.values(stores).forEach((store) => store.clear());
+    mockGetAll.mockImplementation(async (...refs: MockDocRef[]) =>
+      Promise.all(refs.map((ref) => ref.get())),
+    );
+  });
+
+  function seedEventApplication() {
+    stores.applications.set("app-1", {
+      userId,
+      company: "Acme",
+      role: "Engineer",
+      status: "applied",
+      currentStage: "recruiter_screen",
+      followUpAt: { toDate: () => new Date("2026-07-25T10:00:00Z") },
+      createdAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+    });
+  }
+
+  it("atomically records an interview schedule and updates the projection", async () => {
+    seedEventApplication();
+    const adapter = new FirestoreAdapter();
+    const result = await adapter.recordApplicationEvent("app-1", userId, {
+      type: "interview_scheduled",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: "schedule-123",
+      source: "test",
+      metadata: {
+        interviewType: "technical",
+        scheduledAt: "2026-07-28T12:30:00.000Z",
+      },
+      contactId: null,
+      outcome: null,
+    });
+
+    expect(result.replayed).toBe(false);
+    expect(result.application).toMatchObject({ status: "interview", currentStage: "interview_scheduled" });
+    expect(result.application.followUpAt?.toISOString()).toBe("2026-07-28T12:30:00.000Z");
+    expect(result.event.metadata).toMatchObject({
+      fromStage: "recruiter_screen",
+      toStage: "interview_scheduled",
+      fromStatus: "applied",
+      toStatus: "interview",
+    });
+    expect(stores.applicationEvents.size).toBe(1);
+    expect(result.event.metadata).not.toHaveProperty("requestHash");
+    expect([...stores.applicationEvents.values()][0].requestHash).toEqual(expect.any(String));
+  });
+
+  it("replays the same command once and rejects a changed payload", async () => {
+    seedEventApplication();
+    const adapter = new FirestoreAdapter();
+    const base = {
+      type: "follow_up_scheduled" as const,
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: "follow-up-123",
+      source: "test",
+      metadata: { followUpAt: "2026-07-30T09:00:00.000Z" },
+      contactId: null,
+      outcome: null,
+    };
+    await adapter.recordApplicationEvent("app-1", userId, base);
+    const replay = await adapter.recordApplicationEvent("app-1", userId, base);
+    expect(replay.replayed).toBe(true);
+    expect(stores.applicationEvents.size).toBe(1);
+    await expect(adapter.recordApplicationEvent("app-1", userId, {
+      ...base,
+      metadata: { followUpAt: "2026-07-31T09:00:00.000Z" },
+    })).rejects.toThrow("idempotency_conflict");
+  });
+
+  it("replays a legacy idempotency hash after migration", async () => {
+    seedEventApplication();
+    const command = {
+      type: "follow_up_scheduled" as const,
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      idempotencyKey: "legacy-follow-up",
+      source: "test",
+      metadata: { followUpAt: "2026-07-30T09:00:00.000Z" },
+      contactId: null,
+      outcome: null,
+    };
+    const legacyHash = submissionRequestHash({
+      applicationId: "app-1",
+      type: command.type,
+      occurredAt: command.occurredAt,
+      metadata: command.metadata,
+    });
+    const eventId = submissionRequestHash({ userId, key: command.idempotencyKey }).slice(0, 40);
+    stores.applicationEvents.set(eventId, {
+      userId,
+      applicationId: "app-1",
+      type: command.type,
+      idempotencyKey: command.idempotencyKey,
+      occurredAt: mockTimestamp,
+      createdAt: mockTimestamp,
+      metadata: { ...command.metadata, requestHash: legacyHash },
+    });
+
+    const replay = await new FirestoreAdapter().recordApplicationEvent("app-1", userId, command);
+    expect(replay.replayed).toBe(true);
+    expect(replay.event.metadata).not.toHaveProperty("requestHash");
+    expect(replay.event).not.toHaveProperty("requestHash");
+    expect(stores.applicationEvents.size).toBe(1);
+  });
+
+  it("rejects stale commands without writing an event", async () => {
+    seedEventApplication();
+    const adapter = new FirestoreAdapter();
+    await expect(adapter.recordApplicationEvent("app-1", userId, {
+      type: "application_rejected",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      expectedUpdatedAt: new Date("2026-01-01T00:00:00Z"),
+      metadata: { outcome: "declined" },
+      contactId: null,
+      outcome: "declined",
+    })).rejects.toThrow("conflict");
+    expect(stores.applicationEvents.size).toBe(0);
+    expect(stores.applications.get("app-1")!.status).toBe("applied");
+  });
+
+  it("uses the same lexical ID tie-breaker for sorting and cursors", async () => {
+    seedApps([{ id: "app-1", userId, company: "Acme", role: "Engineer" }]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    stores.applicationEvents.set("2", { userId, applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    stores.applicationEvents.set("10", { userId, applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    const adapter = new FirestoreAdapter();
+    const first = await adapter.listApplicationEventsFiltered(userId, { order: "newest", limit: 1 });
+    expect(first.items.map((event) => event.id)).toEqual(["2"]);
+    const { decodeEventCursor } = await import("../../applications/events");
+    const second = await adapter.listApplicationEventsFiltered(userId, {
+      order: "newest", limit: 1, cursor: decodeEventCursor(first.nextCursor!),
+    });
+    expect(second.items.map((event) => event.id)).toEqual(["10"]);
+    const legacyList = await adapter.listApplicationEvents("app-1", userId, 2);
+    expect(legacyList.map((event) => event.id)).toEqual(["2", "10"]);
+  });
+
+  it("paginates owner-scoped filtered activity deterministically", async () => {
+    seedApps([
+      { id: "app-1", userId, company: "Acme", role: "Engineer" },
+      { id: "app-2", userId, company: "Beta", role: "Platform Engineer" },
+    ]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    stores.applicationEvents.set("1", { userId, applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    stores.applicationEvents.set("2", { userId, applicationId: "app-2", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    stores.applicationEvents.set("3", { userId: "other", applicationId: "app-1", type: "stage_changed", occurredAt: timestamp, createdAt: timestamp });
+    const adapter = new FirestoreAdapter();
+    const first = await adapter.listApplicationEventsFiltered(userId, {
+      types: ["stage_changed"], order: "newest", limit: 1,
+    });
+    expect(first.items).toHaveLength(1);
+    expect(first.items[0].id).toBe("2");
+    expect(first.items[0].application?.company).toBe("Beta");
+    expect(first.nextCursor).toBeTruthy();
+    const { decodeEventCursor } = await import("../../applications/events");
+    const second = await adapter.listApplicationEventsFiltered(userId, {
+      types: ["stage_changed"], order: "newest", limit: 1,
+      cursor: decodeEventCursor(first.nextCursor!),
+    });
+    expect(second.items.map((event) => event.id)).toEqual(["1"]);
+    expect(second.nextCursor).toBeNull();
+  });
+});

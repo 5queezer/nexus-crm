@@ -13,12 +13,14 @@ interface DetailFieldsSectionProps {
     >,
   ) => void;
   patch: (partial: Partial<ApplicationFormData>) => void;
+  lifecycleDisabled?: boolean;
 }
 
 export function DetailFieldsSection({
   form,
   onChange,
   patch,
+  lifecycleDisabled = false,
 }: DetailFieldsSectionProps) {
   const t = useTranslations("modal");
   const ta = useTranslations("actions");
@@ -144,8 +146,9 @@ export function DetailFieldsSection({
             name="appliedAt"
             value={form.appliedAt}
             onChange={onChange}
+            disabled={lifecycleDisabled}
             lang={locale}
-            className="nexus-input"
+            className="nexus-input disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
 
@@ -158,8 +161,9 @@ export function DetailFieldsSection({
             name="lastContact"
             value={form.lastContact}
             onChange={onChange}
+            disabled={lifecycleDisabled}
             lang={locale}
-            className="nexus-input"
+            className="nexus-input disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
       </div>

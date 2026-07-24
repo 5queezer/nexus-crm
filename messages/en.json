@@ -9,6 +9,7 @@
   "nav": {
     "logout": "Sign out",
     "opportunities": "Opportunities",
+    "activity": "Activity",
     "account_menu": "Account and display",
     "signed_in_as": "Signed in as",
     "theme": "Appearance",
@@ -100,7 +101,11 @@
     "last_contact": "Last Contact",
     "follow_up": "Follow-up Date",
     "notes": "Notes",
+    "summary": "Summary",
     "notes_placeholder": "Details, links...",
+    "notes_summary_help": "Keep a compact current summary; record chronological activity in the timeline.",
+    "notes_limit_warning": "This summary is approaching the 10,000-character limit.",
+    "lifecycle_timeline_help": "Record status, stage, contact, and follow-up changes in the timeline.",
     "job_description": "Scope of Work",
     "job_description_placeholder": "Paste the requirements or scope here...",
     "job_description_toggle_show": "📄 Show scope of work",
@@ -750,5 +755,50 @@
     "create": "New opportunity",
     "clear_filters": "Clear filters",
     "dismiss_overdue": "Dismiss overdue follow-up for {company}"
+  },
+  "events": {
+    "eventTypes": {
+      "opportunity_discovered": "Opportunity discovered",
+      "application_submitted": "Application submitted",
+      "recruiter_contacted": "Recruiter contacted",
+      "stage_changed": "Stage changed",
+      "interview_invited": "Interview invitation received",
+      "interview_scheduled": "Interview scheduled",
+      "interview_completed": "Interview completed",
+      "feedback_received": "Feedback received",
+      "follow_up_scheduled": "Follow-up scheduled",
+      "offer_received": "Offer received",
+      "application_rejected": "Application rejected",
+      "document_attached": "Document attached",
+      "note_added": "Timeline note added"
+    },
+    "metadata": {
+      "fromStage": "Previous stage", "toStage": "New stage", "fromStatus": "Previous status", "toStatus": "New status",
+      "interviewType": "Interview type", "scheduledAt": "Scheduled for", "durationMinutes": "Duration (minutes)", "location": "Location", "meetingUrl": "Meeting link",
+      "contactId": "Contact", "outcome": "Outcome", "nextAction": "Next action", "followUpAt": "Follow up", "reason": "Reason",
+      "offerType": "Offer type", "compensationSummary": "Compensation", "documentId": "Document", "filename": "Filename", "note": "Timeline note",
+      "policyVersion": "Policy version", "submittedDocumentIds": "Submitted documents", "submissionId": "Submission", "atsName": "ATS", "requisitionId": "Requisition",
+      "answersCount": "Answers", "documentCount": "Documents", "dryRun": "Dry run"
+    }
+  },
+  "timeline": {
+    "title": "Application timeline",
+    "description": "Immutable activity history; the application remains the current state.",
+    "order": "Timeline order", "newest": "Newest first", "oldest": "Oldest first",
+    "record_activity": "Record activity", "cancel": "Cancel", "save_first": "Save application edits before recording activity",
+    "activity": "Activity", "occurred_at": "Occurred at", "recorded_at": "Recorded {date}",
+    "new_stage": "New stage", "status_optional": "Status (optional)", "interview_type": "Interview type", "scheduled_for": "Scheduled for",
+    "follow_up": "Follow up", "next_action": "Next action", "preparation": "Preparation / next action", "outcome": "Outcome", "reason": "Reason", "timeline_note": "Timeline note",
+    "record_event": "Record event", "recording": "Recording…", "loading": "Loading timeline…", "load_error": "Could not load the timeline.",
+    "empty": "No timeline events yet. Existing notes are preserved as summary text and are not backfilled.", "load_more": "Load more", "loading_more": "Loading…",
+    "contact_link": "Contact {id}", "document_link": "Document {id}", "submission_link": "Submission {id}"
+  },
+  "activityFeed": {
+    "title": "Activity", "description": "Owner-scoped history across all applications.",
+    "company": "Company", "application_id": "Application ID", "event_type": "Event type", "all_types": "All event types", "order": "Order",
+    "newest": "Newest first", "oldest": "Oldest first", "source": "Source", "actor": "Actor", "contact_id": "Contact ID", "outcome": "Outcome",
+    "from": "From", "to": "To", "clear": "Clear", "apply": "Apply filters", "loading": "Loading activity…",
+    "empty": "No events match these filters. Your history has not been deleted.", "load_more": "Load more", "loading_more": "Loading…",
+    "more_available": "More activity is available", "load_error": "Could not load activity.", "application_link": "Application {id}"
   }
 }

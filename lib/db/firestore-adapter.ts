@@ -11,6 +11,11 @@ import {
   validateSubmissionDocumentIds,
   validateSubmissionPolicy,
 } from "@/lib/applications/submission";
+import {
+  deriveEventProjection,
+  encodeEventCursor,
+  validateApplicationSummary,
+} from "@/lib/applications/events";
 import type { DatabaseAdapter } from "./adapter";
 import type {
   ApplicationRecord,
@@ -42,6 +47,10 @@ import type {
   RecordSubmissionInput,
   RecordSubmissionResult,
   CreateApplicationEventInput,
+  RecordApplicationEventInput,
+  RecordApplicationEventResult,
+  ListApplicationEventsFilter,
+  ApplicationEventPage,
   ListDocumentsFilter,
   UpdateDocumentMetadataInput,
 } from "./types";
@@ -184,6 +193,13 @@ function mapSubmission(
   };
 }
 
+function publicEventMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const metadata = { ...(value as Record<string, unknown>) };
+  delete metadata.requestHash;
+  return metadata;
+}
+
 function mapEvent(id: string, data: FirebaseFirestore.DocumentData): ApplicationEventRecord {
   return {
     id,
@@ -194,8 +210,11 @@ function mapEvent(id: string, data: FirebaseFirestore.DocumentData): Application
     occurredAt: toDate(data.occurredAt) ?? new Date(),
     source: data.source ?? null,
     actor: data.actor ?? null,
-    metadata: data.metadata ?? null,
+    contactId: data.contactId ?? null,
+    outcome: data.outcome ?? null,
+    metadata: publicEventMetadata(data.metadata),
     createdAt: toDate(data.createdAt) ?? new Date(),
+    application: data._application,
   };
 }
 
@@ -302,6 +321,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord> {
+    validateApplicationSummary(data.notes);
     const now = Timestamp.now();
     const reference = this.apps.doc();
     const payload = {
@@ -352,6 +372,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
+    if (data.notes !== undefined) validateApplicationSummary(data.notes);
     const ref = this.apps.doc(id);
     const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
     if (data.company !== undefined) update.company = data.company;
@@ -546,7 +567,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
       const existingNotes = appSnapshot.data()!.notes as string | null | undefined;
       const notes = existingNotes ? `${existingNotes}\n\n${note}` : note;
-      if (notes.length > 50_000) throw new Error("notes_too_large");
+      if (notes.length > 10_000) throw new Error("notes_too_long");
       const now = Timestamp.now();
       const eventData = {
         userId,
@@ -557,10 +578,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         occurredAt: toTimestamp(eventInput.occurredAt),
         source: eventInput.source ?? null,
         actor: eventInput.actor ?? null,
-        metadata: {
-          ...(eventInput.metadata ?? {}),
-          requestHash,
-        },
+        metadata: eventInput.metadata ?? {},
         createdAt: now,
       };
       transaction.update(appRef, { notes, updatedAt: now });
@@ -899,6 +917,158 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return mapEvent(eventId, eventData);
   }
 
+  async recordApplicationEvent(
+    applicationId: string,
+    userId: string,
+    input: RecordApplicationEventInput,
+  ): Promise<RecordApplicationEventResult> {
+    const requestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      source: input.source ?? null,
+      actor: input.actor ?? null,
+      metadata: input.metadata ?? {},
+      contactId: input.contactId ?? null,
+      outcome: input.outcome ?? null,
+      expectedUpdatedAt: input.expectedUpdatedAt ?? null,
+    });
+    const legacyRequestHash = submissionRequestHash({
+      applicationId,
+      type: input.type,
+      occurredAt: input.occurredAt,
+      metadata: input.metadata ?? {},
+    });
+    const acceptedRequestHashes = new Set([requestHash, legacyRequestHash]);
+    const eventId = input.idempotencyKey
+      ? submissionRequestHash({ userId, key: input.idempotencyKey }).slice(0, 40)
+      : this.events.doc().id;
+    const eventRef = this.events.doc(eventId);
+    const appRef = this.apps.doc(applicationId);
+
+    const transactionResult = await this.db.runTransaction(async (transaction) => {
+      const [application, existing] = await Promise.all([
+        transaction.get(appRef),
+        transaction.get(eventRef),
+      ]);
+      if (!application.exists || application.data()!.userId !== userId) throw new Error("not_found");
+      const applicationData = application.data()!;
+      if (applicationData.deletionState === "in_progress") throw new Error("application_deleting");
+      if (existing.exists) {
+        const existingData = existing.data()!;
+        const persistedRequestHash = existingData.requestHash ?? existingData.metadata?.requestHash;
+        if (
+          !input.idempotencyKey
+          || existingData.userId !== userId
+          || typeof persistedRequestHash !== "string"
+          || !acceptedRequestHashes.has(persistedRequestHash)
+        ) throw new Error("idempotency_conflict");
+        return { replayed: true, eventData: existingData };
+      }
+      const updatedAt = toDate(applicationData.updatedAt);
+      if (input.expectedUpdatedAt && updatedAt?.getTime() !== input.expectedUpdatedAt.getTime()) {
+        throw new Error("conflict");
+      }
+      const { patch, metadata } = deriveEventProjection(
+        { type: input.type, occurredAt: input.occurredAt, metadata: input.metadata ?? {} },
+        {
+        status: applicationData.status,
+        currentStage: applicationData.currentStage ?? null,
+        followUpAt: toDate(applicationData.followUpAt),
+      });
+      const firestorePatch = Object.fromEntries(
+        Object.entries(patch).map(([key, value]) => [
+          key,
+          value instanceof Date ? toTimestamp(value) : value,
+        ]),
+      );
+      if (Object.keys(firestorePatch).length) {
+        transaction.update(appRef, { ...firestorePatch, updatedAt: Timestamp.now() });
+      }
+      const eventData = {
+        userId,
+        applicationId,
+        type: input.type,
+        idempotencyKey: input.idempotencyKey ?? null,
+        requestHash,
+        occurredAt: toTimestamp(input.occurredAt),
+        source: input.source ?? null,
+        actor: input.actor ?? null,
+        contactId: input.contactId ?? null,
+        outcome: input.outcome ?? null,
+        metadata,
+        createdAt: Timestamp.now(),
+      };
+      transaction.create(eventRef, eventData);
+      return { replayed: false, eventData };
+    });
+
+    const application = await this.getApplication(applicationId, userId);
+    if (!application) throw new Error("verification_failed");
+    const eventSnapshot = await eventRef.get();
+    if (!eventSnapshot.exists) throw new Error("verification_failed");
+    return {
+      event: mapEvent(eventId, eventSnapshot.data() ?? transactionResult.eventData),
+      application,
+      replayed: transactionResult.replayed,
+    };
+  }
+
+  async listApplicationEventsFiltered(
+    userId: string,
+    filter: ListApplicationEventsFilter,
+  ): Promise<ApplicationEventPage> {
+    const snapshot = await this.events
+      .where("userId", "==", userId)
+      .orderBy("occurredAt", filter.order === "oldest" ? "asc" : "desc")
+      .get();
+    let events = snapshot.docs.map((document) => mapEvent(document.id, document.data()));
+    events.sort((left, right) => {
+      const time = left.occurredAt.getTime() - right.occurredAt.getTime();
+      const id = left.id === right.id ? 0 : left.id < right.id ? -1 : 1;
+      const comparison = time || id;
+      return filter.order === "oldest" ? comparison : -comparison;
+    });
+    if (filter.company) {
+      const companyApps = await this.loadAppRefs([...new Set(events.map((event) => event.applicationId))]);
+      for (const event of events) event.application = companyApps.get(event.applicationId);
+    }
+    events = events.filter((event) =>
+      (!filter.applicationId || event.applicationId === filter.applicationId)
+      && (!filter.company || event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
+      && (!filter.types?.length || filter.types.includes(event.type))
+      && (!filter.occurredAfter || event.occurredAt >= filter.occurredAfter)
+      && (!filter.occurredBefore || event.occurredAt <= filter.occurredBefore)
+      && (!filter.source || event.source === filter.source)
+      && (!filter.actor || event.actor === filter.actor)
+      && (!filter.contactId || event.contactId === filter.contactId)
+      && (!filter.outcome || event.outcome === filter.outcome)
+    );
+    if (filter.cursor) {
+      const cursorTime = new Date(filter.cursor.occurredAt).getTime();
+      events = events.filter((event) => {
+        const time = event.occurredAt.getTime();
+        const idComparison = event.id === filter.cursor!.id
+          ? 0
+          : event.id < filter.cursor!.id ? -1 : 1;
+        return filter.order === "oldest"
+          ? time > cursorTime || (time === cursorTime && idComparison > 0)
+          : time < cursorTime || (time === cursorTime && idComparison < 0);
+      });
+    }
+    const hasMore = events.length > filter.limit;
+    const items = events.slice(0, filter.limit);
+    const appMap = await this.loadAppRefs([...new Set(items.map((event) => event.applicationId))]);
+    for (const event of items) event.application = appMap.get(event.applicationId);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: hasMore && last
+        ? encodeEventCursor({ version: 1, occurredAt: last.occurredAt.toISOString(), id: last.id })
+        : null,
+    };
+  }
+
   async listApplicationEvents(
     applicationId: string,
     userId: string,
@@ -910,9 +1080,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       .where("applicationId", "==", applicationId)
       .where("userId", "==", userId)
       .orderBy("occurredAt", "desc")
-      .limit(Math.max(1, Math.min(500, limit)))
       .get();
-    return snapshot.docs.map((document) => mapEvent(document.id, document.data()));
+    const events = snapshot.docs.map((document) => mapEvent(document.id, document.data()));
+    return events.sort((left, right) => {
+      const time = right.occurredAt.getTime() - left.occurredAt.getTime();
+      if (time) return time;
+      return left.id === right.id ? 0 : left.id < right.id ? 1 : -1;
+    }).slice(0, Math.max(1, Math.min(500, limit)));
   }
 
   async listApplicationsFiltered(

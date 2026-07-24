@@ -228,9 +228,18 @@ function renderDashboard(initialApplications: Application[]) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      const id = String(input).split("/").pop() ?? "";
+      const parts = String(input).split("/");
+      const isEventCommand = init.method === "POST" && parts.at(-1) === "events";
+      const id = (isEventCommand ? parts.at(-2) : parts.at(-1)) ?? "";
       const body = init.body ? JSON.parse(String(init.body)) : {};
       const current = initialApplications.find((item) => item.id === id);
+      if (isEventCommand) {
+        const status = body.type === "offer_received" ? "offer" : body.metadata?.toStatus ?? current?.status;
+        return new Response(JSON.stringify({ application: { ...current, status } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({ ...current, ...body }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -334,9 +343,9 @@ describe("Dashboard dataset-scoped selection", () => {
     {
       action: "bulk-status",
       isTargetCall: (init?: RequestInit) =>
-        init?.method === "PATCH" &&
+        init?.method === "POST" &&
         Boolean(init.body) &&
-        JSON.parse(String(init.body)).status === "offer",
+        JSON.parse(String(init.body)).type === "offer_received",
     },
     {
       action: "bulk-archive",
@@ -375,7 +384,10 @@ describe("Dashboard dataset-scoped selection", () => {
       await waitFor(() => {
         const targetIds = fetchMock.mock.calls
           .filter(([, init]) => isTargetCall(init))
-          .map(([input]) => String(input).split("/").pop())
+          .map(([input]) => {
+            const parts = String(input).split("/");
+            return parts.at(-1) === "events" ? parts.at(-2) : parts.at(-1);
+          })
           .sort();
         expect(targetIds).toEqual(["active-applied", "active-interview"]);
       });

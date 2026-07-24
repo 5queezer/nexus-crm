@@ -12,23 +12,36 @@ export interface ApplicationStatusVariables {
 interface PendingStatusState {
   latestToken: symbol;
   confirmedStatus?: ApplicationStatus;
+  confirmedApplication?: Application;
 }
 
 interface StatusMutationContext {
   token: symbol;
 }
 
-async function patchApplicationStatus({
-  id,
-  status,
-}: ApplicationStatusVariables): Promise<Application> {
-  const response = await fetch(`/api/applications/${id}`, {
-    method: "PATCH",
+async function recordApplicationStatus(
+  { id, status }: ApplicationStatusVariables,
+  current?: Application,
+): Promise<Application> {
+  const eventType = status === "rejected"
+    ? "application_rejected"
+    : status === "offer" ? "offer_received" : "stage_changed";
+  const currentStage = (current as (Application & { currentStage?: string | null }) | undefined)?.currentStage;
+  const response = await fetch(`/api/applications/${id}/events`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({
+      type: eventType,
+      occurredAt: new Date().toISOString(),
+      expectedUpdatedAt: current?.updatedAt,
+      metadata: eventType === "stage_changed"
+        ? { toStage: currentStage || status, toStatus: status }
+        : {},
+    }),
   });
   if (!response.ok) throw new Error("Failed to update status");
-  return response.json();
+  const result = await response.json() as { application: Application };
+  return result.application;
 }
 
 export function useApplicationStatusMutation(options?: {
@@ -44,9 +57,12 @@ export function useApplicationStatusMutation(options?: {
     const previousWrite =
       writeTailByApplication.current.get(variables.id) ?? Promise.resolve();
     const request = previousWrite.catch(() => undefined).then(async () => {
-      const updated = await patchApplicationStatus(variables);
       const pending = pendingByApplication.current.get(variables.id);
-      if (pending) pending.confirmedStatus = updated.status;
+      const updated = await recordApplicationStatus(variables, pending?.confirmedApplication);
+      if (pending) {
+        pending.confirmedStatus = updated.status;
+        pending.confirmedApplication = updated;
+      }
       return updated;
     });
     const tail = request.then(
@@ -81,11 +97,13 @@ export function useApplicationStatusMutation(options?: {
       if (currentPending) {
         currentPending.latestToken = token;
       } else {
+        const confirmedApplication = currentApplications?.find(
+          (application: Application) => application.id === id,
+        );
         pendingByApplication.current.set(id, {
           latestToken: token,
-          confirmedStatus: currentApplications?.find(
-            (application: Application) => application.id === id,
-          )?.status,
+          confirmedStatus: confirmedApplication?.status,
+          confirmedApplication,
         });
       }
       queryClient.setQueryData<Application[]>(

@@ -69,7 +69,7 @@
           "appliedAt":      { "type": ["string", "null"],     "format": "date-time" },
           "lastContact":    { "type": ["string", "null"],     "format": "date-time" },
           "followUpAt":     { "type": ["string", "null"],     "format": "date-time" },
-          "notes":          { "type": ["string", "null"],     "example": "Had a great first call." },
+          "notes":          { "type": ["string", "null"],     "maxLength": 10000, "description": "Compact current-state summary; chronological activity belongs in ApplicationEvent history.", "example": "Had a great first call." },
           "jobDescription": { "type": ["string", "null"],     "example": "We are looking for…" },
           "canonicalJobUrl": { "type": ["string", "null"], "format": "uri" },
           "workMode": { "type": ["string", "null"], "enum": ["remote", "hybrid", "onsite", "flexible", null] },
@@ -194,16 +194,37 @@
       },
       "ApplicationEvent": {
         "type": "object",
-        "required": ["id", "applicationId", "type", "occurredAt"],
+        "required": ["id", "applicationId", "type", "occurredAt", "createdAt"],
         "properties": {
           "id": { "type": "string" },
           "applicationId": { "type": "string" },
-          "type": { "type": "string" },
+          "type": { "type": "string", "enum": ["opportunity_discovered", "application_submitted", "recruiter_contacted", "stage_changed", "interview_invited", "interview_scheduled", "interview_completed", "feedback_received", "follow_up_scheduled", "offer_received", "application_rejected", "document_attached", "note_added"] },
           "idempotencyKey": { "type": ["string", "null"] },
           "occurredAt": { "type": "string", "format": "date-time" },
           "source": { "type": ["string", "null"] },
           "actor": { "type": ["string", "null"] },
-          "metadata": { "type": ["object", "null"], "additionalProperties": true }
+          "contactId": { "type": ["string", "null"] },
+          "outcome": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"], "additionalProperties": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "application": { "anyOf": [{ "$ref": "#/components/schemas/ApplicationRef" }, { "type": "null" }] }
+        }
+      },
+      "ApplicationEventPage": {
+        "type": "object",
+        "required": ["items", "nextCursor"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/ApplicationEvent" } },
+          "nextCursor": { "type": ["string", "null"], "description": "Opaque deterministic cursor for the next page." }
+        }
+      },
+      "RecordApplicationEventResult": {
+        "type": "object",
+        "required": ["event", "application", "replayed"],
+        "properties": {
+          "event": { "$ref": "#/components/schemas/ApplicationEvent" },
+          "application": { "$ref": "#/components/schemas/Application" },
+          "replayed": { "type": "boolean" }
         }
       },
       "RecordSubmissionResult": {
@@ -401,7 +422,7 @@
       "patch": {
         "operationId": "updateApplication",
         "summary": "Update application",
-        "description": "Partially updates an application. All fields are optional. **Requires a session.**",
+        "description": "Partially updates non-lifecycle application fields. Status, stage, contact, follow-up, and submission changes must use typed event or submission endpoints. Unchanged legacy lifecycle fields are tolerated for compatibility. **Requires a session.**",
         "tags": ["Applications"],
         "security": [
           { "BearerAuth": [] },
@@ -416,10 +437,6 @@
                 "properties": {
                   "company":        { "type": "string", "maxLength": 255 },
                   "role":           { "type": "string", "maxLength": 255 },
-                  "status":         { "$ref": "#/components/schemas/ApplicationStatus" },
-                  "appliedAt":      { "type": ["string", "null"], "format": "date-time" },
-                  "lastContact":    { "type": ["string", "null"], "format": "date-time" },
-                  "followUpAt":     { "type": ["string", "null"], "format": "date-time" },
                   "notes":          { "type": ["string", "null"], "maxLength": 10000 },
                   "jobDescription": { "type": ["string", "null"], "maxLength": 50000 }
                 }
@@ -576,18 +593,31 @@
         "summary": "List append-only application timeline events",
         "tags": ["Applications"],
         "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+        "parameters": [
+          { "name": "type", "in": "query", "style": "form", "explode": true, "schema": { "type": "array", "items": { "type": "string", "enum": ["opportunity_discovered", "application_submitted", "recruiter_contacted", "stage_changed", "interview_invited", "interview_scheduled", "interview_completed", "feedback_received", "follow_up_scheduled", "offer_received", "application_rejected", "document_attached", "note_added"] } } },
+          { "name": "occurredAfter", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "occurredBefore", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "source", "in": "query", "schema": { "type": "string", "maxLength": 255 } },
+          { "name": "actor", "in": "query", "schema": { "type": "string", "maxLength": 255 } },
+          { "name": "contactId", "in": "query", "schema": { "type": "string", "maxLength": 255 } },
+          { "name": "outcome", "in": "query", "schema": { "type": "string", "maxLength": 255 } },
+          { "name": "order", "in": "query", "schema": { "type": "string", "enum": ["newest", "oldest"], "default": "newest" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
         "responses": {
           "200": {
-            "description": "Timeline events.",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ApplicationEvent" } } } }
+            "description": "Deterministically ordered application timeline page.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApplicationEventPage" } } }
           },
+          "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       },
       "post": {
         "operationId": "recordApplicationEvent",
-        "summary": "Append an application timeline event",
+        "summary": "Atomically append a typed event and update the application projection",
         "tags": ["Applications"],
         "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
         "requestBody": {
@@ -598,20 +628,50 @@
                 "type": "object",
                 "required": ["type"],
                 "properties": {
-                  "type": { "type": "string", "maxLength": 100 },
-                  "idempotencyKey": { "type": ["string", "null"], "description": "When supplied, occurredAt is required so retries hash deterministically." },
-                  "occurredAt": { "type": "string", "format": "date-time", "description": "Required when idempotencyKey is supplied." },
-                  "metadata": { "type": "object", "additionalProperties": true }
+                  "type": { "type": "string", "enum": ["opportunity_discovered", "recruiter_contacted", "stage_changed", "interview_invited", "interview_scheduled", "interview_completed", "feedback_received", "follow_up_scheduled", "offer_received", "application_rejected", "document_attached", "note_added"], "description": "Submission events must use POST /api/applications/{id}/submissions." },
+                  "idempotencyKey": { "type": "string", "minLength": 8, "maxLength": 128, "description": "When supplied, occurredAt is required so retries hash deterministically." },
+                  "occurredAt": { "type": "string", "format": "date-time", "description": "Required when idempotencyKey is supplied; defaults to the server time otherwise." },
+                  "expectedUpdatedAt": { "type": "string", "format": "date-time", "description": "Optional optimistic-concurrency precondition for the current projection." },
+                  "metadata": { "type": "object", "additionalProperties": true, "description": "Validated per event type; bounded to 32,000 bytes after normalization." }
                 }
               }
             }
           }
         },
         "responses": {
-          "201": { "description": "Created timeline event." },
+          "200": { "description": "Idempotent replay.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordApplicationEventResult" } } } },
+          "201": { "description": "Event and projection recorded atomically.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordApplicationEventResult" } } } },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Idempotency or optimistic-concurrency conflict.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "listApplicationActivity",
+        "summary": "List the authenticated owner's application activity feed",
+        "tags": ["Applications"],
+        "security": [{ "BearerAuth": [] }, { "CookieAuth": [] }],
+        "parameters": [
+          { "name": "applicationId", "in": "query", "schema": { "type": "string" } },
+          { "name": "company", "in": "query", "schema": { "type": "string", "maxLength": 255 } },
+          { "name": "type", "in": "query", "style": "form", "explode": true, "schema": { "type": "array", "items": { "type": "string", "enum": ["opportunity_discovered", "application_submitted", "recruiter_contacted", "stage_changed", "interview_invited", "interview_scheduled", "interview_completed", "feedback_received", "follow_up_scheduled", "offer_received", "application_rejected", "document_attached", "note_added"] } } },
+          { "name": "occurredAfter", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "occurredBefore", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "source", "in": "query", "schema": { "type": "string" } },
+          { "name": "actor", "in": "query", "schema": { "type": "string" } },
+          { "name": "contactId", "in": "query", "schema": { "type": "string" } },
+          { "name": "outcome", "in": "query", "schema": { "type": "string" } },
+          { "name": "order", "in": "query", "schema": { "type": "string", "enum": ["newest", "oldest"], "default": "newest" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": {
+          "200": { "description": "Deterministically ordered, owner-scoped activity page.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApplicationEventPage" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
         }
       }
     },

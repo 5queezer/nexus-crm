@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import {
-  requireOccurredAtForIdempotency,
-  validateEventMetadata,
-} from "@/lib/applications/submission";
+import { parseApplicationEventCommand, parseEventQuery } from "@/lib/applications/events";
 
 export async function GET(
   request: NextRequest,
@@ -13,12 +10,19 @@ export async function GET(
   const auth = await requireAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const rawLimit = Number(request.nextUrl.searchParams.get("limit") ?? 100);
-  const limit = Number.isInteger(rawLimit) ? Math.max(1, Math.min(500, rawLimit)) : 100;
+  const db = getDb();
+  const application = await db.getApplication(id, auth.userId);
+  if (!application) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const values: Record<string, unknown> = Object.fromEntries(request.nextUrl.searchParams.entries());
+  const allTypes = request.nextUrl.searchParams.getAll("type");
+  if (allTypes.length) values.types = allTypes;
   try {
-    return NextResponse.json(await getDb().listApplicationEvents(id, auth.userId, limit));
-  } catch {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const filter = parseEventQuery({ ...values, applicationId: id });
+    return NextResponse.json(await db.listApplicationEventsFiltered(auth.userId, filter));
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "event_query_invalid";
+    return NextResponse.json({ error: code }, { status: 400 });
   }
 }
 
@@ -35,39 +39,41 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const type = String(body.type ?? "").trim().slice(0, 100);
-  if (!type) return NextResponse.json({ error: "type is required" }, { status: 400 });
-  const occurredAt = body.occurredAt ? new Date(String(body.occurredAt)) : new Date();
-  if (Number.isNaN(occurredAt.getTime())) {
-    return NextResponse.json({ error: "occurredAt must be a valid ISO timestamp" }, { status: 400 });
-  }
-  const idempotencyKey = body.idempotencyKey == null
-    ? undefined
-    : String(body.idempotencyKey).trim();
-  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 128)) {
-    return NextResponse.json({ error: "idempotencyKey must contain 8-128 characters" }, { status: 400 });
-  }
+  let command;
   try {
-    requireOccurredAtForIdempotency(idempotencyKey, body.occurredAt as string | undefined);
+    command = parseApplicationEventCommand({
+      type: body.type,
+      occurredAt: body.occurredAt,
+      idempotencyKey: body.idempotencyKey,
+      expectedUpdatedAt: body.expectedUpdatedAt,
+      metadata: body.metadata,
+      source: "rest",
+      actor: auth.user.email,
+    });
   } catch (error) {
+    const code = error instanceof Error ? error.message : "event_invalid";
+    return NextResponse.json({ error: code }, { status: 400 });
+  }
+  if (command.type === "application_submitted") {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "invalid_idempotent_event" },
+      { error: "submission_event_requires_submission_workflow" },
       { status: 400 },
     );
   }
+
   try {
-    const event = await getDb().createApplicationEvent(id, auth.userId, {
-      type,
-      occurredAt,
-      source: "rest",
-      actor: auth.user.email,
-      idempotencyKey,
-      metadata: validateEventMetadata(body.metadata),
+    const result = await getDb().recordApplicationEvent(id, auth.userId, command);
+    return NextResponse.json(result, {
+      status: result.replayed ? 200 : 201,
+      headers: result.replayed ? { "X-Idempotent-Replay": "true" } : undefined,
     });
-    return NextResponse.json(event, { status: 201 });
   } catch (error) {
     const code = error instanceof Error ? error.message : "event_failed";
-    const status = code === "not_found" ? 404 : code.includes("idempotency") ? 409 : 400;
+    const status = code === "not_found"
+      ? 404
+      : code === "conflict" || code.includes("idempotency") || code === "application_deleting"
+        ? 409
+        : 400;
     return NextResponse.json({ error: code }, { status });
   }
 }

@@ -9,6 +9,7 @@
   "nav": {
     "logout": "Abmelden",
     "opportunities": "Opportunities",
+    "activity": "Aktivität",
     "account_menu": "Konto und Darstellung",
     "signed_in_as": "Angemeldet als",
     "theme": "Darstellung",
@@ -100,7 +101,11 @@
     "last_contact": "Letzter Kontakt",
     "follow_up": "Follow-up Datum",
     "notes": "Notizen",
+    "summary": "Zusammenfassung",
     "notes_placeholder": "Details, Links...",
+    "notes_summary_help": "Kurze aktuelle Zusammenfassung; chronologische Aktivitäten gehören in die Zeitleiste.",
+    "notes_limit_warning": "Die Zusammenfassung nähert sich der Grenze von 10.000 Zeichen.",
+    "lifecycle_timeline_help": "Status-, Phasen-, Kontakt- und Nachfassänderungen werden in der Zeitleiste erfasst.",
     "job_description": "Leistungsumfang",
     "job_description_placeholder": "Anforderungen oder Leistungsumfang hier einfügen...",
     "job_description_toggle_show": "📄 Leistungsumfang anzeigen",
@@ -750,5 +755,50 @@
     "create": "Neue Opportunity",
     "clear_filters": "Filter löschen",
     "dismiss_overdue": "Überfällige Wiedervorlage für {company} ausblenden"
+  },
+  "events": {
+    "eventTypes": {
+      "opportunity_discovered": "Opportunity entdeckt",
+      "application_submitted": "Bewerbung eingereicht",
+      "recruiter_contacted": "Recruiter kontaktiert",
+      "stage_changed": "Phase geändert",
+      "interview_invited": "Interview-Einladung erhalten",
+      "interview_scheduled": "Interview geplant",
+      "interview_completed": "Interview abgeschlossen",
+      "feedback_received": "Feedback erhalten",
+      "follow_up_scheduled": "Follow-up geplant",
+      "offer_received": "Angebot erhalten",
+      "application_rejected": "Bewerbung abgelehnt",
+      "document_attached": "Dokument angehängt",
+      "note_added": "Zeitleisten-Notiz hinzugefügt"
+    },
+    "metadata": {
+      "fromStage": "Vorherige Phase", "toStage": "Neue Phase", "fromStatus": "Vorheriger Status", "toStatus": "Neuer Status",
+      "interviewType": "Interview-Typ", "scheduledAt": "Geplant für", "durationMinutes": "Dauer (Minuten)", "location": "Ort", "meetingUrl": "Meeting-Link",
+      "contactId": "Kontakt", "outcome": "Ergebnis", "nextAction": "Nächster Schritt", "followUpAt": "Follow-up", "reason": "Grund",
+      "offerType": "Angebotsart", "compensationSummary": "Vergütung", "documentId": "Dokument", "filename": "Dateiname", "note": "Zeitleisten-Notiz",
+      "policyVersion": "Richtlinienversion", "submittedDocumentIds": "Eingereichte Dokumente", "submissionId": "Einreichung", "atsName": "ATS", "requisitionId": "Ausschreibung",
+      "answersCount": "Antworten", "documentCount": "Dokumente", "dryRun": "Testlauf"
+    }
+  },
+  "timeline": {
+    "title": "Bewerbungszeitleiste",
+    "description": "Unveränderlicher Aktivitätsverlauf; die Bewerbung bleibt der aktuelle Zustand.",
+    "order": "Reihenfolge der Zeitleiste", "newest": "Neueste zuerst", "oldest": "Älteste zuerst",
+    "record_activity": "Aktivität erfassen", "cancel": "Abbrechen", "save_first": "Bewerbungsänderungen vor dem Erfassen speichern",
+    "activity": "Aktivität", "occurred_at": "Zeitpunkt", "recorded_at": "Erfasst {date}",
+    "new_stage": "Neue Phase", "status_optional": "Status (optional)", "interview_type": "Interview-Typ", "scheduled_for": "Geplant für",
+    "follow_up": "Follow-up", "next_action": "Nächster Schritt", "preparation": "Vorbereitung / nächster Schritt", "outcome": "Ergebnis", "reason": "Grund", "timeline_note": "Zeitleisten-Notiz",
+    "record_event": "Ereignis erfassen", "recording": "Wird erfasst…", "loading": "Zeitleiste wird geladen…", "load_error": "Die Zeitleiste konnte nicht geladen werden.",
+    "empty": "Noch keine Ereignisse. Bestehende Notizen bleiben als Zusammenfassung erhalten und werden nicht rückwirkend umgewandelt.", "load_more": "Mehr laden", "loading_more": "Wird geladen…",
+    "contact_link": "Kontakt {id}", "document_link": "Dokument {id}", "submission_link": "Einreichung {id}"
+  },
+  "activityFeed": {
+    "title": "Aktivität", "description": "Eigentümerbezogener Verlauf über alle Bewerbungen.",
+    "company": "Unternehmen", "application_id": "Bewerbungs-ID", "event_type": "Ereignistyp", "all_types": "Alle Ereignistypen", "order": "Reihenfolge",
+    "newest": "Neueste zuerst", "oldest": "Älteste zuerst", "source": "Quelle", "actor": "Akteur", "contact_id": "Kontakt-ID", "outcome": "Ergebnis",
+    "from": "Von", "to": "Bis", "clear": "Löschen", "apply": "Filter anwenden", "loading": "Aktivität wird geladen…",
+    "empty": "Keine Ereignisse entsprechen diesen Filtern. Der Verlauf wurde nicht gelöscht.", "load_more": "Mehr laden", "loading_more": "Wird geladen…",
+    "more_available": "Weitere Aktivitäten sind verfügbar", "load_error": "Aktivität konnte nicht geladen werden.", "application_link": "Bewerbung {id}"
   }
 }

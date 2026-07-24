@@ -142,15 +142,21 @@ model ApplicationEvent {
   application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   type           String
   idempotencyKey String?
+  requestHash    String?
   occurredAt     DateTime
   source         String?
   actor          String?
+  contactId      String?
+  outcome        String?
   metadata       Json?
   createdAt      DateTime    @default(now())
 
   @@unique([userId, idempotencyKey])
-  @@index([applicationId, occurredAt])
-  @@index([userId, type])
+  @@index([applicationId, occurredAt, id])
+  @@index([userId, occurredAt, id])
+  @@index([userId, type, occurredAt])
+  @@index([userId, contactId, occurredAt])
+  @@index([userId, outcome, occurredAt])
 }
 
 model User {
