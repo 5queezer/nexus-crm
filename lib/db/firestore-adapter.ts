@@ -1019,9 +1019,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           value instanceof Date ? toTimestamp(value) : value,
         ]),
       );
-      if (Object.keys(firestorePatch).length) {
-        transaction.update(appRef, { ...firestorePatch, updatedAt: Timestamp.now() });
-      }
+      transaction.update(appRef, { ...firestorePatch, updatedAt: Timestamp.now() });
       const eventData = {
         userId,
         applicationId,

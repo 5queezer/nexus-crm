@@ -1176,6 +1176,23 @@ describe("FirestoreAdapter — first-class application events", () => {
     expect([...stores.applicationEvents.values()][0].requestHash).toEqual(expect.any(String));
   });
 
+  it("touches the application for event-only commands", async () => {
+    seedEventApplication();
+    stores.applications.get("app-1")!.updatedAt = { toDate: () => new Date("2024-01-01") };
+
+    const result = await new FirestoreAdapter().recordApplicationEvent("app-1", userId, {
+      type: "note_added",
+      occurredAt: new Date("2026-07-24T09:00:00Z"),
+      source: "test",
+      metadata: { note: "Chronological update" },
+      contactId: null,
+      outcome: null,
+    });
+
+    expect(result.application.updatedAt.toISOString()).toBe("2025-01-01T00:00:00.000Z");
+    expect(stores.applicationEvents.size).toBe(1);
+  });
+
   it("replays the same command once and rejects a changed payload", async () => {
     seedEventApplication();
     const adapter = new FirestoreAdapter();
