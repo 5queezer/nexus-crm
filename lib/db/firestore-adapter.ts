@@ -1256,6 +1256,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const item = items[i];
       try {
         if (item.id) {
+          const lifecycleFields = ["status", "appliedAt", "lastContact", "followUpAt", "currentStage"] as const;
+          if (lifecycleFields.some((field) => item[field] !== undefined)) {
+            results.push({ index: i, id: item.id, operation: "updated", error: "lifecycle_event_required" });
+            failed++;
+            continue;
+          }
           const update = { ...item } as BatchUpsertItem & { id?: string };
           delete update.id;
           const application = await this.updateApplication(

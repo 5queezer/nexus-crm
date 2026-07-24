@@ -267,6 +267,20 @@ describe("PrismaAdapter — atomic application events", () => {
     })).rejects.toThrow("notes_too_long");
   });
 
+  it("rejects lifecycle fields in batch updates", async () => {
+    const result = await new PrismaAdapter().batchUpsertApplications("owner-1", [{
+      id: "1",
+      currentStage: "technical",
+    }]);
+
+    expect(result).toMatchObject({
+      succeeded: 0,
+      failed: 1,
+      results: [{ error: "lifecycle_event_required" }],
+    });
+    expect((fake.prisma.application as { update: ReturnType<typeof vi.fn> }).update).not.toHaveBeenCalled();
+  });
+
   it("rolls back projection changes when event creation fails", async () => {
     fake.setFailCreate(true);
     await expect(new PrismaAdapter().recordApplicationEvent("1", "owner-1", command)).rejects.toThrow("event_write_failed");

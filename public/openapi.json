@@ -198,7 +198,7 @@
         "properties": {
           "id": { "type": "string" },
           "applicationId": { "type": "string" },
-          "type": { "type": "string", "enum": ["opportunity_discovered", "application_submitted", "recruiter_contacted", "stage_changed", "interview_invited", "interview_scheduled", "interview_completed", "feedback_received", "follow_up_scheduled", "offer_received", "application_rejected", "document_attached", "note_added"] },
+          "type": { "type": "string", "description": "Canonical event type or a legacy stored type returned for backwards compatibility." },
           "idempotencyKey": { "type": ["string", "null"] },
           "occurredAt": { "type": "string", "format": "date-time" },
           "source": { "type": ["string", "null"] },
@@ -607,8 +607,8 @@
         ],
         "responses": {
           "200": {
-            "description": "Deterministically ordered application timeline page.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApplicationEventPage" } } }
+            "description": "Legacy bare array when no query parameters are supplied; otherwise a deterministic cursor page.",
+            "content": { "application/json": { "schema": { "oneOf": [{ "type": "array", "items": { "$ref": "#/components/schemas/ApplicationEvent" } }, { "$ref": "#/components/schemas/ApplicationEventPage" }] } } }
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },

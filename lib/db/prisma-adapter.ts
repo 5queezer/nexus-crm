@@ -1263,6 +1263,12 @@ export class PrismaAdapter implements DatabaseAdapter {
       const item = items[i];
       try {
         if (item.id) {
+          const lifecycleFields = ["status", "appliedAt", "lastContact", "followUpAt", "currentStage"] as const;
+          if (lifecycleFields.some((field) => item[field] !== undefined)) {
+            results.push({ index: i, id: item.id, operation: "updated", error: "lifecycle_event_required" });
+            failed++;
+            continue;
+          }
           // Pre-check ownership to avoid a throwing update on missing rows
           const existing = await prisma.application.findFirst({
             where: { id: nid(item.id), userId },

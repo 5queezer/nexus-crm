@@ -435,6 +435,20 @@ describe("FirestoreAdapter — application metadata", () => {
     expect(Array.from(stores.applicationCanonicalUrls.values())[0].canonicalJobUrl)
       .toBe("https://example.com/jobs/1");
   });
+
+  it("rejects lifecycle fields in batch updates", async () => {
+    const adapter = new FirestoreAdapter();
+    const result = await adapter.batchUpsertApplications("user-1", [{
+      id: "app-1",
+      status: "interview",
+    }]);
+
+    expect(result).toMatchObject({
+      succeeded: 0,
+      failed: 1,
+      results: [{ error: "lifecycle_event_required" }],
+    });
+  });
 });
 
 describe("FirestoreAdapter — retryable application deletion", () => {

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { mockRecordApplicationEvent, mockListApplicationEventsFiltered, mockGetApplication, mockRequireAuth } = vi.hoisted(() => ({
+const { mockRecordApplicationEvent, mockListApplicationEvents, mockListApplicationEventsFiltered, mockGetApplication, mockRequireAuth } = vi.hoisted(() => ({
   mockRecordApplicationEvent: vi.fn(),
+  mockListApplicationEvents: vi.fn(),
   mockListApplicationEventsFiltered: vi.fn(),
   mockGetApplication: vi.fn(),
   mockRequireAuth: vi.fn(),
@@ -11,6 +12,7 @@ const { mockRecordApplicationEvent, mockListApplicationEventsFiltered, mockGetAp
 vi.mock("@/lib/db", () => ({
   getDb: () => ({
     recordApplicationEvent: mockRecordApplicationEvent,
+    listApplicationEvents: mockListApplicationEvents,
     listApplicationEventsFiltered: mockListApplicationEventsFiltered,
     getApplication: mockGetApplication,
   }),
@@ -48,9 +50,17 @@ describe("GET /api/applications/:id/events", () => {
     }));
   });
 
+  it("preserves the legacy bare-array response without query parameters", async () => {
+    mockListApplicationEvents.mockResolvedValue([{ id: "event-1" }]);
+    const response = await GET(new NextRequest("http://localhost/api/applications/app-1/events"), params);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual([{ id: "event-1" }]);
+  });
+
   it("sanitizes unexpected query failures", async () => {
     mockListApplicationEventsFiltered.mockRejectedValueOnce(new Error("postgres://secret-internal-detail"));
-    const response = await GET(new NextRequest("http://localhost/api/applications/app-1/events"), params);
+    const response = await GET(new NextRequest("http://localhost/api/applications/app-1/events?limit=20"), params);
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: "event_query_failed" });
   });

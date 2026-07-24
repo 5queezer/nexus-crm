@@ -35,7 +35,11 @@ export async function GET(
     return NextResponse.json({ error: "event_query_invalid" }, { status: 400 });
   }
   try {
-    return NextResponse.json(await db.listApplicationEventsFiltered(auth.userId, filter));
+    if (!request.nextUrl.searchParams.size) {
+      return NextResponse.json(await db.listApplicationEvents(id, auth.userId));
+    }
+    const page = await db.listApplicationEventsFiltered(auth.userId, filter);
+    return NextResponse.json(page);
   } catch {
     return NextResponse.json({ error: "event_query_failed" }, { status: 500 });
   }
