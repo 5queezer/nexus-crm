@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getMessageDetail: vi.fn(),
   classifyEmail: vi.fn(),
   recordLifecycle: vi.fn(),
+  createLifecycle: vi.fn(),
   loggerError: vi.fn(),
 }));
 
@@ -41,6 +42,7 @@ vi.mock("../gmail", () => ({
 vi.mock("../classifier", () => ({ classifyEmail: mocks.classifyEmail }));
 vi.mock("../application-events", () => ({
   recordEmailLifecycleTransition: mocks.recordLifecycle,
+  createEmailApplicationWithLifecycle: mocks.createLifecycle,
 }));
 vi.mock("@/lib/logger", () => ({ logger: { error: mocks.loggerError } }));
 
@@ -84,6 +86,7 @@ describe("scanUserInbox auto-import retries", () => {
     });
     mocks.scannedDelete.mockResolvedValue({});
     mocks.scannedUpdate.mockResolvedValue({});
+    mocks.createLifecycle.mockResolvedValue(42);
     mocks.integrationUpdate.mockResolvedValue({});
   });
 
@@ -116,6 +119,25 @@ describe("scanUserInbox auto-import retries", () => {
         lastHistoryId: "history-new",
         lastScanAt: expect.any(Date),
       },
+    });
+  });
+
+  it("creates a new interview application through the atomic lifecycle workflow", async () => {
+    mocks.applicationFind.mockResolvedValueOnce(null);
+
+    await scanUserInbox("owner-1");
+
+    expect(mocks.createLifecycle).toHaveBeenCalledWith({
+      userId: "owner-1",
+      company: "Acme",
+      role: "Engineer",
+      status: "interview",
+      occurredAt: receivedAt,
+      scannedEmailId: 7,
+    });
+    expect(mocks.scannedUpdate).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { applicationId: 42, status: "imported" },
     });
   });
 });

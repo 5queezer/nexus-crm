@@ -1082,38 +1082,51 @@ export class FirestoreAdapter implements DatabaseAdapter {
       );
     }
 
-    const scanLimit = Math.min(1_000, Math.max(filter.limit * 5, filter.limit + 1));
-    const snapshot = await query.limit(scanLimit + 1).get();
-    const hasUnscannedRows = snapshot.docs.length > scanLimit;
-    const scannedDocuments = hasUnscannedRows ? snapshot.docs.slice(0, scanLimit) : snapshot.docs;
-    const scannedEvents = scannedDocuments.map((document) => ({
-      document,
-      event: mapEvent(document.id, document.data()),
-    }));
-    const appMap = await this.loadVerifiedAppRefs([
-      ...new Set(scannedEvents.map(({ event }) => event.applicationId)),
-    ], userId);
-    for (const { event } of scannedEvents) event.application = appMap.get(event.applicationId);
-    const matchingEvents = scannedEvents.filter(({ event }) =>
-      (!filter.applicationId || event.applicationId === filter.applicationId)
-      && (!filter.company || event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
-      && (!filter.types?.length || filter.types.includes(event.type))
-      && (!filter.occurredAfter || event.occurredAt >= filter.occurredAfter)
-      && (!filter.occurredBefore || event.occurredAt <= filter.occurredBefore)
-      && (!filter.source || event.source === filter.source)
-      && (!filter.actor || event.actor === filter.actor)
-      && (!filter.contactId || event.contactId === filter.contactId)
-      && (!filter.outcome || event.outcome === filter.outcome)
-    );
+    const scanLimit = Math.min(500, Math.max(filter.limit * 2, 50));
+    const matchingEvents: Array<{
+      document: FirebaseFirestore.QueryDocumentSnapshot;
+      event: ApplicationEventRecord;
+    }> = [];
+
+    // Residual filters (notably company and arbitrary filter combinations) are
+    // evaluated in memory. Keep advancing the indexed query until this logical
+    // page has a real match/lookahead or the query is exhausted; never expose
+    // internal scan windows as empty client pages.
+    while (matchingEvents.length <= filter.limit) {
+      const snapshot = await query.limit(scanLimit).get();
+      if (!snapshot.docs.length) break;
+      const scannedEvents = snapshot.docs.map((document) => ({
+        document,
+        event: mapEvent(document.id, document.data()),
+      }));
+      const appMap = await this.loadVerifiedAppRefs([
+        ...new Set(scannedEvents.map(({ event }) => event.applicationId)),
+      ], userId);
+      for (const { event } of scannedEvents) event.application = appMap.get(event.applicationId);
+      matchingEvents.push(...scannedEvents.filter(({ event }) =>
+        (!filter.applicationId || event.applicationId === filter.applicationId)
+        && (!filter.company || event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
+        && (!filter.types?.length || filter.types.includes(event.type))
+        && (!filter.occurredAfter || event.occurredAt >= filter.occurredAfter)
+        && (!filter.occurredBefore || event.occurredAt <= filter.occurredBefore)
+        && (!filter.source || event.source === filter.source)
+        && (!filter.actor || event.actor === filter.actor)
+        && (!filter.contactId || event.contactId === filter.contactId)
+        && (!filter.outcome || event.outcome === filter.outcome)
+      ));
+      if (matchingEvents.length > filter.limit || snapshot.docs.length < scanLimit) break;
+      const lastDocument = snapshot.docs.at(-1)!;
+      const lastEvent = mapEvent(lastDocument.id, lastDocument.data());
+      query = query.startAfter(
+        Timestamp.fromDate(lastEvent.occurredAt),
+        lastEvent.id,
+      );
+    }
+
     const items = matchingEvents.slice(0, filter.limit).map(({ event }) => event);
-    // When another matching row was already scanned, resume after the last
-    // returned match. Otherwise resume after the bounded scan window so sparse
-    // in-memory filters can continue without re-reading examined rows.
     const cursorDocument = matchingEvents.length > filter.limit
       ? matchingEvents[filter.limit - 1]?.document
-      : hasUnscannedRows
-        ? scannedDocuments.at(-1)
-        : null;
+      : null;
     const cursorEvent = cursorDocument
       ? mapEvent(cursorDocument.id, cursorDocument.data())
       : null;

@@ -2,7 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { fetchNewMessages, getMessageDetail } from "./gmail";
 import { classifyEmail } from "./classifier";
 import { logger } from "@/lib/logger";
-import { recordEmailLifecycleTransition } from "./application-events";
+import {
+  createEmailApplicationWithLifecycle,
+  recordEmailLifecycleTransition,
+} from "./application-events";
 
 export interface ScanResult {
   userId: string;
@@ -181,21 +184,21 @@ async function autoImportAsApplication(
     return;
   }
 
-  // Create new application
-  const app = await prisma.application.create({
-    data: {
-      userId,
-      company: data.company,
-      role: data.role ?? "Unknown Role",
-      status: data.classification === "rejection" ? "rejected" : (data.classification ?? "applied"),
-      source: "email",
-      appliedAt: new Date(),
-    },
+  const status = data.classification === "rejection"
+    ? "rejected"
+    : data.classification ?? "applied";
+  const applicationId = await createEmailApplicationWithLifecycle({
+    userId,
+    company: data.company,
+    role: data.role ?? "Unknown Role",
+    status,
+    occurredAt,
+    scannedEmailId,
   });
 
   await prisma.scannedEmail.update({
     where: { id: scannedEmailId },
-    data: { applicationId: app.id, status: "imported" },
+    data: { applicationId, status: "imported" },
   });
 }
 

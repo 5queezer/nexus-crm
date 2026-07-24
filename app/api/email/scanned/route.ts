@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
-import { recordEmailLifecycleTransition } from "@/lib/email/application-events";
+import {
+  createEmailApplicationWithLifecycle,
+  recordEmailLifecycleTransition,
+} from "@/lib/email/application-events";
 
 /**
  * GET /api/email/scanned — list scanned emails for the current user
@@ -131,17 +134,14 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
         });
       }
     } else {
-      const app = await prisma.application.create({
-        data: {
-          userId: auth.userId,
-          company,
-          role,
-          status,
-          source: "email",
-          appliedAt: email.receivedAt,
-        },
+      appId = await createEmailApplicationWithLifecycle({
+        userId: auth.userId,
+        company,
+        role,
+        status,
+        occurredAt: email.receivedAt,
+        scannedEmailId: email.id,
       });
-      appId = app.id;
     }
 
     await prisma.scannedEmail.update({

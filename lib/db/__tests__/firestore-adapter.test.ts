@@ -1316,7 +1316,7 @@ describe("FirestoreAdapter — first-class application events", () => {
     })).rejects.toThrow("notes_too_long");
   });
 
-  it("continues sparse in-memory filters with a bounded scan cursor", async () => {
+  it("skips sparse scan windows before returning a filtered page", async () => {
     seedApps([
       { id: "app-acme", userId, company: "Acme", role: "Engineer" },
       { id: "app-beta", userId, company: "Beta", role: "Engineer" },
@@ -1332,18 +1332,11 @@ describe("FirestoreAdapter — first-class application events", () => {
       });
     }
     const adapter = new FirestoreAdapter();
-    const first = await adapter.listApplicationEventsFiltered(userId, {
+    const page = await adapter.listApplicationEventsFiltered(userId, {
       company: "Beta", order: "newest", limit: 1,
     });
-    expect(first.items).toEqual([]);
-    expect(first.nextCursor).toBeTruthy();
-    const { decodeEventCursor } = await import("../../applications/events");
-    const second = await adapter.listApplicationEventsFiltered(userId, {
-      company: "Beta", order: "newest", limit: 1,
-      cursor: decodeEventCursor(first.nextCursor!),
-    });
-    expect(second.items.map((event) => event.id)).toEqual(["1"]);
-    expect(second.nextCursor).toBeNull();
+    expect(page.items.map((event) => event.id)).toEqual(["1"]);
+    expect(page.nextCursor).toBeNull();
   });
 
   it("uses the same lexical ID tie-breaker for sorting and cursors", async () => {
