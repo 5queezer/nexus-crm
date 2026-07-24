@@ -234,7 +234,11 @@ function renderDashboard(initialApplications: Application[]) {
       const body = init.body ? JSON.parse(String(init.body)) : {};
       const current = initialApplications.find((item) => item.id === id);
       if (isEventCommand) {
-        const status = body.type === "offer_received" ? "offer" : body.metadata?.toStatus ?? current?.status;
+        const status = body.type === "offer_received"
+          ? "offer"
+          : body.type === "application_rejected"
+            ? "rejected"
+            : body.metadata?.toStatus ?? current?.status;
         return new Response(JSON.stringify({ application: { ...current, status } }), {
           status: 200,
           headers: { "Content-Type": "application/json" },

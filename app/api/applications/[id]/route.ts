@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/session";
 import { normalizeStatus, normalizeSource, COMPANY_SIZE_OPTIONS, INCOMING_SOURCE_OPTIONS } from "@/types";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 import { validateApplicationSummary } from "@/lib/applications/events";
+import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
 
 const VALID_COMPANY_SIZES = COMPANY_SIZE_OPTIONS.map((o) => o.value) as string[];
 const VALID_INCOMING_SOURCES = INCOMING_SOURCE_OPTIONS as readonly string[];
@@ -74,7 +75,7 @@ export async function PATCH(
 
   let structuredMetadata;
   let validatedNotes: string | null | undefined;
-  const rawNotes = notes === undefined ? undefined : notes === null || notes === "" ? null : String(notes);
+  const rawNotes: unknown = notes === undefined ? undefined : notes === null || notes === "" ? null : notes;
   const notesChanged = notes !== undefined && rawNotes !== current.notes;
   try {
     validatedNotes = notesChanged ? validateApplicationSummary(rawNotes) : undefined;
@@ -94,10 +95,29 @@ export async function PATCH(
     }
   }
 
-  const sameDate = (raw: unknown, existing: Date | null) => {
-    const next = raw === null || raw === "" ? null : new Date(String(raw));
-    return next === null ? existing === null : !Number.isNaN(next.getTime()) && next.getTime() === existing?.getTime();
+  const parseLifecycleDate = (raw: unknown): Date | null | "invalid" => {
+    if (raw === null || raw === "") return null;
+    if (typeof raw !== "string") return "invalid";
+    return parseLocalCalendarDate(raw) ?? "invalid";
   };
+  const sameDate = (raw: unknown, existing: Date | null) => {
+    const next = parseLifecycleDate(raw);
+    if (next === "invalid") return false;
+    if (next === null) return existing === null;
+    if (next.getTime() === existing?.getTime()) return true;
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw as string)
+      && raw === existing?.toISOString().slice(0, 10);
+  };
+  const lifecycleDates = { appliedAt, lastContact, followUpAt };
+  const invalidLifecycleFields = Object.entries(lifecycleDates)
+    .filter(([, raw]) => raw !== undefined && parseLifecycleDate(raw) === "invalid")
+    .map(([field]) => field);
+  if (invalidLifecycleFields.length) {
+    return NextResponse.json(
+      { error: "invalid_lifecycle_date", fields: invalidLifecycleFields },
+      { status: 400 },
+    );
+  }
   const lifecycleFields: string[] = [];
   if (status !== undefined && normalizeStatus(status) !== current.status) lifecycleFields.push("status");
   if (appliedAt !== undefined && !sameDate(appliedAt, current.appliedAt)) lifecycleFields.push("appliedAt");

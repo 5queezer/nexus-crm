@@ -15,7 +15,6 @@ import {
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 import {
   APPLICATION_EVENT_TYPES,
-  RECORDABLE_APPLICATION_EVENT_TYPES,
   parseApplicationEventCommand,
   parseEventQuery,
 } from "@/lib/applications/events";
@@ -103,6 +102,7 @@ const EVENT_ERROR_CODES = new Set([
   "submission_not_found",
   "verification_failed",
   "event_query_invalid",
+  "submission_event_requires_submission_workflow",
 ]);
 
 function controlledErrorCode(error: unknown, allowed: Set<string>, fallback: string): string {
@@ -521,7 +521,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     "Atomically append a canonical immutable application event and update the current-state projection when the event changes lifecycle state.",
     {
       applicationId: z.string().min(1),
-      type: z.enum(RECORDABLE_APPLICATION_EVENT_TYPES),
+      type: z.enum(APPLICATION_EVENT_TYPES),
       idempotencyKey: z.string().min(8).max(128).optional(),
       occurredAt: z.string().datetime().optional(),
       expectedUpdatedAt: z.string().datetime().optional(),
@@ -664,10 +664,18 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         const db = getDb();
         const existing = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
         const metadata = parseStructuredApplicationMetadata(args as unknown as Record<string, unknown>);
-        const updateExisting = (application: { id: string; status: string }) => {
+        const assertNoLifecycleUpdate = (application: { status: string; currentStage?: string | null }) => {
           if (args.status !== undefined && args.status !== application.status) {
             throw new Error("lifecycle_event_required");
           }
+          if (metadata.currentStage !== undefined && metadata.currentStage !== application.currentStage) {
+            throw new Error("lifecycle_event_required");
+          }
+        };
+        const updateExisting = (application: { id: string; status: string; currentStage?: string | null }) => {
+          assertNoLifecycleUpdate(application);
+          const mutableMetadata = { ...metadata };
+          delete mutableMetadata.currentStage;
           return db.updateApplication(application.id, auth.userId, {
             company: args.company,
             role: args.role,
@@ -681,10 +689,11 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
             ...(args.resumeId !== undefined && { resumeId: args.resumeId }),
             jobUrl: args.jobUrl,
             canonicalJobUrl,
-            ...metadata,
+            ...mutableMetadata,
           });
         };
         if (args.dryRun) {
+          if (existing) assertNoLifecycleUpdate(existing);
           return {
             content: [{
               type: "text",

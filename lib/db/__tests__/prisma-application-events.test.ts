@@ -27,6 +27,7 @@ const fake = vi.hoisted(() => {
       jobUrl: null,
       canonicalJobUrl: null,
       currentStage: "screen",
+      eventVersion: 0,
       createdAt: new Date("2026-07-01T00:00:00Z"),
       updatedAt: new Date("2026-07-24T08:00:00Z"),
       contacts: [],
@@ -43,19 +44,31 @@ const fake = vi.hoisted(() => {
       if (where.userId !== undefined && where.userId !== application.userId) return null;
       return { ...application, contacts: [] };
     }),
-    updateMany: vi.fn(async ({ where, data }: { where: { id: number; userId: string; updatedAt: Date }; data: Row }) => {
+    updateMany: vi.fn(async ({ where, data }: { where: { id: number; userId: string; updatedAt?: Date; eventVersion?: number }; data: Row }) => {
       const matches = where.id === application.id
         && where.userId === application.userId
-        && where.updatedAt.getTime() === (application.updatedAt as Date).getTime();
+        && (where.updatedAt === undefined || where.updatedAt.getTime() === (application.updatedAt as Date).getTime())
+        && (where.eventVersion === undefined || where.eventVersion === application.eventVersion);
       if (!matches) return { count: 0 };
-      const nextUpdatedAt = data.updatedAt instanceof Date
-        ? data.updatedAt
-        : new Date((application.updatedAt as Date).getTime() + 1_000);
-      application = { ...application, ...data, updatedAt: nextUpdatedAt };
+      const nextData = { ...data };
+      if (typeof data.eventVersion === "object" && data.eventVersion !== null) {
+        nextData.eventVersion = Number(application.eventVersion) + Number((data.eventVersion as { increment: number }).increment);
+      }
+      application = {
+        ...application,
+        ...nextData,
+        updatedAt: new Date((application.updatedAt as Date).getTime() + 1_000),
+      };
       return { count: 1 };
     }),
     update: vi.fn(async ({ data }: { data: Row }) => {
-      application = { ...application, ...data, updatedAt: new Date((application.updatedAt as Date).getTime() + 1_000) };
+      const increment = (data.eventVersion as { increment?: number } | undefined)?.increment ?? 0;
+      application = {
+        ...application,
+        ...data,
+        eventVersion: Number(application.eventVersion) + increment,
+        updatedAt: new Date((application.updatedAt as Date).getTime() + 1_000),
+      };
       return { ...application, contacts: [] };
     }),
   };
@@ -102,6 +115,7 @@ const fake = vi.hoisted(() => {
     contactCount: contactApi.count,
     documentCount: documentApi.count,
     submissionCount: submissionApi.count,
+    setApplication: (update: Row) => { application = { ...application, ...update }; },
     setFailCreate: (value: boolean) => { failCreate = value; },
   };
 });
@@ -230,10 +244,27 @@ describe("PrismaAdapter — atomic application events", () => {
     };
     await new PrismaAdapter().recordApplicationEvent("1", "owner-1", noteCommand);
     expect((fake.prisma.application as { updateMany: ReturnType<typeof vi.fn> }).updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { updatedAt: before } }),
+      expect.objectContaining({ data: { eventVersion: { increment: 1 } } }),
     );
-    expect(fake.app().updatedAt).toEqual(before);
+    expect(fake.app().eventVersion).toBe(1);
+    expect((fake.app().updatedAt as Date).getTime()).toBeGreaterThan((before as Date).getTime());
     expect(fake.events()).toHaveLength(1);
+  });
+
+  it("allows unrelated updates to preserve an oversized legacy summary unchanged", async () => {
+    const legacyNotes = "x".repeat(10_001);
+    fake.setApplication({ notes: legacyNotes });
+    await expect(new PrismaAdapter().updateApplication("1", "owner-1", {
+      company: "Acme 2",
+      notes: legacyNotes,
+    })).resolves.toMatchObject({ company: "Acme 2", notes: legacyNotes });
+  });
+
+  it("still rejects a newly changed oversized summary", async () => {
+    fake.setApplication({ notes: "legacy" });
+    await expect(new PrismaAdapter().updateApplication("1", "owner-1", {
+      notes: "x".repeat(10_001),
+    })).rejects.toThrow("notes_too_long");
   });
 
   it("rolls back projection changes when event creation fails", async () => {

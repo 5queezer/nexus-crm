@@ -122,7 +122,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       if (isProgression && existing.status !== "rejected") {
         await prisma.application.update({
           where: { id: existing.id },
-          data: { status },
+          data: { status, eventVersion: { increment: 1 } },
         });
       }
     } else {

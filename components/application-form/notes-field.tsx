@@ -50,7 +50,7 @@ export function NotesField({
       />
       <div id={helpId} className="mt-1 flex justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span>{t("notes_summary_help")}</span>
-        <span>{value.length.toLocaleString()}/10,000</span>
+        <span>{String(value.length)}/10,000</span>
       </div>
       {nearLimit && <p id={warningId} role="alert" className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">{t("notes_limit_warning")}</p>}
     </div>

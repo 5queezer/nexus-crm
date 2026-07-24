@@ -50,6 +50,47 @@ describe("PATCH /api/applications/:id event-first boundaries", () => {
     expect(mocks.updateApplication).toHaveBeenCalledWith("1", "owner-1", expect.not.objectContaining({ notes: expect.anything() }));
   });
 
+  it("rejects non-string summaries instead of coercing them", async () => {
+    const response = await PATCH(request({ notes: { text: "not a summary" } }), context);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "notes_invalid" });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("reports malformed lifecycle dates as invalid input", async () => {
+    const response = await PATCH(request({ appliedAt: "not-a-date" }), context);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "invalid_lifecycle_date",
+      fields: ["appliedAt"],
+    });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("rejects impossible civil lifecycle dates instead of normalizing them", async () => {
+    const response = await PATCH(request({ appliedAt: "2026-02-30" }), context);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "invalid_lifecycle_date",
+      fields: ["appliedAt"],
+    });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("accepts an unchanged date-only lifecycle value for a stored timestamp", async () => {
+    mocks.getApplication.mockResolvedValueOnce({
+      ...current,
+      appliedAt: new Date("2026-07-01T12:30:00.000Z"),
+    });
+    const response = await PATCH(request({ company: "Acme 2", appliedAt: "2026-07-01" }), context);
+    expect(response.status).toBe(200);
+    expect(mocks.updateApplication).toHaveBeenCalledWith(
+      "1",
+      "owner-1",
+      expect.not.objectContaining({ appliedAt: expect.anything() }),
+    );
+  });
+
   it("rejects direct lifecycle changes that would bypass immutable history", async () => {
     const response = await PATCH(request({ status: "offer" }), context);
     expect(response.status).toBe(409);

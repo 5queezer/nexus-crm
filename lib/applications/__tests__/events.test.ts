@@ -43,6 +43,22 @@ describe("application event taxonomy", () => {
 });
 
 describe("parseApplicationEventCommand", () => {
+  it("rejects workflow-reserved submission events semantically", () => {
+    expect(() => parseApplicationEventCommand({
+      type: "application_submitted",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: {},
+    })).toThrow("submission_event_requires_submission_workflow");
+  });
+
+  it("does not accept client-supplied previous status metadata", () => {
+    expect(() => parseApplicationEventCommand({
+      type: "stage_changed",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: { toStage: "technical", fromStatus: "offer" },
+    })).toThrow("event_metadata_invalid");
+  });
+
   it("normalizes an interview schedule and its indexed dimensions", () => {
     const command = parseApplicationEventCommand({
       type: "interview_scheduled",
@@ -140,6 +156,19 @@ describe("deriveEventProjection", () => {
     });
   });
 
+  it("derives the previous status for stage-only changes", () => {
+    const command = parseApplicationEventCommand({
+      type: "stage_changed",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: { toStage: "technical" },
+    });
+    expect(deriveEventProjection(command, application).metadata).toMatchObject({
+      fromStage: "recruiter_screen",
+      fromStatus: "applied",
+      toStage: "technical",
+    });
+  });
+
   it("rejects an application atomically and clears stale follow-up", () => {
     const command = parseApplicationEventCommand({
       type: "application_rejected",
@@ -178,6 +207,7 @@ describe("event query cursors", () => {
     });
     expect(() => parseEventQuery({ types: ["unknown"] })).toThrow("event_query_invalid");
     expect(() => parseEventQuery({ cursor: "not-a-cursor" })).toThrow("event_query_invalid");
+    expect(() => parseEventQuery({ limit: 0.5 })).toThrow("event_query_invalid");
   });
 });
 

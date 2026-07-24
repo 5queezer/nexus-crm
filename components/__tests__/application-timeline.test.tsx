@@ -8,20 +8,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import messages from "../../messages/en.json";
 import { ApplicationTimeline } from "../application-timeline";
 
-function renderTimeline(onProjectionUpdated = vi.fn()) {
+function renderTimeline(onProjectionUpdated = vi.fn(), disabled = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  render(
+  const view = (isDisabled: boolean) => (
     <NextIntlClientProvider locale="en" messages={messages}>
       <QueryClientProvider client={queryClient}>
         <ApplicationTimeline
           applicationId="42"
           expectedUpdatedAt="2026-07-24T08:00:00.000Z"
+          disabled={isDisabled}
           onProjectionUpdated={onProjectionUpdated}
         />
       </QueryClientProvider>
-    </NextIntlClientProvider>,
+    </NextIntlClientProvider>
   );
-  return onProjectionUpdated;
+  const result = render(view(disabled));
+  return {
+    onProjectionUpdated,
+    rerenderWithDisabled: (isDisabled: boolean) => result.rerender(view(isDisabled)),
+  };
 }
 
 describe("ApplicationTimeline", () => {
@@ -108,7 +113,7 @@ describe("ApplicationTimeline", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ application: { updatedAt: "2026-07-24T09:01:00.000Z" } }), { status: 201 }))
       .mockResolvedValue(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }));
-    const onProjectionUpdated = renderTimeline();
+    const { onProjectionUpdated } = renderTimeline();
     const user = userEvent.setup();
 
     await screen.findByText(/No timeline events yet/);
@@ -126,5 +131,22 @@ describe("ApplicationTimeline", () => {
     });
     expect(body.idempotencyKey).toMatch(/^ui-/);
     expect(onProjectionUpdated).toHaveBeenCalledWith("2026-07-24T09:01:00.000Z");
+  });
+
+  it("does not submit an open event editor after parent edits become dirty", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }),
+    );
+    const user = userEvent.setup();
+    const { rerenderWithDisabled } = renderTimeline();
+    await screen.findByText(/No timeline events yet/);
+    await user.click(screen.getByRole("button", { name: "Record activity" }));
+    await user.type(screen.getByLabelText("New stage"), "technical_interview");
+
+    rerenderWithDisabled(true);
+    fireEvent.submit(screen.getByRole("button", { name: "Record event" }).closest("form")!);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
   });
 });

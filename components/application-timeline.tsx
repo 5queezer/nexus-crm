@@ -2,12 +2,13 @@
 
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 import {
   APPLICATION_EVENT_TYPES,
   type ApplicationEventType,
 } from "@/lib/applications/events";
+import { formatEventDateTime } from "@/lib/applications/event-format";
 
 interface TimelineEvent {
   id: string;
@@ -46,6 +47,9 @@ function localDateTimeValue(date = new Date()): string {
 const VISIBLE_METADATA_KEYS = [
   "fromStage",
   "toStage",
+  "fromStatus",
+  "toStatus",
+  "channel",
   "interviewType",
   "scheduledAt",
   "followUpAt",
@@ -54,19 +58,14 @@ const VISIBLE_METADATA_KEYS = [
   "reason",
   "note",
   "durationMinutes",
-  "location",
-  "meetingUrl",
-  "offerType",
-  "compensationSummary",
-  "atsName",
-  "requisitionId",
-  "filename",
-  "documentCount",
+  "answerCount",
+  "documentType",
 ] as const;
 
 function metadataSummary(
   metadata: Record<string, unknown> | null,
   labelFor: (key: string) => string,
+  locale: string,
 ): string[] {
   if (!metadata) return [];
   return VISIBLE_METADATA_KEYS.flatMap((key) => {
@@ -74,7 +73,7 @@ function metadataSummary(
     if (value === undefined || value === null || value === "" || typeof value === "object") return [];
     const label = labelFor(key);
     if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-      return [`${label}: ${new Date(value).toLocaleString()}`];
+      return [`${label}: ${formatEventDateTime(value, locale)}`];
     }
     return [`${label}: ${String(value)}`];
   });
@@ -97,6 +96,7 @@ export function ApplicationTimeline({
   const t = useTranslations("timeline");
   const te = useTranslations("events.eventTypes");
   const tm = useTranslations("events.metadata");
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<ApplicationEventType>("stage_changed");
@@ -263,7 +263,11 @@ export function ApplicationTimeline({
       {open && (
         <form
           className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/[0.03]"
-          onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (disabled) return;
+            mutation.mutate();
+          }}
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
@@ -286,7 +290,7 @@ export function ApplicationTimeline({
           <div className="mt-4 flex justify-end">
             <button
               type="submit"
-              disabled={mutation.isPending || !occurredAt}
+              disabled={disabled || mutation.isPending || !occurredAt}
               className="nexus-button-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
               {mutation.isPending ? t("recording") : t("record_event")}
@@ -301,7 +305,7 @@ export function ApplicationTimeline({
         {!timeline.isLoading && !timeline.isError && events.length === 0 && <p className="text-sm text-slate-500">{t("empty")}</p>}
         <ol className="space-y-0">
           {events.map((event, index) => {
-            const details = metadataSummary(event.metadata, (key) => tm(key));
+            const details = metadataSummary(event.metadata, (key) => tm(key), locale);
             const title = APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType)
               ? te(event.type as ApplicationEventType)
               : t("unknown_event", { type: event.type });
@@ -314,8 +318,8 @@ export function ApplicationTimeline({
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
                   <div className="text-right text-xs text-slate-500">
-                    <time className="block" dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
-                    {event.createdAt && <time className="block text-[10px]" dateTime={event.createdAt}>{t("recorded_at", { date: new Date(event.createdAt).toLocaleString() })}</time>}
+                    <time className="block" dateTime={event.occurredAt}>{formatEventDateTime(event.occurredAt, locale)}</time>
+                    {event.createdAt && <time className="block text-[10px]" dateTime={event.createdAt}>{t("recorded_at", { date: formatEventDateTime(event.createdAt, locale) })}</time>}
                   </div>
                 </div>
                 {(event.source || event.actor) && <p className="mt-0.5 text-xs text-slate-500">{[event.source, event.actor].filter(Boolean).join(" · ")}</p>}

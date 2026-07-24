@@ -76,41 +76,72 @@ function makeDocRef(store: Map<string, Record<string, unknown>>, id: string): Mo
 function makeQuery(
   store: Map<string, Record<string, unknown>>,
   filters: Array<{ field: string; operator: string; value: unknown }> = [],
-  sort?: { field: string; direction: "asc" | "desc" },
+  sorts: Array<{ field: string; direction: "asc" | "desc" }> = [],
   max?: number,
+  after?: unknown[],
 ) {
+  const normalize = (item: unknown) => {
+    if (item && typeof item === "object" && "toDate" in item) {
+      return (item as { toDate: () => Date }).toDate().getTime();
+    }
+    if (item instanceof Date) return item.getTime();
+    return item ?? "";
+  };
+  const fieldValue = (id: string, data: Record<string, unknown>, field: string) =>
+    field === "__name__" ? id : data[field];
+  const compareValues = (left: unknown, right: unknown) => {
+    const a = normalize(left);
+    const b = normalize(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
   return {
     where(field: string, operator: string, value: unknown) {
-      if (!["==", "array-contains", "in"].includes(operator)) {
+      if (!["==", "array-contains", "in", ">=", "<="].includes(operator)) {
         throw new Error(`Unsupported mock operator: ${operator}`);
       }
-      return makeQuery(store, [...filters, { field, operator, value }], sort, max);
+      return makeQuery(store, [...filters, { field, operator, value }], sorts, max, after);
     },
     orderBy(field: string, direction: "asc" | "desc" = "asc") {
-      return makeQuery(store, filters, { field, direction }, max);
+      return makeQuery(store, filters, [...sorts, { field, direction }], max, after);
     },
     limit(value: number) {
-      return makeQuery(store, filters, sort, value);
+      return makeQuery(store, filters, sorts, value, after);
+    },
+    startAfter(...values: unknown[]) {
+      return makeQuery(store, filters, sorts, max, values);
     },
     async get() {
-      let entries = Array.from(store.entries()).filter(([, data]) =>
+      let entries = Array.from(store.entries()).filter(([id, data]) =>
         filters.every(({ field, operator, value }) => {
-          if (operator === "==") return data[field] === value;
-          if (operator === "array-contains") return Array.isArray(data[field]) && data[field].includes(value);
-          return Array.isArray(value) && value.includes(data[field]);
+          const actual = fieldValue(id, data, field);
+          if (operator === "==") return actual === value;
+          if (operator === "array-contains") return Array.isArray(actual) && actual.includes(value);
+          if (operator === "in") return Array.isArray(value) && value.includes(actual);
+          const comparison = compareValues(actual, value);
+          return operator === ">=" ? comparison >= 0 : comparison <= 0;
         }),
       );
-      if (sort) {
-        entries.sort(([, left], [, right]) => {
-          const a = left[sort.field] as { toDate?: () => Date } | Date | number | string | undefined;
-          const b = right[sort.field] as { toDate?: () => Date } | Date | number | string | undefined;
-          const normalize = (item: typeof a) => {
-            if (item && typeof item === "object" && "toDate" in item && item.toDate) return item.toDate().getTime();
-            if (item instanceof Date) return item.getTime();
-            return item ?? "";
-          };
-          const result = normalize(a) < normalize(b) ? -1 : normalize(a) > normalize(b) ? 1 : 0;
-          return sort.direction === "desc" ? -result : result;
+      if (sorts.length) {
+        entries.sort(([leftId, left], [rightId, right]) => {
+          for (const sort of sorts) {
+            const result = compareValues(
+              fieldValue(leftId, left, sort.field),
+              fieldValue(rightId, right, sort.field),
+            );
+            if (result) return sort.direction === "desc" ? -result : result;
+          }
+          return 0;
+        });
+      }
+      if (after?.length) {
+        entries = entries.filter(([id, data]) => {
+          for (let index = 0; index < sorts.length; index += 1) {
+            const sort = sorts[index];
+            const result = compareValues(fieldValue(id, data, sort.field), after[index]);
+            if (!result) continue;
+            return sort.direction === "desc" ? result < 0 : result > 0;
+          }
+          return false;
         });
       }
       if (max !== undefined) entries = entries.slice(0, max);
@@ -205,6 +236,9 @@ vi.mock("firebase-admin/firestore", () => ({
   Timestamp: {
     now: () => mockTimestamp,
     fromDate: (d: Date) => ({ toDate: () => d }),
+  },
+  FieldPath: {
+    documentId: () => "__name__",
   },
   FieldValue: {
     serverTimestamp: () => mockTimestamp,
@@ -1231,6 +1265,54 @@ describe("FirestoreAdapter — first-class application events", () => {
     })).rejects.toThrow("conflict");
     expect(stores.applicationEvents.size).toBe(0);
     expect(stores.applications.get("app-1")!.status).toBe("applied");
+  });
+
+  it("allows unrelated updates to preserve an oversized legacy summary unchanged", async () => {
+    seedEventApplication();
+    const legacyNotes = "x".repeat(10_001);
+    stores.applications.set("app-1", { ...stores.applications.get("app-1")!, notes: legacyNotes });
+    await expect(new FirestoreAdapter().updateApplication("app-1", userId, {
+      company: "Acme 2",
+      notes: legacyNotes,
+    })).resolves.toMatchObject({ company: "Acme 2", notes: legacyNotes });
+  });
+
+  it("still rejects a newly changed oversized summary", async () => {
+    seedEventApplication();
+    stores.applications.set("app-1", { ...stores.applications.get("app-1")!, notes: "legacy" });
+    await expect(new FirestoreAdapter().updateApplication("app-1", userId, {
+      notes: "x".repeat(10_001),
+    })).rejects.toThrow("notes_too_long");
+  });
+
+  it("continues sparse in-memory filters with a bounded scan cursor", async () => {
+    seedApps([
+      { id: "app-acme", userId, company: "Acme", role: "Engineer" },
+      { id: "app-beta", userId, company: "Beta", role: "Engineer" },
+    ]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    for (let id = 1; id <= 7; id += 1) {
+      stores.applicationEvents.set(String(id), {
+        userId,
+        applicationId: id === 1 ? "app-beta" : "app-acme",
+        type: "stage_changed",
+        occurredAt: timestamp,
+        createdAt: timestamp,
+      });
+    }
+    const adapter = new FirestoreAdapter();
+    const first = await adapter.listApplicationEventsFiltered(userId, {
+      company: "Beta", order: "newest", limit: 1,
+    });
+    expect(first.items).toEqual([]);
+    expect(first.nextCursor).toBeTruthy();
+    const { decodeEventCursor } = await import("../../applications/events");
+    const second = await adapter.listApplicationEventsFiltered(userId, {
+      company: "Beta", order: "newest", limit: 1,
+      cursor: decodeEventCursor(first.nextCursor!),
+    });
+    expect(second.items.map((event) => event.id)).toEqual(["1"]);
+    expect(second.nextCursor).toBeNull();
   });
 
   it("uses the same lexical ID tie-breaker for sorting and cursors", async () => {

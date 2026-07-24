@@ -155,7 +155,7 @@ async function autoImportAsApplication(
     if (isProgression && existing.status !== "rejected") {
       await prisma.application.update({
         where: { id: existing.id },
-        data: { status: appStatus },
+        data: { status: appStatus, eventVersion: { increment: 1 } },
       });
     }
 

@@ -117,6 +117,26 @@ describe("MCP application event contracts", () => {
     expect(mocks.updateApplication).not.toHaveBeenCalled();
   });
 
+  it("does not let duplicate-safe upserts bypass stage events", async () => {
+    mocks.findApplicationByCanonicalJobUrl.mockResolvedValue({
+      id: "app-1",
+      status: "inbound",
+      currentStage: "sourced",
+    });
+    const result = await client.callTool({
+      name: "upsert_application_by_job_url",
+      arguments: {
+        company: "Acme",
+        role: "Engineer",
+        jobUrl: "https://example.com/jobs/1",
+        currentStage: "screening",
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatchObject({ error: { code: "lifecycle_event_required" } });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
   it("rejects lifecycle changes through update_application", async () => {
     const result = await client.callTool({
       name: "update_application",
@@ -132,7 +152,9 @@ describe("MCP application event contracts", () => {
       arguments: { applicationId: "app-1", type: "application_submitted" },
     });
     expect(result.isError).toBe(true);
-    expect(textValue(result)).toContain("Input validation error");
+    expect(text(result)).toMatchObject({
+      error: { code: "submission_event_requires_submission_workflow" },
+    });
     expect(mocks.recordApplicationEvent).not.toHaveBeenCalled();
   });
 });

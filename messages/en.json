@@ -774,11 +774,10 @@
     },
     "metadata": {
       "fromStage": "Previous stage", "toStage": "New stage", "fromStatus": "Previous status", "toStatus": "New status",
-      "interviewType": "Interview type", "scheduledAt": "Scheduled for", "durationMinutes": "Duration (minutes)", "location": "Location", "meetingUrl": "Meeting link",
+      "channel": "Channel", "interviewType": "Interview type", "scheduledAt": "Scheduled for", "durationMinutes": "Duration (minutes)",
       "contactId": "Contact", "outcome": "Outcome", "nextAction": "Next action", "followUpAt": "Follow up", "reason": "Reason",
-      "offerType": "Offer type", "compensationSummary": "Compensation", "documentId": "Document", "filename": "Filename", "note": "Timeline note",
-      "policyVersion": "Policy version", "submittedDocumentIds": "Submitted documents", "submissionId": "Submission", "atsName": "ATS", "requisitionId": "Requisition",
-      "answersCount": "Answers", "documentCount": "Documents", "dryRun": "Dry run"
+      "documentId": "Document", "documentIds": "Submitted documents", "documentType": "Document type", "submissionId": "Submission",
+      "answerCount": "Answers", "policy": "Submission policy", "note": "Timeline note"
     }
   },
   "timeline": {

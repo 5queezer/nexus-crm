@@ -59,7 +59,7 @@ const EVENT_KEYS: Record<ApplicationEventType, readonly string[]> = {
     "followUpAt",
     "toStage",
   ],
-  stage_changed: ["fromStage", "toStage", "fromStatus", "toStatus"],
+  stage_changed: ["fromStage", "toStage", "toStatus"],
   interview_invited: [
     ...COMMON_KEYS,
     "interviewType",
@@ -250,6 +250,9 @@ export function parseApplicationEventCommand(
   const rawType = typeof input.type === "string" ? input.type.trim() : "";
   if (!EVENT_TYPE_SET.has(rawType)) throw new Error("event_type_invalid");
   const type = rawType as ApplicationEventType;
+  if (type === "application_submitted") {
+    throw new Error("submission_event_requires_submission_workflow");
+  }
 
   const idempotencyKey = input.idempotencyKey == null
     ? undefined
@@ -317,10 +320,10 @@ export function deriveEventProjection(
       const toStage = metadataString(metadata, "toStage")!;
       patch.currentStage = toStage;
       metadata.fromStage = application.currentStage;
+      if (currentStatus) metadata.fromStatus = currentStatus;
       const toStatus = metadataString(metadata, "toStatus") as ApplicationStatus | undefined;
       if (toStatus) {
         patch.status = toStatus;
-        if (currentStatus) metadata.fromStatus = currentStatus;
       }
       break;
     }
@@ -427,7 +430,7 @@ export function parseEventQuery(input: Record<string, unknown>): ParsedEventQuer
     types = [...new Set(normalized)] as ApplicationEventType[];
   }
   const rawLimit = input.limit == null ? 50 : Number(input.limit);
-  if (!Number.isFinite(rawLimit) || rawLimit <= 0) throw new Error("event_query_invalid");
+  if (!Number.isInteger(rawLimit) || rawLimit <= 0) throw new Error("event_query_invalid");
   const order = input.order == null ? "newest" : input.order;
   if (order !== "newest" && order !== "oldest") throw new Error("event_query_invalid");
   const occurredAfter = input.occurredAfter == null

@@ -2,10 +2,11 @@
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { AppHeader } from "./app-header";
 import { APPLICATION_EVENT_TYPES, type ApplicationEventType } from "@/lib/applications/events";
+import { formatEventDateTime } from "@/lib/applications/event-format";
 
 interface ActivityEvent {
   id: string;
@@ -63,13 +64,14 @@ async function fetchActivity(filters: Filters, cursor: string): Promise<Activity
 
 function EventDetails({ event }: { event: ActivityEvent }) {
   const tm = useTranslations("events.metadata");
+  const locale = useLocale();
   const metadata = event.metadata ?? {};
   const details = [
     typeof metadata.fromStage === "string" && typeof metadata.toStage === "string"
       ? `${tm("fromStage")}: ${metadata.fromStage || "—"} → ${tm("toStage")}: ${metadata.toStage}`
       : null,
     typeof metadata.scheduledAt === "string"
-      ? `${tm("scheduledAt")}: ${new Date(metadata.scheduledAt).toLocaleString()}`
+      ? `${tm("scheduledAt")}: ${formatEventDateTime(metadata.scheduledAt, locale)}`
       : null,
     typeof metadata.nextAction === "string" ? `${tm("nextAction")}: ${metadata.nextAction}` : null,
     typeof metadata.reason === "string" ? `${tm("reason")}: ${metadata.reason}` : null,
@@ -82,6 +84,7 @@ function EventDetails({ event }: { event: ActivityEvent }) {
 export function ActivityFeed({ user }: ActivityFeedProps) {
   const t = useTranslations("activityFeed");
   const te = useTranslations("events.eventTypes");
+  const locale = useLocale();
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const activity = useInfiniteQuery({
@@ -145,7 +148,7 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
                       {(event.source || event.actor) && <> · {[event.source, event.actor].filter(Boolean).join(" · ")}</>}
                     </p>
                   </div>
-                  <time dateTime={event.occurredAt} className="text-xs text-slate-500">{new Date(event.occurredAt).toLocaleString()}</time>
+                  <time dateTime={event.occurredAt} className="text-xs text-slate-500">{formatEventDateTime(event.occurredAt, locale)}</time>
                 </div>
                 <EventDetails event={event} />
                 {index === events.length - 1 && activity.hasNextPage && <span className="sr-only">{t("more_available")}</span>}

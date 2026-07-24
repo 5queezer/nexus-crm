@@ -774,11 +774,10 @@
     },
     "metadata": {
       "fromStage": "Vorherige Phase", "toStage": "Neue Phase", "fromStatus": "Vorheriger Status", "toStatus": "Neuer Status",
-      "interviewType": "Interview-Typ", "scheduledAt": "Geplant für", "durationMinutes": "Dauer (Minuten)", "location": "Ort", "meetingUrl": "Meeting-Link",
+      "channel": "Kanal", "interviewType": "Interview-Typ", "scheduledAt": "Geplant für", "durationMinutes": "Dauer (Minuten)",
       "contactId": "Kontakt", "outcome": "Ergebnis", "nextAction": "Nächster Schritt", "followUpAt": "Follow-up", "reason": "Grund",
-      "offerType": "Angebotsart", "compensationSummary": "Vergütung", "documentId": "Dokument", "filename": "Dateiname", "note": "Zeitleisten-Notiz",
-      "policyVersion": "Richtlinienversion", "submittedDocumentIds": "Eingereichte Dokumente", "submissionId": "Einreichung", "atsName": "ATS", "requisitionId": "Ausschreibung",
-      "answersCount": "Antworten", "documentCount": "Dokumente", "dryRun": "Testlauf"
+      "documentId": "Dokument", "documentIds": "Eingereichte Dokumente", "documentType": "Dokumenttyp", "submissionId": "Einreichung",
+      "answerCount": "Antworten", "policy": "Einreichungsrichtlinie", "note": "Zeitleisten-Notiz"
     }
   },
   "timeline": {

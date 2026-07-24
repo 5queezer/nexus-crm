@@ -1,4 +1,4 @@
-import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, Timestamp, FieldValue, FieldPath } from "firebase-admin/firestore";
 import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { prisma } from "@/lib/prisma";
 import { normalizeStatus } from "@/types";
@@ -372,7 +372,6 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
-    if (data.notes !== undefined) validateApplicationSummary(data.notes);
     const ref = this.apps.doc(id);
     const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
     if (data.company !== undefined) update.company = data.company;
@@ -404,6 +403,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const existing = await transaction.get(ref);
       if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
       if (existing.data()!.deletionState === "in_progress") throw new Error("application_deleting");
+      if (data.notes !== undefined) {
+        if (existing.data()!.notes === data.notes) delete update.notes;
+        else {
+          validateApplicationSummary(data.notes);
+          update.notes = data.notes;
+        }
+      }
       const currentCanonicalJobUrl = existing.data()!.canonicalJobUrl as string | null | undefined;
       let nextCanonicalIndex: FirebaseFirestore.DocumentReference | null = null;
       let nextCanonicalIndexExists = false;
@@ -1049,22 +1055,48 @@ export class FirestoreAdapter implements DatabaseAdapter {
     userId: string,
     filter: ListApplicationEventsFilter,
   ): Promise<ApplicationEventPage> {
-    const snapshot = await this.events
-      .where("userId", "==", userId)
-      .orderBy("occurredAt", filter.order === "oldest" ? "asc" : "desc")
-      .get();
-    let events = snapshot.docs.map((document) => mapEvent(document.id, document.data()));
-    events.sort((left, right) => {
-      const time = left.occurredAt.getTime() - right.occurredAt.getTime();
-      const id = left.id === right.id ? 0 : left.id < right.id ? -1 : 1;
-      const comparison = time || id;
-      return filter.order === "oldest" ? comparison : -comparison;
-    });
-    if (filter.company) {
-      const companyApps = await this.loadAppRefs([...new Set(events.map((event) => event.applicationId))]);
-      for (const event of events) event.application = companyApps.get(event.applicationId);
+    const direction = filter.order === "oldest" ? "asc" : "desc";
+    let query: FirebaseFirestore.Query = this.events.where("userId", "==", userId);
+
+    // Use one indexed equality dimension as the native narrowing predicate.
+    // Remaining filters are applied to the bounded page below so arbitrary
+    // combinations do not require a combinatorial set of Firestore indexes.
+    if (filter.applicationId) query = query.where("applicationId", "==", filter.applicationId);
+    else if (filter.types?.length) query = query.where("type", "in", filter.types);
+    else if (filter.source) query = query.where("source", "==", filter.source);
+    else if (filter.actor) query = query.where("actor", "==", filter.actor);
+    else if (filter.contactId) query = query.where("contactId", "==", filter.contactId);
+    else if (filter.outcome) query = query.where("outcome", "==", filter.outcome);
+
+    if (filter.occurredAfter) {
+      query = query.where("occurredAt", ">=", Timestamp.fromDate(filter.occurredAfter));
     }
-    events = events.filter((event) =>
+    if (filter.occurredBefore) {
+      query = query.where("occurredAt", "<=", Timestamp.fromDate(filter.occurredBefore));
+    }
+    query = query
+      .orderBy("occurredAt", direction)
+      .orderBy(FieldPath.documentId(), direction);
+    if (filter.cursor) {
+      query = query.startAfter(
+        Timestamp.fromDate(new Date(filter.cursor.occurredAt)),
+        filter.cursor.id,
+      );
+    }
+
+    const scanLimit = Math.min(1_000, Math.max(filter.limit * 5, filter.limit + 1));
+    const snapshot = await query.limit(scanLimit + 1).get();
+    const hasUnscannedRows = snapshot.docs.length > scanLimit;
+    const scannedDocuments = hasUnscannedRows ? snapshot.docs.slice(0, scanLimit) : snapshot.docs;
+    const scannedEvents = scannedDocuments.map((document) => ({
+      document,
+      event: mapEvent(document.id, document.data()),
+    }));
+    const appMap = await this.loadVerifiedAppRefs([
+      ...new Set(scannedEvents.map(({ event }) => event.applicationId)),
+    ], userId);
+    for (const { event } of scannedEvents) event.application = appMap.get(event.applicationId);
+    const matchingEvents = scannedEvents.filter(({ event }) =>
       (!filter.applicationId || event.applicationId === filter.applicationId)
       && (!filter.company || event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
       && (!filter.types?.length || filter.types.includes(event.type))
@@ -1075,27 +1107,26 @@ export class FirestoreAdapter implements DatabaseAdapter {
       && (!filter.contactId || event.contactId === filter.contactId)
       && (!filter.outcome || event.outcome === filter.outcome)
     );
-    if (filter.cursor) {
-      const cursorTime = new Date(filter.cursor.occurredAt).getTime();
-      events = events.filter((event) => {
-        const time = event.occurredAt.getTime();
-        const idComparison = event.id === filter.cursor!.id
-          ? 0
-          : event.id < filter.cursor!.id ? -1 : 1;
-        return filter.order === "oldest"
-          ? time > cursorTime || (time === cursorTime && idComparison > 0)
-          : time < cursorTime || (time === cursorTime && idComparison < 0);
-      });
-    }
-    const hasMore = events.length > filter.limit;
-    const items = events.slice(0, filter.limit);
-    const appMap = await this.loadAppRefs([...new Set(items.map((event) => event.applicationId))]);
-    for (const event of items) event.application = appMap.get(event.applicationId);
-    const last = items.at(-1);
+    const items = matchingEvents.slice(0, filter.limit).map(({ event }) => event);
+    // When another matching row was already scanned, resume after the last
+    // returned match. Otherwise resume after the bounded scan window so sparse
+    // in-memory filters can continue without re-reading examined rows.
+    const cursorDocument = matchingEvents.length > filter.limit
+      ? matchingEvents[filter.limit - 1]?.document
+      : hasUnscannedRows
+        ? scannedDocuments.at(-1)
+        : null;
+    const cursorEvent = cursorDocument
+      ? mapEvent(cursorDocument.id, cursorDocument.data())
+      : null;
     return {
       items,
-      nextCursor: hasMore && last
-        ? encodeEventCursor({ version: 1, occurredAt: last.occurredAt.toISOString(), id: last.id })
+      nextCursor: cursorEvent
+        ? encodeEventCursor({
+          version: 1,
+          occurredAt: cursorEvent.occurredAt.toISOString(),
+          id: cursorEvent.id,
+        })
         : null,
     };
   }

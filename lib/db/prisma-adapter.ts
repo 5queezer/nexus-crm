@@ -342,9 +342,18 @@ export class PrismaAdapter implements DatabaseAdapter {
   }
 
   async updateApplication(id: string, userId: string, data: UpdateApplicationInput): Promise<ApplicationRecord> {
-    if (data.notes !== undefined) validateApplicationSummary(data.notes);
-    const { expectedUpdatedAt, ...update } = data;
     const applicationId = nid(id);
+    const mutableData = { ...data };
+    if (data.notes !== undefined) {
+      const current = await prisma.application.findFirst({
+        where: { id: applicationId, userId },
+        select: { notes: true },
+      });
+      if (!current) throw new Error("not_found");
+      if (current.notes === data.notes) delete mutableData.notes;
+      else validateApplicationSummary(data.notes);
+    }
+    const { expectedUpdatedAt, ...update } = mutableData;
     try {
       if (expectedUpdatedAt) {
         const result = await prisma.application.updateMany({
@@ -352,6 +361,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           data: {
             ...update,
             ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
+            eventVersion: { increment: 1 },
           },
         });
         if (result.count !== 1) {
@@ -373,6 +383,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         data: {
           ...update,
           ...(update.status !== undefined ? { status: normalizeStatus(update.status) } : {}),
+          eventVersion: { increment: 1 },
         },
         include: { contacts: true },
       });
@@ -484,7 +495,8 @@ export class PrismaAdapter implements DatabaseAdapter {
                     WHEN "notes" IS NULL OR "notes" = '' THEN ${note}
                     ELSE "notes" || E'\n\n' || ${note}
                   END,
-                  "updatedAt" = NOW()
+                  "updatedAt" = NOW(),
+                  "eventVersion" = "eventVersion" + 1
               WHERE "id" = ${nid(id)}
                 AND "userId" = ${userId}
                 AND "updatedAt" = ${expectedUpdatedAt}
@@ -501,7 +513,8 @@ export class PrismaAdapter implements DatabaseAdapter {
                     WHEN "notes" IS NULL OR "notes" = '' THEN ${note}
                     ELSE "notes" || E'\n\n' || ${note}
                   END,
-                  "updatedAt" = NOW()
+                  "updatedAt" = NOW(),
+                  "eventVersion" = "eventVersion" + 1
               WHERE "id" = ${nid(id)}
                 AND "userId" = ${userId}
                 AND char_length(
@@ -772,6 +785,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       const applicationUpdate = {
         status: "applied",
         appliedAt: input.submittedAt,
+        eventVersion: { increment: 1 },
         ...(input.followUpAt !== undefined ? { followUpAt: input.followUpAt } : {}),
         ...(input.atsName !== undefined ? { atsName: input.atsName } : {}),
         ...(input.requisitionId !== undefined ? { requisitionId: input.requisitionId } : {}),
@@ -913,18 +927,25 @@ export class PrismaAdapter implements DatabaseAdapter {
     const replay = await loadReplay();
     if (replay) return replay;
     try {
-      const row = await prisma.applicationEvent.create({
-        data: {
-          userId,
-          applicationId: nid(applicationId),
-          type: input.type,
-          idempotencyKey: input.idempotencyKey ?? null,
-          requestHash,
-          occurredAt: input.occurredAt,
-          source: input.source ?? null,
-          actor: input.actor ?? null,
-          metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
-        },
+      const row = await prisma.$transaction(async (tx) => {
+        const bumped = await tx.application.updateMany({
+          where: { id: nid(applicationId), userId },
+          data: { eventVersion: { increment: 1 } },
+        });
+        if (bumped.count !== 1) throw new Error("not_found");
+        return tx.applicationEvent.create({
+          data: {
+            userId,
+            applicationId: nid(applicationId),
+            type: input.type,
+            idempotencyKey: input.idempotencyKey ?? null,
+            requestHash,
+            occurredAt: input.occurredAt,
+            source: input.source ?? null,
+            actor: input.actor ?? null,
+            metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+          },
+        });
       });
       return mapEvent(row);
     } catch (error) {
@@ -1057,21 +1078,17 @@ export class PrismaAdapter implements DatabaseAdapter {
           currentStage: application.currentStage,
           followUpAt: application.followUpAt,
         });
-        let updatedApplication = application;
-        const hasProjectionPatch = Object.keys(patch).length > 0;
+        const eventVersion = application.eventVersion;
         const updated = await tx.application.updateMany({
-          where: { id: applicationNumericId, userId, updatedAt: application.updatedAt },
-          data: hasProjectionPatch ? patch : { updatedAt: application.updatedAt },
+          where: { id: applicationNumericId, userId, eventVersion },
+          data: { ...patch, eventVersion: { increment: 1 } },
         });
         if (updated.count !== 1) throw new Error("conflict");
-        if (hasProjectionPatch) {
-          const refreshed = await tx.application.findFirst({
-            where: { id: applicationNumericId, userId },
-            include: { contacts: true },
-          });
-          if (!refreshed) throw new Error("not_found");
-          updatedApplication = refreshed;
-        }
+        const updatedApplication = await tx.application.findFirst({
+          where: { id: applicationNumericId, userId },
+          include: { contacts: true },
+        });
+        if (!updatedApplication) throw new Error("not_found");
         const event = await tx.applicationEvent.create({
           data: {
             userId,
@@ -1275,6 +1292,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (item.resumeId !== undefined) data.resumeId = item.resumeId;
           Object.assign(data, structuredApplicationData(item as unknown as Record<string, unknown>));
           Object.assign(data, sanitizeTriageFields(item as Record<string, unknown>));
+          data.eventVersion = { increment: 1 };
 
           const row = await prisma.application.update({
             where: { id: nid(item.id), userId },
