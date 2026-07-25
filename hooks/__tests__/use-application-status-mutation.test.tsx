@@ -204,6 +204,40 @@ describe("useApplicationStatusMutation concurrency", () => {
     ).toBe("interview");
   });
 
+  it("uses the server-updated timestamp for the next settled status write", async () => {
+    const firstUpdated = {
+      ...application("a", "applied"),
+      updatedAt: "2026-07-02T00:00:00.000Z",
+    };
+    const secondUpdated = {
+      ...application("a", "interview"),
+      updatedAt: "2026-07-03T00:00:00.000Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ application: firstUpdated }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ application: secondUpdated }),
+      } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      await mutationHandleRef.current!({ id: "a", status: "applied" });
+    });
+    await act(async () => {
+      await mutationHandleRef.current!({ id: "a", status: "interview" });
+    });
+
+    const secondEvent = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    );
+    expect(secondEvent.expectedUpdatedAt).toBe(firstUpdated.updatedAt);
+  });
+
   it("does not let an older failed write roll back a newer pending intent", async () => {
     const firstRequest = deferred<Response>();
     const secondRequest = deferred<Response>();

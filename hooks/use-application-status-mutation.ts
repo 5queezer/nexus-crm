@@ -127,7 +127,11 @@ export function useApplicationStatusMutation(options?: {
         (current: Application[] | undefined) =>
           (current ?? []).map((application: Application) =>
             application.id === updated.id
-              ? { ...application, status: updated.status }
+              ? {
+                ...application,
+                status: updated.status,
+                updatedAt: updated.updatedAt,
+              }
               : application,
           ),
       );
