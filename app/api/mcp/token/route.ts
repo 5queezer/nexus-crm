@@ -71,10 +71,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const requestIp = forwardedFor || req.headers.get("x-real-ip") || "unknown";
-  // Limit the endpoint across all client IDs for a source IP. Including client_id
-  // in the key would let an attacker rotate fake IDs to bypass the limit.
+  // Only trust an address header that the deployment explicitly configures its
+  // ingress to strip and set. Generic forwarding headers are client-spoofable.
+  const trustedIpHeader = process.env.OAUTH_TRUSTED_IP_HEADER?.trim().toLowerCase();
+  const requestIp = trustedIpHeader ? req.headers.get(trustedIpHeader)?.trim() || "unknown" : "unknown";
+  // Limit the endpoint across all client IDs for the trusted source address.
   const limit = checkRateLimit(requestIp, "oauth");
   if (!limit.allowed) {
     const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));

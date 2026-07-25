@@ -1408,10 +1408,24 @@ describe("FirestoreAdapter — CV patch isolation", () => {
     await expect(adapter.getCvPatch("opaque-app-id", "other-user")).resolves.toBeNull();
     await expect(adapter.getCvPatch("opaque-app-id", "owner")).resolves.toMatchObject({ applicationId: "opaque-app-id" });
   });
+
+  it("deletes the owner-scoped CV patch with its application", async () => {
+    stores.applications.set("opaque-app-id", { userId: "owner" });
+    stores.cvPatches.set("opaque-app-id", { applicationId: "opaque-app-id", userId: "owner" });
+    const adapter = new FirestoreAdapter();
+
+    await adapter.deleteApplication("opaque-app-id", "owner");
+
+    expect(stores.applications.has("opaque-app-id")).toBe(false);
+    expect(stores.cvPatches.has("opaque-app-id")).toBe(false);
+  });
 });
 
 describe("FirestoreAdapter — explicit owner scopes", () => {
-  beforeEach(() => stores.applications.clear());
+  beforeEach(() => {
+    stores.applications.clear();
+    stores.documents.clear();
+  });
 
   it("does not treat an empty owner id as a global-read sentinel", async () => {
     stores.applications.set("other-app", {
@@ -1423,6 +1437,22 @@ describe("FirestoreAdapter — explicit owner scopes", () => {
       updatedAt: mockTimestamp,
     });
 
-    await expect(new FirestoreAdapter().listApplications("")).resolves.toEqual([]);
+    seedDocs([{
+      id: "other-doc",
+      userId: "other-user",
+      filename: "other.pdf",
+      originalName: "other.pdf",
+      size: 1,
+      mimeType: "application/pdf",
+      applicationIds: ["other-app"],
+    }]);
+    const adapter = new FirestoreAdapter();
+
+    await expect(adapter.listApplications("")).resolves.toEqual([]);
+    await expect(adapter.listApplicationsPaginated("", {})).resolves.toMatchObject({ data: [], total: 0 });
+    await expect(adapter.getApplication("other-app", "")).resolves.toBeNull();
+    await expect(adapter.listApplicationsFiltered("", {})).resolves.toEqual([]);
+    await expect(adapter.listDocuments("")).resolves.toEqual([]);
+    await expect(adapter.getDocument("other-doc", "")).resolves.toBeNull();
   });
 });

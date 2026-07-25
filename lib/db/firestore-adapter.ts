@@ -512,13 +512,21 @@ export class FirestoreAdapter implements DatabaseAdapter {
       await batch.commit();
     }
     await this.db.runTransaction(async (transaction) => {
-      const current = await transaction.get(ref);
+      const patchRef = this.db.collection("cvPatches").doc(id);
+      const [current, patch] = await Promise.all([
+        transaction.get(ref),
+        transaction.get(patchRef),
+      ]);
       if (!current.exists) return;
       if (current.data()!.userId !== userId || current.data()!.deletionState !== "in_progress") {
         throw new Error("application_delete_conflict");
       }
+      if (patch.exists && (patch.data()!.userId !== userId || patch.data()!.applicationId !== id)) {
+        throw new Error("application_delete_conflict");
+      }
       const canonicalJobUrl = current.data()!.canonicalJobUrl as string | null | undefined;
       if (canonicalJobUrl) transaction.delete(this.canonicalUrlRef(userId, canonicalJobUrl));
+      if (patch.exists) transaction.delete(patchRef);
       transaction.delete(ref);
     });
   }
