@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireSessionAuth } from "@/lib/session";
 import {
   createAuthCode,
   getPublicBaseUrl,
@@ -156,10 +155,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Check if user has a valid session
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  // Use the application's complete session policy (including account eligibility).
+  const session = await requireSessionAuth({ allowDevBypass: false });
 
   if (!session) {
     // Store OAuth params in a signed cookie so they survive the Google OAuth redirect
@@ -190,15 +187,14 @@ export async function GET(req: NextRequest) {
     return response;
   }
 
-  if (scopes.includes("mcp:submissions")) {
-    const expectedConsent = {
-      clientId,
-      userId: session.user.id,
-      redirectUri,
-      codeChallenge,
-      scope: scopes.join(" "),
-    };
-    if (!hasValidSubmissionConsent(url.searchParams.get("consent"), expectedConsent)) {
+  const expectedConsent = {
+    clientId,
+    userId: session.userId,
+    redirectUri,
+    codeChallenge,
+    scope: scopes.join(" "),
+  };
+  if (!hasValidSubmissionConsent(url.searchParams.get("consent"), expectedConsent)) {
       const approvalUrl = new URL("/api/mcp/authorize", getPublicBaseUrl(req));
       approvalUrl.searchParams.set("client_id", clientId);
       approvalUrl.searchParams.set("redirect_uri", redirectUri);
@@ -212,13 +208,17 @@ export async function GET(req: NextRequest) {
         expiresAt: Date.now() + COOKIE_MAX_AGE * 1000,
       }));
       const clientLabel = escapeHtml(client.clientName ?? clientId);
+      const redirectOrigin = escapeHtml(new URL(redirectUri).origin);
+      const requestedAccess = scopes.includes("mcp:submissions")
+        ? "read and change CRM data, download documents, and access exact application submissions"
+        : "read and change CRM applications and download ordinary documents";
       const approvalHref = escapeHtml(approvalUrl.toString());
       return new NextResponse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize submission access</title></head>
-<body><main><h1>Authorize sensitive submission access?</h1>
-<p><strong>${clientLabel}</strong> is requesting access to exact application answers, compensation expectations, submitted documents, and interview recall packages.</p>
-<p>This data may contain sensitive personal information. Only continue if you trust this client.</p>
-<p><a href="${approvalHref}">Allow submission access</a></p>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Authorize MCP access</title></head>
+<body><main><h1>Authorize MCP access?</h1>
+<p><strong>${clientLabel}</strong> (${redirectOrigin}) is requesting permission to ${requestedAccess}.</p>
+<p>Scopes: <code>${escapeHtml(expectedConsent.scope)}</code>. Only continue if you trust this client.</p>
+<p><a href="${approvalHref}">Allow access</a></p>
 <p>You can close this page to deny access.</p></main></body></html>`, {
         status: 200,
         headers: {
@@ -229,13 +229,12 @@ export async function GET(req: NextRequest) {
           "Referrer-Policy": "no-referrer",
         },
       });
-    }
   }
 
   // User is authenticated and any sensitive scope was explicitly approved.
   const code = await createAuthCode({
     clientId,
-    userId: session.user.id,
+    userId: session.userId,
     redirectUri,
     codeChallenge,
     scopes,

@@ -8,6 +8,7 @@ interface RateLimitEntry {
 // One cache per route group, keyed by IP
 const caches = {
   auth: new LRUCache<string, RateLimitEntry>({ max: 500 }),
+  oauth: new LRUCache<string, RateLimitEntry>({ max: 1000 }),
   admin: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   applications: new LRUCache<string, RateLimitEntry>({ max: 500 }),
   documents: new LRUCache<string, RateLimitEntry>({ max: 500 }),
@@ -19,6 +20,7 @@ type RouteGroup = keyof typeof caches;
 
 const LIMITS: Record<RouteGroup, { max: number; windowMs: number }> = {
   auth: { max: 10, windowMs: 60_000 },
+  oauth: { max: 20, windowMs: 60_000 },
   admin: { max: 20, windowMs: 60_000 },
   applications: { max: 60, windowMs: 60_000 },
   documents: { max: 30, windowMs: 60_000 },
@@ -50,4 +52,8 @@ export function checkRateLimit(ip: string, group: RouteGroup): RateLimitResult {
 
   entry.count += 1;
   return { allowed: true, remaining: max - entry.count, resetAt: entry.resetAt };
+}
+
+export function resetRateLimitsForTests(): void {
+  for (const cache of Object.values(caches)) cache.clear();
 }

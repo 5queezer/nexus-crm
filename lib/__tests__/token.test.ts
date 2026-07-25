@@ -42,9 +42,9 @@ describe("hashApiToken", () => {
 });
 
 describe("generateShortCode", () => {
-  it("returns a base64url string of 8 characters", () => {
+  it("returns a base64url string with at least 128 bits of entropy", () => {
     const code = generateShortCode();
-    expect(code).toMatch(/^[A-Za-z0-9_-]{8}$/);
+    expect(code).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 
   it("generates unique codes", () => {

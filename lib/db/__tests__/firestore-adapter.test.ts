@@ -10,6 +10,7 @@ const { mockGetAll, stores, mockTimestamp, batchState, applyUpdate } = vi.hoiste
     applicationSubmissions: new Map<string, Record<string, unknown>>(),
     applicationEvents: new Map<string, Record<string, unknown>>(),
     applicationCanonicalUrls: new Map<string, Record<string, unknown>>(),
+    cvPatches: new Map<string, Record<string, unknown>>(),
   };
 
   const mockGetAll = vi.fn();
@@ -1380,5 +1381,48 @@ describe("FirestoreAdapter — first-class application events", () => {
     });
     expect(second.items.map((event) => event.id)).toEqual(["1"]);
     expect(second.nextCursor).toBeNull();
+  });
+});
+
+describe("FirestoreAdapter — CV patch isolation", () => {
+  beforeEach(() => {
+    stores.applications.clear();
+    stores.documents.clear();
+    stores.cvPatches.clear();
+  });
+
+  it("stores opaque Firestore IDs in Firestore and enforces application ownership", async () => {
+    stores.applications.set("opaque-app-id", { userId: "owner" });
+    const adapter = new FirestoreAdapter();
+    const data = {
+      experienceIds: ["exp-1"],
+      skillCategories: ["Engineering"],
+      includeProjects: true,
+      includeEducation: true,
+    };
+
+    await expect(adapter.upsertCvPatch("opaque-app-id", "other-user", data)).rejects.toThrow("not_found");
+    const patch = await adapter.upsertCvPatch("opaque-app-id", "owner", data);
+
+    expect(patch).toMatchObject({ id: "opaque-app-id", applicationId: "opaque-app-id" });
+    await expect(adapter.getCvPatch("opaque-app-id", "other-user")).resolves.toBeNull();
+    await expect(adapter.getCvPatch("opaque-app-id", "owner")).resolves.toMatchObject({ applicationId: "opaque-app-id" });
+  });
+});
+
+describe("FirestoreAdapter — explicit owner scopes", () => {
+  beforeEach(() => stores.applications.clear());
+
+  it("does not treat an empty owner id as a global-read sentinel", async () => {
+    stores.applications.set("other-app", {
+      userId: "other-user",
+      company: "Other",
+      role: "Engineer",
+      status: "applied",
+      createdAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+    });
+
+    await expect(new FirestoreAdapter().listApplications("")).resolves.toEqual([]);
   });
 });

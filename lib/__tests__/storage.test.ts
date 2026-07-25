@@ -42,4 +42,23 @@ describe("storage backend selection", () => {
     expect(isGcsBacked()).toBe(false);
     await expect(readFile(path.join(uploadDir, "doc.pdf"), "utf8")).resolves.toBe("pdf bytes");
   });
+
+  it.each(["../outside.pdf", "/tmp/outside.pdf", "nested/outside.pdf", "nested\\outside.pdf", "bad\0name.pdf"])(
+    "rejects unsafe storage object names before touching the filesystem: %s",
+    async (filename) => {
+      const uploadDir = await mkdtemp(path.join(tmpdir(), "nexus-storage-"));
+      tempDirs.push(uploadDir);
+      process.env.UPLOAD_DIR = uploadDir;
+      delete process.env.GCS_BUCKET;
+
+      const { uploadFile, downloadFile, deleteFile, fileExists } = await importFreshStorage();
+
+      await expect(uploadFile(filename, Buffer.from("secret"), "application/pdf")).rejects.toThrow(
+        "Invalid storage object name",
+      );
+      await expect(downloadFile(filename)).rejects.toThrow("Invalid storage object name");
+      await expect(deleteFile(filename)).rejects.toThrow("Invalid storage object name");
+      await expect(fileExists(filename)).rejects.toThrow("Invalid storage object name");
+    },
+  );
 });

@@ -108,6 +108,7 @@ export interface DatabaseAdapter {
 
   // ── Share Links ──────────────────────────────────────────────────────────
   getShareLinkByCode(code: string): Promise<ShareLinkRecord | null>;
+  listShareLinks(userId: string): Promise<ShareLinkRecord[]>;
   findShareLink(userId: string, targetType: string, targetId: string | null): Promise<ShareLinkRecord | null>;
   createShareLink(userId: string, data: CreateShareLinkInput): Promise<ShareLinkRecord>;
   deleteShareLink(id: string, userId: string): Promise<void>;
@@ -116,6 +117,6 @@ export interface DatabaseAdapter {
   getCvProfile(userId: string): Promise<CvProfileRecord | null>;
   upsertCvProfile(userId: string, data: UpsertCvProfileInput): Promise<CvProfileRecord>;
   getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null>;
-  upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord>;
-  setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void>;
+  upsertCvPatch(applicationId: string, userId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord>;
+  setCvPatchDocumentId(patchId: string, userId: string, documentId: string | null): Promise<void>;
 }

@@ -102,7 +102,7 @@ export async function generateAndStoreCv(opts: {
   });
 
   // Track document on patch
-  await db.setCvPatchDocumentId(patch.id, doc.id);
+  await db.setCvPatchDocumentId(patch.id, userId, doc.id);
 
   return { doc, warnings };
 }

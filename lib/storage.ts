@@ -32,11 +32,26 @@ function getLocalDir(): string {
   return process.env.UPLOAD_DIR ?? path.join(process.cwd(), "uploads");
 }
 
+function assertValidObjectName(filename: string): void {
+  if (
+    !filename ||
+    filename === "." ||
+    filename === ".." ||
+    filename.includes("\0") ||
+    filename.includes("/") ||
+    filename.includes("\\") ||
+    path.isAbsolute(filename)
+  ) {
+    throw new Error("Invalid storage object name");
+  }
+}
+
 export async function uploadFile(
   filename: string,
   buffer: Buffer,
   contentType: string,
 ): Promise<void> {
+  assertValidObjectName(filename);
   if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     await file.save(buffer, { contentType });
@@ -48,6 +63,7 @@ export async function uploadFile(
 }
 
 export async function downloadFile(filename: string): Promise<Buffer> {
+  assertValidObjectName(filename);
   if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     const [contents] = await file.download();
@@ -58,6 +74,7 @@ export async function downloadFile(filename: string): Promise<Buffer> {
 }
 
 export async function deleteFile(filename: string): Promise<void> {
+  assertValidObjectName(filename);
   if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     await file.delete({ ignoreNotFound: true });
@@ -70,12 +87,13 @@ export async function deleteFile(filename: string): Promise<void> {
   }
 }
 
-export function fileExists(filename: string): Promise<boolean> {
+export async function fileExists(filename: string): Promise<boolean> {
+  assertValidObjectName(filename);
   if (shouldUseGcs()) {
     const file = getStorage().bucket(process.env.GCS_BUCKET!).file(filename);
     return file.exists().then(([exists]) => exists);
   } else {
-    return Promise.resolve(existsSync(path.join(getLocalDir(), filename)));
+    return existsSync(path.join(getLocalDir(), filename));
   }
 }
 
@@ -91,6 +109,7 @@ export async function getSignedDownloadUrl(
   filename: string,
   expiresInSeconds = 300,
 ): Promise<string> {
+  assertValidObjectName(filename);
   if (!shouldUseGcs()) {
     throw new Error("Signed URLs require a GCS bucket");
   }
