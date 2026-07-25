@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { checkRateLimit } from "../rate-limit";
+import { checkRateLimit, resetRateLimitsForTests } from "../rate-limit";
 
 describe("checkRateLimit", () => {
   beforeEach(() => {
+    resetRateLimitsForTests();
     vi.useFakeTimers();
   });
 
@@ -13,7 +14,7 @@ describe("checkRateLimit", () => {
   it("allows the first request and returns correct remaining count", () => {
     const result = checkRateLimit("1.2.3.4", "general");
     expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(29); // general max is 30
+    expect(result.remaining).toBe(29);
   });
 
   it("decrements remaining on successive requests", () => {
@@ -26,7 +27,6 @@ describe("checkRateLimit", () => {
 
   it("blocks after exceeding the limit", () => {
     const ip = "10.0.0.2";
-    // auth limit is 10
     for (let i = 0; i < 10; i++) {
       expect(checkRateLimit(ip, "auth").allowed).toBe(true);
     }
@@ -37,35 +37,24 @@ describe("checkRateLimit", () => {
 
   it("resets after the window expires", () => {
     const ip = "10.0.0.3";
-    // exhaust auth limit
-    for (let i = 0; i < 10; i++) {
-      checkRateLimit(ip, "auth");
-    }
+    for (let i = 0; i < 10; i++) checkRateLimit(ip, "auth");
     expect(checkRateLimit(ip, "auth").allowed).toBe(false);
-
-    // advance past the 60s window
     vi.advanceTimersByTime(60_001);
-
     const afterReset = checkRateLimit(ip, "auth");
     expect(afterReset.allowed).toBe(true);
     expect(afterReset.remaining).toBe(9);
   });
 
   it("tracks different IPs independently", () => {
-    for (let i = 0; i < 10; i++) {
-      checkRateLimit("ip-a", "auth");
-    }
+    for (let i = 0; i < 10; i++) checkRateLimit("ip-a", "auth");
     expect(checkRateLimit("ip-a", "auth").allowed).toBe(false);
     expect(checkRateLimit("ip-b", "auth").allowed).toBe(true);
   });
 
   it("tracks different route groups independently", () => {
     const ip = "10.0.0.4";
-    for (let i = 0; i < 10; i++) {
-      checkRateLimit(ip, "auth");
-    }
+    for (let i = 0; i < 10; i++) checkRateLimit(ip, "auth");
     expect(checkRateLimit(ip, "auth").allowed).toBe(false);
-    // same IP, different group — should still be allowed
     expect(checkRateLimit(ip, "applications").allowed).toBe(true);
   });
 
@@ -73,5 +62,23 @@ describe("checkRateLimit", () => {
     vi.setSystemTime(new Date("2025-01-01T00:00:00Z"));
     const result = checkRateLimit("10.0.0.5", "general");
     expect(result.resetAt).toBe(Date.now() + 60_000);
+  });
+});
+
+describe("OAuth rate limiting", () => {
+  beforeEach(() => resetRateLimitsForTests());
+
+  it("blocks repeated token requests beyond the OAuth limit", () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect(checkRateLimit("oauth:ip", "oauth").allowed).toBe(true);
+    }
+    const blocked = checkRateLimit("oauth:ip", "oauth");
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.resetAt).toBeGreaterThan(Date.now());
+  });
+
+  it("keeps independent client/IP keys isolated", () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) checkRateLimit("oauth:one", "oauth");
+    expect(checkRateLimit("oauth:two", "oauth").allowed).toBe(true);
   });
 });

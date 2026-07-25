@@ -3,6 +3,7 @@ import { auth } from "./auth";
 import { prisma } from "./prisma";
 import { getDb } from "./db";
 import { hashApiToken } from "./token";
+import { isEmailAllowed, isExplicitlyAllowedEmail } from "./account-eligibility";
 
 export type SessionUser = {
   id: string;
@@ -21,16 +22,8 @@ export type SessionAuthResult = {
   scopes?: string[];
 };
 
-function parseAllowedEmails(): string[] {
-  return (process.env.ALLOWED_EMAIL ?? "")
-    .split(",")
-    .map((email) => email.trim())
-    .filter(Boolean);
-}
-
 async function maybeBootstrapFirstAdmin(userId: string, email: string): Promise<boolean> {
-  const allowedEmails = parseAllowedEmails();
-  if (!allowedEmails.includes(email)) {
+  if (!isExplicitlyAllowedEmail(email)) {
     return false;
   }
 
@@ -63,7 +56,7 @@ export async function getSession() {
  * The first allowed user is bootstrapped as admin if no admin exists yet.
  */
 export async function requireAuth(options: { allowDevBypass?: boolean } = {}): Promise<SessionAuthResult | null> {
-  const { allowDevBypass = true } = options;
+  const { allowDevBypass = false } = options;
 
   // 1. Check Bearer token
   const headerList = await headers();
@@ -105,13 +98,15 @@ async function authenticateBearer(raw: string): Promise<SessionAuthResult | null
     select: { id: true, name: true, email: true, image: true, isAdmin: true },
   });
   if (!user) return null;
+  if (!isEmailAllowed(user.email)) return null;
 
   // Fire-and-forget: update lastUsedAt
   getDb().touchApiTokenLastUsed(token.id).catch(() => {});
 
   return {
     userId: user.id,
-    readScopeUserId: user.isAdmin ? null : user.id,
+    // Machine credentials never inherit an administrator's cross-tenant read authority.
+    readScopeUserId: user.id,
     user: {
       id: user.id,
       name: user.name ?? null,
@@ -127,8 +122,7 @@ async function authenticateSession(): Promise<SessionAuthResult | null> {
   const session = await getSession();
   if (!session) return null;
 
-  const allowedEmails = parseAllowedEmails();
-  if (allowedEmails.length > 0 && !allowedEmails.includes(session.user.email)) {
+  if (!isEmailAllowed(session.user.email)) {
     return null;
   }
 
@@ -165,7 +159,7 @@ export async function requireSessionAuth(
 }
 
 export async function requireAdmin(): Promise<SessionAuthResult | null> {
-  const session = await requireAuth();
+  const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session || !session.user.isAdmin) {
     return null;
   }

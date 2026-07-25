@@ -1703,6 +1703,14 @@ export class PrismaAdapter implements DatabaseAdapter {
     return row ? { ...row, id: sid(row.id) } : null;
   }
 
+  async listShareLinks(userId: string): Promise<ShareLinkRecord[]> {
+    const rows = await prisma.shareLink.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((row) => ({ ...row, id: sid(row.id) }));
+  }
+
   async findShareLink(userId: string, targetType: string, targetId: string | null): Promise<ShareLinkRecord | null> {
     const row = await prisma.shareLink.findFirst({
       where: { userId, targetType, targetId },
@@ -1762,7 +1770,7 @@ export class PrismaAdapter implements DatabaseAdapter {
     };
   }
 
-  async upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord> {
+  async upsertCvPatch(applicationId: string, userId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord> {
     const payload = {
       profileOverride: data.profileOverride ?? null,
       experienceIds: data.experienceIds as unknown as Prisma.InputJsonValue,
@@ -1770,10 +1778,17 @@ export class PrismaAdapter implements DatabaseAdapter {
       includeProjects: data.includeProjects ?? false,
       includeEducation: data.includeEducation ?? true,
     };
-    const row = await prisma.cvPatch.upsert({
-      where: { applicationId: nid(applicationId) },
-      create: { applicationId: nid(applicationId), ...payload },
-      update: payload,
+    const row = await prisma.$transaction(async (tx) => {
+      const application = await tx.application.findFirst({
+        where: { id: nid(applicationId), userId },
+        select: { id: true },
+      });
+      if (!application) throw new Error("not_found");
+      return tx.cvPatch.upsert({
+        where: { applicationId: application.id },
+        create: { applicationId: application.id, ...payload },
+        update: payload,
+      });
     });
     return {
       ...row,
@@ -1785,10 +1800,24 @@ export class PrismaAdapter implements DatabaseAdapter {
     };
   }
 
-  async setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void> {
-    await prisma.cvPatch.update({
-      where: { id: nid(patchId) },
-      data: { documentId: documentId ? nid(documentId) : null },
+  async setCvPatchDocumentId(patchId: string, userId: string, documentId: string | null): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      const patch = await tx.cvPatch.findFirst({
+        where: { id: nid(patchId), application: { userId } },
+        select: { id: true },
+      });
+      if (!patch) throw new Error("not_found");
+      if (documentId) {
+        const document = await tx.document.findFirst({
+          where: { id: nid(documentId), userId },
+          select: { id: true },
+        });
+        if (!document) throw new Error("not_found");
+      }
+      await tx.cvPatch.update({
+        where: { id: patch.id },
+        data: { documentId: documentId ? nid(documentId) : null },
+      });
     });
   }
 }

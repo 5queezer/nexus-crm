@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeAuthCode, exchangeRefreshToken, verifyClient } from "@/lib/mcp-oauth";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * OAuth 2.1 Token Endpoint for MCP.
@@ -68,6 +69,20 @@ export async function POST(req: NextRequest) {
     } catch {
       // Malformed Basic header — fall through to invalid_client below
     }
+  }
+
+  // Only trust an address header that the deployment explicitly configures its
+  // ingress to strip and set. Generic forwarding headers are client-spoofable.
+  const trustedIpHeader = process.env.OAUTH_TRUSTED_IP_HEADER?.trim().toLowerCase();
+  const requestIp = trustedIpHeader ? req.headers.get(trustedIpHeader)?.trim() || "unknown" : "unknown";
+  // Limit the endpoint across all client IDs for the trusted source address.
+  const limit = checkRateLimit(requestIp, "oauth");
+  if (!limit.allowed) {
+    const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
+    return NextResponse.json(
+      { error: "temporarily_unavailable", error_description: "Too many token requests" },
+      { status: 429, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },
+    );
   }
 
   if (!clientId) {

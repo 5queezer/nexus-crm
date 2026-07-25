@@ -1,10 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/session";
+import { requireSessionAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { generateShortCode } from "@/lib/token";
 
+export async function GET() {
+  const session = await requireSessionAuth({ allowDevBypass: false });
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return NextResponse.json({ links: await getDb().listShareLinks(session.userId) });
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await requireSessionAuth({ allowDevBypass: false });
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let id: unknown;
+  try {
+    ({ id } = await request.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (typeof id !== "string" || !id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+  try {
+    await getDb().deleteShareLink(id, session.userId);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  return new NextResponse(null, { status: 204 });
+}
+
 export async function POST(request: NextRequest) {
-  const session = await requireAuth();
+  const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

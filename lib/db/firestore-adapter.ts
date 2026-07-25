@@ -261,7 +261,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   async listApplications(userId: string | null): Promise<ApplicationRecord[]> {
     let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
-    if (userId) q = q.where("userId", "==", userId);
+    if (userId !== null) q = q.where("userId", "==", userId);
     const snap = await q.get();
     const applications = snap.docs.map((d) => mapApp(d.id, d.data()));
 
@@ -285,7 +285,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
     // Firestore doesn't support count + offset natively, so we fetch all IDs
     let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
-    if (userId) q = q.where("userId", "==", userId);
+    if (userId !== null) q = q.where("userId", "==", userId);
 
     const snap = await q.get();
     const total = snap.docs.length;
@@ -311,7 +311,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const doc = await this.apps.doc(id).get();
     if (!doc.exists) return null;
     const data = doc.data()!;
-    if (userId && data.userId !== userId) return null;
+    if (userId !== null && data.userId !== userId) return null;
 
     const app = mapApp(id, data);
     // Load contacts
@@ -512,13 +512,21 @@ export class FirestoreAdapter implements DatabaseAdapter {
       await batch.commit();
     }
     await this.db.runTransaction(async (transaction) => {
-      const current = await transaction.get(ref);
+      const patchRef = this.db.collection("cvPatches").doc(id);
+      const [current, patch] = await Promise.all([
+        transaction.get(ref),
+        transaction.get(patchRef),
+      ]);
       if (!current.exists) return;
       if (current.data()!.userId !== userId || current.data()!.deletionState !== "in_progress") {
         throw new Error("application_delete_conflict");
       }
+      if (patch.exists && (patch.data()!.userId !== userId || patch.data()!.applicationId !== id)) {
+        throw new Error("application_delete_conflict");
+      }
       const canonicalJobUrl = current.data()!.canonicalJobUrl as string | null | undefined;
       if (canonicalJobUrl) transaction.delete(this.canonicalUrlRef(userId, canonicalJobUrl));
+      if (patch.exists) transaction.delete(patchRef);
       transaction.delete(ref);
     });
   }
@@ -1166,7 +1174,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
   ): Promise<Partial<ApplicationRecord>[]> {
     // Firestore has limited query capabilities, so we fetch and filter in memory
     let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
-    if (userId) q = q.where("userId", "==", userId);
+    if (userId !== null) q = q.where("userId", "==", userId);
     if (filter.status?.length === 1) {
       q = q.where("status", "==", filter.status[0]);
     }
@@ -1413,7 +1421,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   async listDocuments(userId: string | null): Promise<DocumentRecord[]> {
     let q: FirebaseFirestore.Query = this.docs.orderBy("uploadedAt", "desc");
-    if (userId) q = q.where("userId", "==", userId);
+    if (userId !== null) q = q.where("userId", "==", userId);
     const snap = await q.get();
     const documents = snap.docs.map((d) => {
       const rec = mapDoc(d.id, d.data());
@@ -1429,7 +1437,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
     });
 
     if (allAppIds.size > 0) {
-      const appMap = await this.loadAppRefs(Array.from(allAppIds));
+      const appMap = userId === null
+        ? await this.loadAppRefs(Array.from(allAppIds))
+        : await this.loadVerifiedAppRefs(Array.from(allAppIds), userId);
       for (let i = 0; i < documents.length; i++) {
         const ids: string[] = snap.docs[i].data().applicationIds ?? [];
         documents[i].applications = ids
@@ -1482,10 +1492,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const document = await this.docs.doc(id).get();
     if (!document.exists) return null;
     const data = document.data()!;
-    if (userId && data.userId !== userId) return null;
+    if (userId !== null && data.userId !== userId) return null;
     const record = mapDoc(id, data);
     const applicationIds: string[] = Array.isArray(data.applicationIds) ? data.applicationIds : [];
-    const applicationMap = await this.loadAppRefs(applicationIds);
+    const applicationMap = userId === null
+      ? await this.loadAppRefs(applicationIds)
+      : await this.loadVerifiedAppRefs(applicationIds, userId);
     record.applications = applicationIds
       .map((applicationId) => applicationMap.get(applicationId))
       .filter((application): application is NonNullable<typeof application> => Boolean(application));
@@ -1719,6 +1731,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return row ? { ...row, id: String(row.id) } : null;
   }
 
+  async listShareLinks(userId: string): Promise<ShareLinkRecord[]> {
+    const rows = await prisma.shareLink.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((row) => ({ ...row, id: String(row.id) }));
+  }
+
   async findShareLink(userId: string, targetType: string, targetId: string | null): Promise<ShareLinkRecord | null> {
     const row = await prisma.shareLink.findFirst({
       where: { userId, targetType, targetId },
@@ -1792,10 +1812,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return map;
   }
 
-  // CV — Always uses Prisma/PostgreSQL. CvPatch has integer foreign keys to
-  // Application, which is incompatible with Firestore's string document IDs.
-  // CvProfile is userId-keyed and works fine. CvPatch methods will fail if
-  // applications live in Firestore (applicationId would not be numeric).
+  // CV profiles remain user-keyed in PostgreSQL; application-bound patches are
+  // stored in Firestore so opaque IDs and owner relationships stay consistent.
 
   async getCvProfile(userId: string): Promise<CvProfileRecord | null> {
     const row = await prisma.cvProfile.findUnique({ where: { userId } });
@@ -1846,56 +1864,71 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null> {
-    const row = await prisma.cvPatch.findFirst({
-      where: { applicationId: parseInt(applicationId, 10), application: { userId } },
-    });
-    if (!row) return null;
+    const snapshot = await getDb().collection("cvPatches").doc(applicationId).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId || data.applicationId !== applicationId) return null;
     return {
-      id: String(row.id),
-      applicationId: String(row.applicationId),
-      profileOverride: row.profileOverride,
-      experienceIds: row.experienceIds as string[],
-      skillCategories: row.skillCategories as string[],
-      includeProjects: row.includeProjects,
-      includeEducation: row.includeEducation,
-      documentId: row.documentId ? String(row.documentId) : null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    };
-  }
-
-  async upsertCvPatch(applicationId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord> {
-    const appId = parseInt(applicationId, 10);
-    const payload = {
+      id: snapshot.id,
+      applicationId: data.applicationId,
       profileOverride: data.profileOverride ?? null,
-      experienceIds: data.experienceIds as unknown as import("@prisma/client").Prisma.InputJsonValue,
-      skillCategories: data.skillCategories as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      experienceIds: Array.isArray(data.experienceIds) ? data.experienceIds : [],
+      skillCategories: Array.isArray(data.skillCategories) ? data.skillCategories : [],
       includeProjects: data.includeProjects ?? false,
       includeEducation: data.includeEducation ?? true,
-    };
-    const row = await prisma.cvPatch.upsert({
-      where: { applicationId: appId },
-      create: { applicationId: appId, ...payload },
-      update: payload,
-    });
-    return {
-      id: String(row.id),
-      applicationId: String(row.applicationId),
-      profileOverride: row.profileOverride,
-      experienceIds: row.experienceIds as string[],
-      skillCategories: row.skillCategories as string[],
-      includeProjects: row.includeProjects,
-      includeEducation: row.includeEducation,
-      documentId: row.documentId ? String(row.documentId) : null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      documentId: data.documentId ?? null,
+      createdAt: toDate(data.createdAt) ?? new Date(),
+      updatedAt: toDate(data.updatedAt) ?? new Date(),
     };
   }
 
-  async setCvPatchDocumentId(patchId: string, documentId: string | null): Promise<void> {
-    await prisma.cvPatch.update({
-      where: { id: parseInt(patchId, 10) },
-      data: { documentId: documentId ? parseInt(documentId, 10) : null },
+  async upsertCvPatch(applicationId: string, userId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord> {
+    const db = getDb();
+    const applicationRef = db.collection("applications").doc(applicationId);
+    const patchRef = db.collection("cvPatches").doc(applicationId);
+    await db.runTransaction(async (transaction) => {
+      const [applicationSnapshot, patchSnapshot] = await Promise.all([
+        transaction.get(applicationRef),
+        transaction.get(patchRef),
+      ]);
+      if (!applicationSnapshot.exists || applicationSnapshot.data()?.userId !== userId) {
+        throw new Error("not_found");
+      }
+      const current = patchSnapshot.exists ? patchSnapshot.data()! : null;
+      const now = Timestamp.now();
+      transaction.set(patchRef, {
+        applicationId,
+        userId,
+        profileOverride: data.profileOverride ?? null,
+        experienceIds: data.experienceIds,
+        skillCategories: data.skillCategories,
+        includeProjects: data.includeProjects ?? false,
+        includeEducation: data.includeEducation ?? true,
+        documentId: current?.documentId ?? null,
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+      });
+    });
+    const patch = await this.getCvPatch(applicationId, userId);
+    if (!patch) throw new Error("not_found");
+    return patch;
+  }
+
+  async setCvPatchDocumentId(patchId: string, userId: string, documentId: string | null): Promise<void> {
+    const db = getDb();
+    const patchRef = db.collection("cvPatches").doc(patchId);
+    await db.runTransaction(async (transaction) => {
+      const patchSnapshot = await transaction.get(patchRef);
+      if (!patchSnapshot.exists || patchSnapshot.data()?.userId !== userId) {
+        throw new Error("not_found");
+      }
+      if (documentId) {
+        const documentSnapshot = await transaction.get(db.collection("documents").doc(documentId));
+        if (!documentSnapshot.exists || documentSnapshot.data()?.userId !== userId) {
+          throw new Error("not_found");
+        }
+      }
+      transaction.update(patchRef, { documentId, updatedAt: Timestamp.now() });
     });
   }
 }

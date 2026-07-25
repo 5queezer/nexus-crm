@@ -2,6 +2,7 @@ import { randomBytes, createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { prisma } from "./prisma";
 import type { SessionAuthResult, SessionUser } from "./session";
+import { isEmailAllowed } from "./account-eligibility";
 
 // ── Public URL helper ────────────────────────────────────────────────────────
 // Behind a reverse proxy, req.nextUrl.host resolves to the internal listener
@@ -294,6 +295,7 @@ export async function verifyMcpAccessToken(
 
   if (!token) return null;
   if (token.expiresAt < new Date()) return null;
+  if (!isEmailAllowed(token.user.email)) return null;
 
   const user: SessionUser = {
     id: token.user.id,
@@ -305,7 +307,8 @@ export async function verifyMcpAccessToken(
 
   return {
     userId: token.user.id,
-    readScopeUserId: token.user.isAdmin ? null : token.user.id,
+    // OAuth machine credentials never inherit an administrator's global read authority.
+    readScopeUserId: token.user.id,
     user,
     authType: "mcp_oauth",
     scopes: effectiveMcpScopes(token.scopes, token.sensitiveConsentVersion),

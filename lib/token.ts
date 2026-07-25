@@ -14,9 +14,9 @@ export function hashApiToken(raw: string): string {
  * Constant-time string comparison to prevent timing attacks.
  * Returns false if either value is empty.
  */
-/** Generate a short URL-safe code (8 characters, ~48 bits of entropy). */
+/** Generate a URL-safe share code with 128 bits of entropy. */
 export function generateShortCode(): string {
-  return randomBytes(6).toString("base64url");
+  return randomBytes(16).toString("base64url");
 }
 
 export function safeCompare(a: string, b: string): boolean {

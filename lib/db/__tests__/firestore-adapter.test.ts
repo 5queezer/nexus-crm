@@ -10,6 +10,7 @@ const { mockGetAll, stores, mockTimestamp, batchState, queryStats, applyUpdate }
     applicationSubmissions: new Map<string, Record<string, unknown>>(),
     applicationEvents: new Map<string, Record<string, unknown>>(),
     applicationCanonicalUrls: new Map<string, Record<string, unknown>>(),
+    cvPatches: new Map<string, Record<string, unknown>>(),
   };
 
   const mockGetAll = vi.fn();
@@ -1412,5 +1413,78 @@ describe("FirestoreAdapter — first-class application events", () => {
     });
     expect(second.items.map((event) => event.id)).toEqual(["1"]);
     expect(second.nextCursor).toBeNull();
+  });
+});
+
+describe("FirestoreAdapter — CV patch isolation", () => {
+  beforeEach(() => {
+    stores.applications.clear();
+    stores.documents.clear();
+    stores.cvPatches.clear();
+  });
+
+  it("stores opaque Firestore IDs in Firestore and enforces application ownership", async () => {
+    stores.applications.set("opaque-app-id", { userId: "owner" });
+    const adapter = new FirestoreAdapter();
+    const data = {
+      experienceIds: ["exp-1"],
+      skillCategories: ["Engineering"],
+      includeProjects: true,
+      includeEducation: true,
+    };
+
+    await expect(adapter.upsertCvPatch("opaque-app-id", "other-user", data)).rejects.toThrow("not_found");
+    const patch = await adapter.upsertCvPatch("opaque-app-id", "owner", data);
+
+    expect(patch).toMatchObject({ id: "opaque-app-id", applicationId: "opaque-app-id" });
+    await expect(adapter.getCvPatch("opaque-app-id", "other-user")).resolves.toBeNull();
+    await expect(adapter.getCvPatch("opaque-app-id", "owner")).resolves.toMatchObject({ applicationId: "opaque-app-id" });
+  });
+
+  it("deletes the owner-scoped CV patch with its application", async () => {
+    stores.applications.set("opaque-app-id", { userId: "owner" });
+    stores.cvPatches.set("opaque-app-id", { applicationId: "opaque-app-id", userId: "owner" });
+    const adapter = new FirestoreAdapter();
+
+    await adapter.deleteApplication("opaque-app-id", "owner");
+
+    expect(stores.applications.has("opaque-app-id")).toBe(false);
+    expect(stores.cvPatches.has("opaque-app-id")).toBe(false);
+  });
+});
+
+describe("FirestoreAdapter — explicit owner scopes", () => {
+  beforeEach(() => {
+    stores.applications.clear();
+    stores.documents.clear();
+  });
+
+  it("does not treat an empty owner id as a global-read sentinel", async () => {
+    stores.applications.set("other-app", {
+      userId: "other-user",
+      company: "Other",
+      role: "Engineer",
+      status: "applied",
+      createdAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+    });
+
+    seedDocs([{
+      id: "other-doc",
+      userId: "other-user",
+      filename: "other.pdf",
+      originalName: "other.pdf",
+      size: 1,
+      mimeType: "application/pdf",
+      applicationIds: ["other-app"],
+    }]);
+    const adapter = new FirestoreAdapter();
+
+    await expect(adapter.listApplications("")).resolves.toEqual([]);
+    await expect(adapter.listApplicationsPaginated("", {})).resolves.toMatchObject({ data: [], total: 0 });
+    await expect(adapter.getApplication("other-app", "")).resolves.toBeNull();
+    await expect(adapter.listApplicationsFiltered("", {})).resolves.toEqual([]);
+    await expect(adapter.listDocuments("")).resolves.toEqual([]);
+    await expect(adapter.getDocument("other-doc", "")).resolves.toBeNull();
   });
 });

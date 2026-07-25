@@ -1303,7 +1303,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         }
 
         // Upsert the patch
-        const patch = await db.upsertCvPatch(args.applicationId, {
+        const patch = await db.upsertCvPatch(args.applicationId, auth.userId, {
           profileOverride: args.profileOverride,
           experienceIds: args.experienceIds,
           skillCategories: args.skillCategories,
