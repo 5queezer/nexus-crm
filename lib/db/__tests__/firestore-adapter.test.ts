@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mocks (available inside vi.mock factories) ──────────────────────
 
-const { mockGetAll, stores, mockTimestamp, batchState, applyUpdate } = vi.hoisted(() => {
+const { mockGetAll, stores, mockTimestamp, batchState, queryStats, applyUpdate } = vi.hoisted(() => {
   const stores = {
     applications: new Map<string, Record<string, unknown>>(),
     documents: new Map<string, Record<string, unknown>>(),
@@ -18,6 +18,10 @@ const { mockGetAll, stores, mockTimestamp, batchState, applyUpdate } = vi.hoiste
     commitCount: 0,
     failOnCommit: null as number | null,
     beforeCommit: null as (() => void) | null,
+  };
+  const queryStats = {
+    eventLimits: [] as number[],
+    eventReadSizes: [] as number[],
   };
   const applyUpdate = (
     current: Record<string, unknown>,
@@ -36,7 +40,7 @@ const { mockGetAll, stores, mockTimestamp, batchState, applyUpdate } = vi.hoiste
     return next;
   };
 
-  return { mockGetAll, stores, mockTimestamp, batchState, applyUpdate };
+  return { mockGetAll, stores, mockTimestamp, batchState, queryStats, applyUpdate };
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -105,6 +109,7 @@ function makeQuery(
       return makeQuery(store, filters, [...sorts, { field, direction }], max, after);
     },
     limit(value: number) {
+      if (store === stores.applicationEvents) queryStats.eventLimits.push(value);
       return makeQuery(store, filters, sorts, value, after);
     },
     startAfter(...values: unknown[]) {
@@ -145,6 +150,7 @@ function makeQuery(
         });
       }
       if (max !== undefined) entries = entries.slice(0, max);
+      if (store === stores.applicationEvents) queryStats.eventReadSizes.push(entries.length);
       return {
         empty: entries.length === 0,
         docs: entries.map(([id, data]) => ({
@@ -314,6 +320,8 @@ beforeEach(() => {
   batchState.commitCount = 0;
   batchState.failOnCommit = null;
   batchState.beforeCommit = null;
+  queryStats.eventLimits = [];
+  queryStats.eventReadSizes = [];
 });
 
 describe("FirestoreAdapter — application metadata", () => {
@@ -1337,6 +1345,30 @@ describe("FirestoreAdapter — first-class application events", () => {
     });
     expect(page.items.map((event) => event.id)).toEqual(["1"]);
     expect(page.nextCursor).toBeNull();
+  });
+
+  it("applies legacy timeline limits before reading Firestore events", async () => {
+    seedApps([{ id: "app-1", userId, company: "Acme", role: "Engineer" }]);
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    for (let id = 1; id <= 5; id += 1) {
+      stores.applicationEvents.set(String(id), {
+        userId,
+        applicationId: "app-1",
+        type: "stage_changed",
+        occurredAt: timestamp,
+        createdAt: timestamp,
+      });
+    }
+
+    const events = await new FirestoreAdapter().listApplicationEvents(
+      "app-1",
+      userId,
+      2,
+    );
+
+    expect(events).toHaveLength(2);
+    expect(queryStats.eventLimits).toEqual([2]);
+    expect(queryStats.eventReadSizes).toEqual([2]);
   });
 
   it("uses the same lexical ID tie-breaker for sorting and cursors", async () => {

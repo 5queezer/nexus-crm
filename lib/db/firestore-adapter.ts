@@ -1149,17 +1149,15 @@ export class FirestoreAdapter implements DatabaseAdapter {
   ): Promise<ApplicationEventRecord[]> {
     const application = await this.getApplication(applicationId, userId);
     if (!application) throw new Error("not_found");
+    const queryLimit = Math.max(1, Math.min(500, limit));
     const snapshot = await this.events
       .where("applicationId", "==", applicationId)
       .where("userId", "==", userId)
       .orderBy("occurredAt", "desc")
+      .orderBy(FieldPath.documentId(), "desc")
+      .limit(queryLimit)
       .get();
-    const events = snapshot.docs.map((document) => mapEvent(document.id, document.data()));
-    return events.sort((left, right) => {
-      const time = right.occurredAt.getTime() - left.occurredAt.getTime();
-      if (time) return time;
-      return left.id === right.id ? 0 : left.id < right.id ? 1 : -1;
-    }).slice(0, Math.max(1, Math.min(500, limit)));
+    return snapshot.docs.map((document) => mapEvent(document.id, document.data()));
   }
 
   async listApplicationsFiltered(
