@@ -72,17 +72,21 @@ export async function POST(req: NextRequest) {
   }
 
   // Only trust an address header that the deployment explicitly configures its
-  // ingress to strip and set. Generic forwarding headers are client-spoofable.
+  // ingress to strip and set. Without a configured and populated trusted header,
+  // skip per-source limiting rather than pooling every client into one global
+  // fallback bucket that an attacker could exhaust.
   const trustedIpHeader = process.env.OAUTH_TRUSTED_IP_HEADER?.trim().toLowerCase();
-  const requestIp = trustedIpHeader ? req.headers.get(trustedIpHeader)?.trim() || "unknown" : "unknown";
-  // Limit the endpoint across all client IDs for the trusted source address.
-  const limit = checkRateLimit(requestIp, "oauth");
-  if (!limit.allowed) {
-    const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
-    return NextResponse.json(
-      { error: "temporarily_unavailable", error_description: "Too many token requests" },
-      { status: 429, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },
-    );
+  const requestIp = trustedIpHeader ? req.headers.get(trustedIpHeader)?.trim() : undefined;
+  if (requestIp) {
+    // Limit the endpoint across all client IDs for the trusted source address.
+    const limit = checkRateLimit(requestIp, "oauth");
+    if (!limit.allowed) {
+      const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
+      return NextResponse.json(
+        { error: "temporarily_unavailable", error_description: "Too many token requests" },
+        { status: 429, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },
+      );
+    }
   }
 
   if (!clientId) {
