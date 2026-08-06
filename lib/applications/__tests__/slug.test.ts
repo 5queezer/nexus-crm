@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applicationPath, applicationSlug } from "../slug";
+import { applicationPath, applicationSlug, isSafeApplicationId } from "../slug";
 
 describe("applicationSlug", () => {
   it("builds the requested readable slug and removes audience suffixes", () => {
@@ -27,6 +27,15 @@ describe("applicationSlug", () => {
     const slug = applicationSlug("A".repeat(100), "B".repeat(100));
     expect(slug.length).toBeLessThanOrEqual(96);
     expect(slug).not.toMatch(/-$/);
+  });
+});
+
+describe("isSafeApplicationId", () => {
+  it("accepts adapter-compatible IDs and rejects malformed route values", () => {
+    expect(isSafeApplicationId("106")).toBe(true);
+    expect(isSafeApplicationId("firestore_ID-1")).toBe(true);
+    expect(isSafeApplicationId("../secret")).toBe(false);
+    expect(isSafeApplicationId("x".repeat(129))).toBe(false);
   });
 });
 

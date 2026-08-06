@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { applicationPath } from "@/lib/applications/slug";
+import { applicationPath, isSafeApplicationId } from "@/lib/applications/slug";
 
 interface ApplicationShortRouteProps {
   params: Promise<{ id: string }>;
@@ -12,6 +12,7 @@ export default async function ApplicationShortRoute({ params }: ApplicationShort
   const requestedPath = `/applications/${encodeURIComponent(id)}`;
   const session = await requireAuth();
   if (!session) redirect(`/login?callbackURL=${encodeURIComponent(requestedPath)}`);
+  if (!isSafeApplicationId(id)) notFound();
 
   // Owner + ID is the complete identity. Unknown and foreign IDs deliberately
   // share the same not-found path.

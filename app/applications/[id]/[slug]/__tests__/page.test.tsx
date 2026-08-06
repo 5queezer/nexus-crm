@@ -67,8 +67,8 @@ const application = {
   contacts: [],
 };
 
-function props(slug: string) {
-  return { params: Promise.resolve({ id: "106", slug }) };
+function props(slug: string, id = "106") {
+  return { params: Promise.resolve({ id, slug }) };
 }
 
 const canonicalPath = "/applications/106/hygraph-senior-fullstack-engineer";
@@ -97,6 +97,11 @@ describe("/applications/[id]/[slug]", () => {
     await expect(ApplicationDetailPage(props("alter-name")))
       .rejects.toThrow(`REDIRECT:${canonicalPath}`);
     expect(mocks.getApplication).toHaveBeenCalledWith("106", "owner-1");
+  });
+
+  it("returns 404 without querying for a malformed ID", async () => {
+    await expect(ApplicationDetailPage(props("anything", "../secret"))).rejects.toThrow("NOT_FOUND");
+    expect(mocks.getApplication).not.toHaveBeenCalled();
   });
 
   it("returns the identical 404 for unknown and foreign IDs", async () => {

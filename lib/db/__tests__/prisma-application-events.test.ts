@@ -142,6 +142,11 @@ describe("PrismaAdapter — atomic application events", () => {
     vi.clearAllMocks();
   });
 
+  it("returns null instead of throwing for malformed application IDs", async () => {
+    await expect(new PrismaAdapter().getApplication("not-an-id", "owner-1")).resolves.toBeNull();
+    expect((fake.prisma.application as { findFirst: ReturnType<typeof vi.fn> }).findFirst).not.toHaveBeenCalled();
+  });
+
   it("updates the projection and creates one immutable event", async () => {
     const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
     expect(result.replayed).toBe(false);

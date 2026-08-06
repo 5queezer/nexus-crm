@@ -309,8 +309,14 @@ export class PrismaAdapter implements DatabaseAdapter {
   }
 
   async getApplication(id: string, userId: string | null): Promise<ApplicationRecord | null> {
+    let numericId: number;
+    try {
+      numericId = nid(id);
+    } catch {
+      return null;
+    }
     const row = await prisma.application.findFirst({
-      where: { id: nid(id), ...userWhere(userId) },
+      where: { id: numericId, ...userWhere(userId) },
       include: { contacts: true },
     });
     return row ? mapApp(row) : null;

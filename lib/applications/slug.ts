@@ -29,6 +29,10 @@ export function applicationSlug(
   return slug || "application";
 }
 
+export function isSafeApplicationId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
 export function applicationPath(application: {
   id: string;
   company: string;

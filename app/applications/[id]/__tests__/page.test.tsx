@@ -19,7 +19,9 @@ const ownerSession = {
   user: { id: "owner-1", email: "owner@example.com", isAdmin: true },
 };
 const application = { id: "106", company: "Hygraph", role: "Senior Fullstack Engineer" };
-const props = { params: Promise.resolve({ id: "106" }) };
+function props(id = "106") {
+  return { params: Promise.resolve({ id }) };
+}
 
 describe("/applications/[id]", () => {
   beforeEach(() => {
@@ -30,18 +32,23 @@ describe("/applications/[id]", () => {
 
   it("preserves the short URL through login", async () => {
     mocks.requireAuth.mockResolvedValue(null);
-    await expect(ApplicationShortRoute(props))
+    await expect(ApplicationShortRoute(props()))
       .rejects.toThrow("REDIRECT:/login?callbackURL=%2Fapplications%2F106");
   });
 
   it("loads by owner and ID and redirects to the current canonical URL", async () => {
-    await expect(ApplicationShortRoute(props))
+    await expect(ApplicationShortRoute(props()))
       .rejects.toThrow("REDIRECT:/applications/106/hygraph-senior-fullstack-engineer");
     expect(mocks.getApplication).toHaveBeenCalledWith("106", "owner-1");
   });
 
+  it("returns 404 without querying for a malformed ID", async () => {
+    await expect(ApplicationShortRoute(props("../secret"))).rejects.toThrow("NOT_FOUND");
+    expect(mocks.getApplication).not.toHaveBeenCalled();
+  });
+
   it("does not distinguish unknown and foreign IDs", async () => {
     mocks.getApplication.mockResolvedValue(null);
-    await expect(ApplicationShortRoute(props)).rejects.toThrow("NOT_FOUND");
+    await expect(ApplicationShortRoute(props())).rejects.toThrow("NOT_FOUND");
   });
 });

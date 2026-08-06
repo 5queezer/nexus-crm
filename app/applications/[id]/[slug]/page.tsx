@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getDb } from "@/lib/db";
 import { requireAuth } from "@/lib/session";
-import { applicationPath, applicationSlug } from "@/lib/applications/slug";
+import { applicationPath, applicationSlug, isSafeApplicationId } from "@/lib/applications/slug";
 import { normalizeStatus } from "@/types";
 import type { Application, Contact } from "@/types";
 import type { ApplicationRecord, ContactRecord } from "@/lib/db/types";
@@ -81,6 +81,7 @@ export async function generateMetadata({
   if (!session) return { robots: { index: false, follow: false } };
 
   const { id } = await params;
+  if (!isSafeApplicationId(id)) return { robots: { index: false, follow: false } };
   const record = await getDb().getApplication(id, session.userId);
   if (!record) return { robots: { index: false, follow: false } };
 
@@ -96,6 +97,7 @@ export default async function ApplicationDetailPage({ params }: ApplicationDetai
   const requestedPath = `/applications/${encodeURIComponent(id)}/${encodeURIComponent(slug)}`;
   const session = await requireAuth();
   if (!session) redirect(`/login?callbackURL=${encodeURIComponent(requestedPath)}`);
+  if (!isSafeApplicationId(id)) notFound();
 
   // The ID plus the authenticated owner is the only lookup key. The slug is
   // presentation-only and is never sent to a database query.
