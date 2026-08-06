@@ -1,6 +1,7 @@
 "use client";
 
 import { authClient } from "@/lib/auth-client";
+import { safeInternalCallbackURL } from "@/lib/auth/login-callback";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -19,7 +20,7 @@ export default function LoginPage() {
     setError(null);
     try {
       // Support redirect back to MCP authorize endpoint after login
-      const callbackURL = searchParams.get("callbackURL") ?? "/";
+      const callbackURL = safeInternalCallbackURL(searchParams.get("callbackURL"));
       await authClient.signIn.social({
         provider: "google",
         callbackURL,

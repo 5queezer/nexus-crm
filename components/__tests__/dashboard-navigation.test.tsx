@@ -126,7 +126,13 @@ async function renderDashboard() {
 describe("Dashboard detail navigation", () => {
   beforeEach(() => {
     pushMock.mockClear();
-    localStorage.clear();
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+    });
     localStorage.setItem("onboarding-complete", "true");
     vi.stubGlobal(
       "matchMedia",
@@ -157,7 +163,7 @@ describe("Dashboard detail navigation", () => {
 
     act(() => captured.table.onEdit?.(application));
 
-    expect(pushMock).toHaveBeenCalledWith("/applications/application-1");
+    expect(pushMock).toHaveBeenCalledWith("/applications/application-1/acme-engineer");
   });
 
   it("pushes the detail route when the command palette selects an application", async () => {
@@ -169,7 +175,7 @@ describe("Dashboard detail navigation", () => {
     );
     act(() => captured.palette.onSelect?.(application));
 
-    expect(pushMock).toHaveBeenCalledWith("/applications/application-1");
+    expect(pushMock).toHaveBeenCalledWith("/applications/application-1/acme-engineer");
   });
 
   it("pushes the new detail route once the quick-create modal reports success", async () => {
@@ -179,8 +185,12 @@ describe("Dashboard detail navigation", () => {
     await waitFor(() =>
       expect(captured.modal.onCreated).toBeTypeOf("function"),
     );
-    act(() => captured.modal.onCreated?.({ ...application, id: "new-id" }));
+    act(() => captured.modal.onCreated?.({
+      ...application,
+      id: "new-id",
+      company: "Newco",
+    }));
 
-    expect(pushMock).toHaveBeenCalledWith("/applications/new-id");
+    expect(pushMock).toHaveBeenCalledWith("/applications/new-id/newco-engineer");
   });
 });

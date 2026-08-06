@@ -12,6 +12,7 @@ import {
   ColumnFiltersState,
 } from "@tanstack/react-table";
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import {
   Application,
@@ -28,6 +29,7 @@ import { useLocale } from "next-intl";
 import { ActionMenu } from "./action-menu";
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
+import { applicationPath } from "@/lib/applications/slug";
 
 const columnHelper = createColumnHelper<Application>();
 
@@ -204,9 +206,8 @@ function MobileApplicationCard({
           />
         </label>
       )}
-      <button
-        type="button"
-        onClick={() => onEdit(app)}
+      <Link
+        href={applicationPath(app)}
         className="nexus-focus-ring min-w-0 flex-1 rounded-xl px-3 py-2 text-left"
       >
         <div className="flex items-center gap-2">
@@ -234,7 +235,7 @@ function MobileApplicationCard({
             </span>
           ) : null}
         </div>
-      </button>
+      </Link>
       <div
         className="flex items-center gap-1"
         onClick={(event) => event.stopPropagation()}
@@ -383,13 +384,13 @@ export function ApplicationTable({
       cell: (info) => (
         <div className="min-w-0 max-w-60">
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => onEdit(info.row.original)}
+            <Link
+              href={applicationPath(info.row.original)}
               className="truncate font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
               title={info.getValue() || undefined}
             >
               {info.getValue() || "—"}
-            </button>
+            </Link>
             {info.row.original.jobUrl && (
               <JobLink
                 jobUrl={info.row.original.jobUrl}

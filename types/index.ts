@@ -71,6 +71,19 @@ export interface Application {
   createdAt: string;
   updatedAt: string;
   contacts?: Contact[];
+  workMode?: string | null;
+  eligibleCountries?: string[];
+  primaryLocations?: string[];
+  officeDaysMin?: number | null;
+  travelPercent?: number | null;
+  visaSponsorship?: boolean | null;
+  rightToWorkRequired?: boolean | null;
+  timezoneOverlap?: string | null;
+  salaryCurrency?: string | null;
+  salaryPeriod?: string | null;
+  salaryType?: string | null;
+  jobSummary?: string | null;
+  currentStage?: string | null;
 }
 
 // Color mapping per status — labels come from i18n translations

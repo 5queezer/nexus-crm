@@ -3,6 +3,7 @@
 import { ExternalLink } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
+import Link from "next/link";
 import type { Application, ApplicationStatus } from "@/types";
 import { STATUS_COLORS, STATUS_ORDER, TRIAGE_COLORS } from "@/types";
 import {
@@ -12,6 +13,7 @@ import {
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { formatLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
+import { applicationPath } from "@/lib/applications/slug";
 import { ActionMenu } from "./action-menu";
 
 interface FocusQueueProps {
@@ -202,6 +204,15 @@ function FocusRow({
         className="flex shrink-0 items-center gap-1"
         onClick={(event) => event.stopPropagation()}
       >
+        <Link
+          href={applicationPath(application)}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={ta("open_detail_new_tab")}
+          className="nexus-target nexus-focus-ring inline-flex items-center justify-center rounded-xl text-slate-400 transition hover:text-indigo-600 dark:hover:text-indigo-400"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </Link>
         <select
           value={application.status}
           onChange={(event) =>

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
+import { applicationPath } from "@/lib/applications/slug";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
 import { KanbanView } from "./kanban-view";
@@ -195,7 +196,7 @@ export function Dashboard({
 
   const handleEdit = useCallback(
     (app: Application) => {
-      router.push(`/applications/${app.id}`);
+      router.push(applicationPath(app));
     },
     [router],
   );
@@ -981,7 +982,7 @@ export function Dashboard({
       {isModalOpen && (
         <ApplicationModal
           onClose={handleCloseModal}
-          onCreated={(app) => router.push(`/applications/${app.id}`)}
+          onCreated={(app) => router.push(applicationPath(app))}
         />
       )}
 

@@ -69,6 +69,7 @@
     "more_actions": "More actions",
     "opportunity_actions": "Actions for {company}",
     "open_job": "Open listing",
+    "open_detail_new_tab": "Open opportunity in a new tab",
     "select": "Select",
     "deselect": "Deselect",
     "select_opportunity": "Select {company}"
@@ -192,7 +193,18 @@
     "unsaved": "Unsaved changes",
     "leave_confirm": "Discard unsaved changes?",
     "error_conflict": "This entry was changed elsewhere. Reload the page and try again.",
-    "section_details": "Details"
+    "section_details": "Details",
+    "copy_link": "Copy link",
+    "link_copied": "Link copied",
+    "application_facts": "Application overview",
+    "current_stage": "Current interview stage",
+    "work_model": "Work model",
+    "locations": "Locations",
+    "salary": "Salary",
+    "office_days": "Minimum office days",
+    "travel": "Travel",
+    "timezone_overlap": "Timezone overlap",
+    "compact_summary": "Compact summary"
   },
   "status": {
     "inbound": "New Lead",
