@@ -113,6 +113,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   const [conflict, setConflict] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [displayApplication, setDisplayApplication] = useState(application);
 
   const updateMutation = useMutation({
     mutationFn: ({
@@ -126,6 +127,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
       // Renew the baseline so the next save sends the fresh updatedAt —
       // otherwise every subsequent PATCH would answer with 409.
       markSaved(saved, variables.data);
+      setDisplayApplication(saved);
       setConflict(false);
       setError(null);
       setSavedFlash(true);
@@ -337,7 +339,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
           </div>
 
           <div className="mt-5">
-            <ApplicationFacts application={application} />
+            <ApplicationFacts application={displayApplication} />
           </div>
 
           <div className="mt-5 space-y-5">

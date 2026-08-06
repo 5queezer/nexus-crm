@@ -6,7 +6,7 @@ function transliterate(value: string): string {
     .replace(/ä/giu, "ae")
     .replace(/ö/giu, "oe")
     .replace(/ü/giu, "ue")
-    .replace(/ß/gu, "ss")
+    .replace(/[ßẞ]/gu, "ss")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "");
 }

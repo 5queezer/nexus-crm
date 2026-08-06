@@ -7,9 +7,10 @@ describe("applicationSlug", () => {
       .toBe("hygraph-senior-fullstack-engineer");
   });
 
-  it("transliterates umlauts and special characters", () => {
+  it("transliterates umlauts, sharp S variants, and special characters", () => {
     expect(applicationSlug("Münchner Rück", "Entwickler:in & Platform"))
       .toBe("muenchner-rueck-entwickler-in-and-platform");
+    expect(applicationSlug("Groẞhandel", "Engineer")).toBe("grosshandel-engineer");
   });
 
   it("collapses repeated separators and trims their edges", () => {

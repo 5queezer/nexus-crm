@@ -177,6 +177,7 @@ describe("ApplicationDetail", () => {
             json: async () => ({
               ...fixtureApplication(),
               notes: body.notes,
+              jobSummary: "Updated summary",
               updatedAt: `2026-07-0${patchBodies.length + 1}T00:00:00.000Z`,
             }),
           } as Response;
@@ -201,6 +202,7 @@ describe("ApplicationDetail", () => {
       }
     });
     expect(screen.getAllByText("saved").length).toBeGreaterThan(0);
+    expect(screen.getByText("Updated summary")).toBeTruthy();
 
     // A second save uses the renewed updatedAt — no 409 loop.
     await user.type(notesTextarea(), " v3");
