@@ -23,6 +23,7 @@ const fake = vi.hoisted(() => {
       generatedAt: null,
       submittedAt: null,
       submissionId: null,
+      demoProvenance: false,
       uploadedAt: new Date("2026-08-10T00:00:00Z"),
     };
   };
@@ -59,6 +60,7 @@ const fake = vi.hoisted(() => {
       generatedAt: null,
       submittedAt: null,
       submissionId: null,
+      demoProvenance: false,
       uploadedAt: new Date("2026-08-10T00:00:00Z"),
       ...data,
       applications: [],
@@ -70,7 +72,7 @@ const fake = vi.hoisted(() => {
         where.id.in.includes(app.id)
         && app.userId === where.userId
         && (where.isDemo === undefined || app.isDemo === where.isDemo),
-      ).map(({ id }) => ({ id })),
+      ).map(({ id, isDemo }) => ({ id, isDemo })),
     ),
   };
   const transaction = {
@@ -91,6 +93,10 @@ const fake = vi.hoisted(() => {
     reset,
     useReal: () => { applications = [realApp]; },
     useMixed: () => { applications = [realApp, demoApp]; },
+    useDetachedDemo: () => {
+      applications = [];
+      if (document) document.demoProvenance = true;
+    },
     currentDocument: () => document,
   };
 });
@@ -108,6 +114,46 @@ describe("Prisma guarded document mutations", () => {
     fake.reset();
   });
 
+  it("serializes document association writes with demo workspace deletion", async () => {
+    fake.useReal();
+
+    await adapter.createDocument("owner-1", {
+      filename: "new.pdf",
+      originalName: "new.pdf",
+      mimeType: "application/pdf",
+      size: 100,
+      applicationIds: ["1"],
+    });
+    const createQueries = (fake.transaction.$queryRaw.mock.calls as unknown[][])
+      .map((call) => String(call[0]));
+    expect(createQueries.some((query) => query.includes('FROM "User"'))).toBe(true);
+
+    fake.transaction.$queryRaw.mockClear();
+    await adapter.updateDocumentLinks("1", "owner-1", ["1"]);
+    const relinkQueries = (fake.transaction.$queryRaw.mock.calls as unknown[][])
+      .map((call) => String(call[0]));
+    expect(relinkQueries.some((query) => query.includes('FROM "User"'))).toBe(true);
+    expect(relinkQueries.some((query) => query.includes('FROM "Document"'))).toBe(true);
+  });
+
+  it("persists sticky demo provenance on creation and relinking", async () => {
+    await adapter.createDocument("owner-1", {
+      filename: "new.pdf", originalName: "new.pdf", mimeType: "application/pdf",
+      size: 100, applicationIds: ["2"],
+    });
+    expect(fake.documentApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ demoProvenance: true }),
+    }));
+
+    await adapter.updateDocumentLinks("1", "owner-1", ["2"]);
+    expect(fake.currentDocument()).toMatchObject({ demoProvenance: true });
+    fake.useReal();
+    await expect(adapter.updateDocumentLinks("1", "owner-1", ["1"], guard))
+      .resolves.toMatchObject({ demoProvenance: true });
+    await expect(adapter.updateDocumentMetadata("1", "owner-1", { version: 2 }, guard))
+      .resolves.toMatchObject({ version: 2, demoProvenance: true });
+  });
+
   it("rejects metadata, relink, and delete for demo-only current provenance", async () => {
     await expect(adapter.updateDocumentMetadata("1", "owner-1", { version: 2 }, guard))
       .rejects.toThrow("not_found");
@@ -117,6 +163,21 @@ describe("Prisma guarded document mutations", () => {
       .rejects.toThrow("not_found");
 
     expect(fake.currentDocument()).toMatchObject({ version: 1 });
+    expect(fake.documentApi.update).not.toHaveBeenCalled();
+    expect(fake.documentApi.delete).not.toHaveBeenCalled();
+  });
+
+  it("rejects guarded mutations for detached sticky demo provenance", async () => {
+    fake.useDetachedDemo();
+
+    await expect(adapter.updateDocumentMetadata("1", "owner-1", { version: 2 }, guard))
+      .rejects.toThrow("not_found");
+    await expect(adapter.updateDocumentLinks("1", "owner-1", ["1"], guard))
+      .rejects.toThrow("not_found");
+    await expect(adapter.deleteDocument("1", "owner-1", guard))
+      .rejects.toThrow("not_found");
+
+    expect(fake.currentDocument()).toMatchObject({ version: 1, demoProvenance: true });
     expect(fake.documentApi.update).not.toHaveBeenCalled();
     expect(fake.documentApi.delete).not.toHaveBeenCalled();
   });

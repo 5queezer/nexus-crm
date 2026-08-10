@@ -4,6 +4,7 @@ export interface DocumentAssociationRef {
 
 export interface DocumentAssociationRecord {
   applicationIds?: string[];
+  demoProvenance?: boolean;
   applications?: DocumentAssociationRef[];
 }
 
@@ -19,9 +20,10 @@ export async function sanitizeDocumentAssociations<T extends DocumentAssociation
   const hydrated = Array.isArray(document.applications) ? document.applications : [];
   const withoutRawIds = { ...document };
   delete withoutRawIds.applicationIds;
+  delete withoutRawIds.demoProvenance;
 
   if (!hydrated.length) {
-    return rawIds.length ? null : withoutRawIds as T;
+    return rawIds.length || document.demoProvenance === true ? null : withoutRawIds as T;
   }
 
   const visible = await Promise.all(

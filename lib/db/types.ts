@@ -119,6 +119,8 @@ export interface DocumentRecord {
   uploadedAt: Date;
   /** Raw parent IDs retained so machine boundaries can detect dangling links. */
   applicationIds?: string[];
+  /** Sticky internal marker: this document has been associated with demo data. */
+  demoProvenance?: boolean;
   applications?: ApplicationRef[];
 }
 

@@ -144,4 +144,20 @@ describe("GET /s/[code]", () => {
     expect(mockFileExists).not.toHaveBeenCalled();
     expect(mockDownloadFile).not.toHaveBeenCalled();
   });
+
+  it("rejects a detached document with durable demo provenance after workspace removal", async () => {
+    mockGetShareLinkByCode.mockResolvedValue({
+      id: "1", code: "doc123", userId: "user-1", targetType: "document", targetId: "42", createdAt: new Date(),
+    });
+    mockGetDocument.mockResolvedValue({
+      id: "42", userId: "user-1", filename: "stored.pdf", originalName: "CV.pdf",
+      mimeType: "application/pdf", demoProvenance: true, applicationIds: [], applications: [],
+    });
+
+    const res = await GET(makeRequest("http://localhost/s/doc123"), makeParams("doc123"));
+
+    expect(res.status).toBe(404);
+    expect(mockFileExists).not.toHaveBeenCalled();
+    expect(mockDownloadFile).not.toHaveBeenCalled();
+  });
 });

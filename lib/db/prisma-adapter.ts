@@ -438,11 +438,20 @@ export class PrismaAdapter implements DatabaseAdapter {
       await tx.document.updateMany({
         where: {
           userId,
+          applications: {
+            some: { userId, demoWorkspaceId: workspace.id, isDemo: true },
+          },
+        },
+        data: { demoProvenance: true },
+      });
+      await tx.document.updateMany({
+        where: {
+          userId,
           submission: {
             application: { userId, demoWorkspaceId: workspace.id, isDemo: true },
           },
         },
-        data: { state: "historical" },
+        data: { state: "historical", demoProvenance: true },
       });
       await tx.demoWorkspace.delete({ where: { id: workspace.id, userId } });
       return { deletedApplications, deletedEvents };
@@ -1729,7 +1738,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       });
       if (
         options?.requireNonDemoProvenance
-        && existing.applications.length > 0
+        && (existing.demoProvenance || existing.applications.length > 0)
         && !existing.applications.some((application) => application.userId === userId && !application.isDemo)
       ) throw new Error("not_found");
       const keys = Object.keys(data);
@@ -1756,6 +1765,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     if (submissionId || rest.state === "submitted") throw new Error("submitted_state_reserved");
     const requestedApplicationIds = Array.from(new Set(applicationIds.map(nid)));
     const row = await prisma.$transaction(async (tx) => {
+      const owner = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!owner.length) throw new Error("user_not_found");
       const owned = requestedApplicationIds.length
         ? await tx.application.findMany({
             where: {
@@ -1763,7 +1776,7 @@ export class PrismaAdapter implements DatabaseAdapter {
               userId,
               ...(options?.requireNonDemoProvenance ? { isDemo: false } : {}),
             },
-            select: { id: true },
+            select: { id: true, isDemo: true },
           })
         : [];
       if (owned.length !== requestedApplicationIds.length) throw new Error("invalid_applications");
@@ -1772,6 +1785,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           userId,
           ...rest,
           submissionId: null,
+          demoProvenance: owned.some((application) => application.isDemo),
           applications: requestedApplicationIds.length
             ? { connect: requestedApplicationIds.map((id) => ({ id })) }
             : undefined,
@@ -1786,6 +1800,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     const documentId = nid(id);
     const requestedApplicationIds = Array.from(new Set(applicationIds)).map(nid);
     return prisma.$transaction(async (tx) => {
+      const owner = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!owner.length) throw new Error("user_not_found");
       const locked = await tx.$queryRaw<Array<{ submissionId: number | null; state: string }>>`
         SELECT "submissionId", "state"
         FROM "Document"
@@ -1799,7 +1817,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       });
       if (
         options?.requireNonDemoProvenance
-        && existing.applications.length > 0
+        && (existing.demoProvenance || existing.applications.length > 0)
         && !existing.applications.some((application) => application.userId === userId && !application.isDemo)
       ) throw new Error("not_found");
       if (locked[0].submissionId !== null || locked[0].state === "submitted" || locked[0].state === "historical") {
@@ -1811,12 +1829,15 @@ export class PrismaAdapter implements DatabaseAdapter {
           userId,
           ...(options?.requireNonDemoProvenance ? { isDemo: false } : {}),
         },
-        select: { id: true },
+        select: { id: true, isDemo: true },
       });
       if (owned.length !== requestedApplicationIds.length) throw new Error("invalid_applications");
       const row = await tx.document.update({
         where: { id: documentId, userId },
-        data: { applications: { set: owned.map((application) => ({ id: application.id })) } },
+        data: {
+          demoProvenance: existing.demoProvenance || owned.some((application) => application.isDemo),
+          applications: { set: owned.map((application) => ({ id: application.id })) },
+        },
         include: { applications: { select: { id: true, company: true, role: true } } },
       });
       return mapDoc(row);
@@ -1854,7 +1875,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       });
       if (
         options?.requireNonDemoProvenance
-        && provenance.applications.length > 0
+        && (provenance.demoProvenance || provenance.applications.length > 0)
         && !provenance.applications.some((application) => application.userId === userId && !application.isDemo)
       ) throw new Error("not_found");
       if (locked[0].submissionId !== null || locked[0].state === "submitted" || locked[0].state === "historical") {

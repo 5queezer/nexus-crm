@@ -713,10 +713,10 @@ describe("FirestoreAdapter — retryable application deletion", () => {
     Object.values(stores).forEach((store) => store.clear());
   });
 
-  it("removes only the deleted application link without overwriting a concurrent document mutation", async () => {
+  it("marks durable demo provenance while detaching a demo application without overwriting a concurrent document mutation", async () => {
     const adapter = new FirestoreAdapter();
     stores.applications.set("app-1", {
-      userId: "user-1", company: "Acme", role: "Engineer", canonicalJobUrl: null,
+      userId: "user-1", company: "Acme", role: "Engineer", canonicalJobUrl: null, isDemo: true,
     });
     stores.documents.set("doc-1", {
       userId: "user-1",
@@ -743,6 +743,7 @@ describe("FirestoreAdapter — retryable application deletion", () => {
       applicationIds: ["app-2", "app-3"],
       submissionId: null,
       state: "superseded",
+      demoProvenance: true,
     });
   });
 
@@ -1206,6 +1207,19 @@ describe("FirestoreAdapter — document operations", () => {
       expect(stores.documents.size).toBe(0);
     });
 
+    it("persists demo provenance when an interactive upload links a demo parent", async () => {
+      seedApps([{ id: "demo-app", userId, company: "Demo", role: "Explorer" }]);
+      stores.applications.get("demo-app")!.isDemo = true;
+
+      const result = await adapter.createDocument(userId, {
+        filename: "doc.pdf", originalName: "doc.pdf", size: 512,
+        mimeType: "application/pdf", applicationIds: ["demo-app"],
+      });
+
+      expect(result.demoProvenance).toBe(true);
+      expect(stores.documents.get(result.id)!.demoProvenance).toBe(true);
+    });
+
     it("handles empty applicationIds without calling getAll", async () => {
       const result = await adapter.createDocument(userId, {
         filename: "empty.pdf",
@@ -1250,6 +1264,26 @@ describe("FirestoreAdapter — document operations", () => {
 
       expect(mockGetAll).toHaveBeenCalledTimes(1);
       expect(result.applications).toHaveLength(2);
+    });
+
+    it("keeps demo provenance sticky after relinking to a real parent", async () => {
+      seedDocs([{
+        id: "doc-1", userId, filename: "f.pdf", originalName: "f.pdf",
+        size: 100, mimeType: "application/pdf", applicationIds: [],
+      }]);
+      seedApps([
+        { id: "demo-app", userId, company: "Demo", role: "Explorer" },
+        { id: "real-app", userId, company: "Real", role: "Engineer" },
+      ]);
+      stores.applications.get("demo-app")!.isDemo = true;
+
+      await adapter.updateDocumentLinks("doc-1", userId, ["demo-app"]);
+      expect(stores.documents.get("doc-1")!.demoProvenance).toBe(true);
+      await adapter.updateDocumentLinks("doc-1", userId, ["real-app"]);
+      await expect(adapter.updateDocumentLinks("doc-1", userId, ["real-app"], { requireNonDemoProvenance: true }))
+        .resolves.toMatchObject({ demoProvenance: true });
+      await expect(adapter.updateDocumentMetadata("doc-1", userId, { version: 2 }, { requireNonDemoProvenance: true }))
+        .resolves.toMatchObject({ version: 2, demoProvenance: true });
     });
 
     it("rejects if document not owned by user", async () => {
@@ -1301,6 +1335,24 @@ describe("FirestoreAdapter — document operations", () => {
       expect(stores.documents.get("doc-1")!.version).not.toBe(2);
       expect(stores.documents.get("doc-1")!.applicationIds).toEqual(["demo-app"]);
       expect(stores.documents.has("doc-1")).toBe(true);
+    });
+
+    it("rejects guarded mutations for detached sticky demo provenance", async () => {
+      seedDocs([{
+        id: "doc-1", userId, filename: "f.pdf", originalName: "f.pdf",
+        size: 100, mimeType: "application/pdf", applicationIds: [],
+      }]);
+      stores.documents.get("doc-1")!.demoProvenance = true;
+
+      await expect(adapter.updateDocumentMetadata("doc-1", userId, { version: 2 }, guard))
+        .rejects.toThrow("not_found");
+      await expect(adapter.updateDocumentLinks("doc-1", userId, [], guard))
+        .rejects.toThrow("not_found");
+      await expect(adapter.deleteDocument("doc-1", userId, guard))
+        .rejects.toThrow("not_found");
+
+      expect(stores.documents.get("doc-1")!).toMatchObject({ demoProvenance: true });
+      expect(stores.documents.get("doc-1")!.version).toBeUndefined();
     });
 
     it("rejects guarded replacement links to demo applications", async () => {

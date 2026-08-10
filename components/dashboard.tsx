@@ -261,10 +261,11 @@ export function Dashboard({
     }
   }
 
-  function handleNewApplication() {
+  const handleNewApplication = useCallback(() => {
+    if (demoWorkspaceStatus?.hasDemoWorkspace === true) return;
     modalOpenerRef.current = document.activeElement as HTMLElement | null;
     setIsModalOpen(true);
-  }
+  }, [demoWorkspaceStatus?.hasDemoWorkspace]);
 
   function handleRemoveDemoWorkspace() {
     if (confirm(tc("remove_demo"))) {
@@ -789,6 +790,7 @@ export function Dashboard({
     scopedSelectedIds,
     toggleSelect,
     handleEdit,
+    handleNewApplication,
   ]);
 
   if (isLoading) {
@@ -965,6 +967,7 @@ export function Dashboard({
               />
             }
             onCreate={handleNewApplication}
+            createDisabled={demoWorkspaceStatus?.hasDemoWorkspace === true}
             createLabel={ta("new_application")}
             focusLabel={tw("focus")}
             tableLabel={tn("table_view")}
@@ -1074,6 +1077,7 @@ export function Dashboard({
           <button
             type="button"
             onClick={handleNewApplication}
+            disabled={demoWorkspaceStatus?.hasDemoWorkspace === true}
             data-dashboard-create-control="mobile"
             className="nexus-fab nexus-fixed-bottom fixed right-4 z-40 lg:hidden"
           >

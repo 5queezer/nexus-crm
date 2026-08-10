@@ -48,6 +48,14 @@ describe("PrismaAdapter — demo workspace deletion", () => {
     expect(fake.transaction.document.updateMany).toHaveBeenCalledWith({
       where: {
         userId: "owner-1",
+        applications: { some: { userId: "owner-1", demoWorkspaceId: 7, isDemo: true } },
+      },
+      data: { demoProvenance: true },
+    });
+
+    expect(fake.transaction.document.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: "owner-1",
         submission: {
           application: {
             userId: "owner-1",
@@ -56,8 +64,8 @@ describe("PrismaAdapter — demo workspace deletion", () => {
           },
         },
       },
-      data: { state: "historical" },
+      data: { state: "historical", demoProvenance: true },
     });
-    expect(fake.calls).toEqual(["document.updateMany", "workspace.delete"]);
+    expect(fake.calls).toEqual(["document.updateMany", "document.updateMany", "workspace.delete"]);
   });
 });

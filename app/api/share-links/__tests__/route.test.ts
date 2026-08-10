@@ -67,6 +67,24 @@ describe("POST /api/share-links", () => {
     expect(mocks.getApplication).toHaveBeenCalledWith("demo-app", "user-1", { demoVisibility: "exclude" });
     expect(mocks.createShareLink).not.toHaveBeenCalled();
   });
+
+  it("does not mint a public link for a detached document with demo provenance", async () => {
+    mocks.requireSessionAuth.mockResolvedValue(session);
+    mocks.getDocument.mockResolvedValue({
+      id: "demo-doc", userId: "user-1", demoProvenance: true,
+      applicationIds: [], applications: [],
+    });
+    const request = new NextRequest("https://example.test/api/share-links", {
+      method: "POST",
+      body: JSON.stringify({ targetType: "document", targetId: "demo-doc" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(404);
+    expect(mocks.createShareLink).not.toHaveBeenCalled();
+  });
 });
 
 describe("share-link lifecycle", () => {

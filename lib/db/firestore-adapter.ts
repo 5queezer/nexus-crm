@@ -167,6 +167,7 @@ function mapDoc(id: string, data: FirebaseFirestore.DocumentData): DocumentRecor
     submittedAt: toDate(data.submittedAt),
     submissionId: data.submissionId ?? null,
     uploadedAt: toDate(data.uploadedAt) ?? new Date(),
+    demoProvenance: data.demoProvenance === true,
     applicationIds: Array.isArray(data.applicationIds) ? data.applicationIds : [],
     applications: data._applications,
   };
@@ -804,13 +805,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   private async deleteApplicationCascade(id: string, userId: string): Promise<void> {
     const ref = this.apps.doc(id);
-    await this.db.runTransaction(async (transaction) => {
+    const deletingDemo = await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(ref);
       if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
       transaction.update(ref, {
         deletionState: "in_progress",
         deletionStartedAt: FieldValue.serverTimestamp(),
       });
+      return existing.data()!.isDemo === true;
     });
 
     const [contactSnap, submissionSnap, eventSnap, linkedDocumentSnap] = await Promise.all([
@@ -844,6 +846,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         ref: document.ref,
         data: {
           applicationIds: FieldValue.arrayRemove(id),
+          ...(deletingDemo && { demoProvenance: true }),
           ...(belongsToDeletedSubmission && {
             submissionId: null,
             state: "historical",
@@ -1923,16 +1926,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const currentApplicationIds = Array.isArray(existing.data()!.applicationIds)
         ? Array.from(new Set(existing.data()!.applicationIds as string[]))
         : [];
-      if (options?.requireNonDemoProvenance && currentApplicationIds.length > 0) {
+      if (options?.requireNonDemoProvenance) {
         const applications = await Promise.all(
           currentApplicationIds.map((applicationId) => transaction.get(this.apps.doc(applicationId))),
         );
-        if (!applications.some((application) =>
+        const hasConfirmedRealParent = applications.some((application) =>
           application.exists
           && application.data()!.userId === userId
           && application.data()!.isDemo !== true
           && application.data()!.deletionState !== "in_progress"
-        )) throw new Error("not_found");
+        );
+        if ((existing.data()!.demoProvenance === true || currentApplicationIds.length > 0) && !hasConfirmedRealParent) {
+          throw new Error("not_found");
+        }
       }
       const submissionId = existing.data()!.submissionId;
       const keys = Object.keys(data);
@@ -1964,7 +1970,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       applicationIds: uniqueApplicationIds,
       uploadedAt: Timestamp.now(),
     };
-    const applicationData = await this.db.runTransaction(async (transaction) => {
+    const creation = await this.db.runTransaction(async (transaction) => {
       const applicationSnapshots = await Promise.all(
         applicationReferences.map((applicationReference) => transaction.get(applicationReference)),
       );
@@ -1976,15 +1982,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
       )) {
         throw new Error("invalid_applications");
       }
-      transaction.create(reference, payload);
-      return applicationSnapshots.map((snapshot) => ({
-        id: snapshot.id,
-        company: String(snapshot.data()!.company),
-        role: String(snapshot.data()!.role),
-      }));
+      const demoProvenance = applicationSnapshots.some((snapshot) => snapshot.data()!.isDemo === true);
+      transaction.create(reference, { ...payload, demoProvenance });
+      return {
+        demoProvenance,
+        applications: applicationSnapshots.map((snapshot) => ({
+          id: snapshot.id,
+          company: String(snapshot.data()!.company),
+          role: String(snapshot.data()!.role),
+        })),
+      };
     });
-    const record = mapDoc(reference.id, payload);
-    record.applications = applicationData;
+    const record = mapDoc(reference.id, { ...payload, demoProvenance: creation.demoProvenance });
+    record.applications = creation.applications;
     return record;
   }
 
@@ -1998,16 +2008,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const currentApplicationIds = Array.isArray(existing.data()!.applicationIds)
         ? Array.from(new Set(existing.data()!.applicationIds as string[]))
         : [];
-      if (options?.requireNonDemoProvenance && currentApplicationIds.length > 0) {
+      if (options?.requireNonDemoProvenance) {
         const currentApplications = await Promise.all(
           currentApplicationIds.map((applicationId) => transaction.get(this.apps.doc(applicationId))),
         );
-        if (!currentApplications.some((application) =>
+        const hasConfirmedRealParent = currentApplications.some((application) =>
           application.exists
           && application.data()!.userId === userId
           && application.data()!.isDemo !== true
           && application.data()!.deletionState !== "in_progress"
-        )) throw new Error("not_found");
+        );
+        if ((existing.data()!.demoProvenance === true || currentApplicationIds.length > 0) && !hasConfirmedRealParent) {
+          throw new Error("not_found");
+        }
       }
       if (
         existing.data()!.submissionId
@@ -2025,7 +2038,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
       )) {
         throw new Error("invalid_applications");
       }
-      transaction.update(reference, { applicationIds: uniqueApplicationIds });
+      transaction.update(reference, {
+        applicationIds: uniqueApplicationIds,
+        demoProvenance: existing.data()!.demoProvenance === true
+          || applicationSnapshots.some((snapshot) => snapshot.data()!.isDemo === true),
+      });
     });
     return (await this.getDocument(id, userId))!;
   }
@@ -2054,16 +2071,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const currentApplicationIds = Array.isArray(existing.data()!.applicationIds)
         ? Array.from(new Set(existing.data()!.applicationIds as string[]))
         : [];
-      if (options?.requireNonDemoProvenance && currentApplicationIds.length > 0) {
+      if (options?.requireNonDemoProvenance) {
         const applications = await Promise.all(
           currentApplicationIds.map((applicationId) => transaction.get(this.apps.doc(applicationId))),
         );
-        if (!applications.some((application) =>
+        const hasConfirmedRealParent = applications.some((application) =>
           application.exists
           && application.data()!.userId === userId
           && application.data()!.isDemo !== true
           && application.data()!.deletionState !== "in_progress"
-        )) throw new Error("not_found");
+        );
+        if ((existing.data()!.demoProvenance === true || currentApplicationIds.length > 0) && !hasConfirmedRealParent) {
+          throw new Error("not_found");
+        }
       }
       if (
         existing.data()!.submissionId

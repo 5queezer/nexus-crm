@@ -19,6 +19,10 @@ MCP, internal-agent, and public-share application queries SHALL exclude demo app
 - **WHEN** a share page is generated for an owner with demo data
 - **THEN** no demo application is disclosed or counted
 
+#### Scenario: Document detached during demo removal
+- **WHEN** a document previously associated with a demo application is retained while that demo application is removed
+- **THEN** Prisma and Firestore persist durable demo provenance before detachment, machine and public reads fail closed unless a confirmed real parent remains, and internal provenance markers are never returned
+
 ### Requirement: Machine mutations cannot target demos
 MCP and internal-agent read-before-write paths SHALL treat demo applications as unavailable and SHALL not update, delete, attach children to, or derive artifacts from them.
 

@@ -1,3 +1,6 @@
+ALTER TABLE "Document"
+  ADD COLUMN "demoProvenance" BOOLEAN NOT NULL DEFAULT false;
+
 CREATE TABLE "DemoWorkspace" (
   "id" SERIAL NOT NULL,
   "userId" TEXT NOT NULL,

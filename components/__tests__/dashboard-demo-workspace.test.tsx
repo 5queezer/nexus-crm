@@ -184,6 +184,19 @@ describe("Dashboard demo workspace ownership", () => {
     expect(within(banner).getByRole("button", { name: "dashboard.remove_demo" })).toBeTruthy();
   });
 
+  it("disables real application creation while the demo workspace exists", async () => {
+    const demo = application("demo", true, "interview");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: true, canCreateDemoWorkspace: false }) } as Response
+      : { ok: true, json: async () => [demo] } as Response));
+
+    renderDashboard();
+
+    const createControls = await screen.findAllByRole("button", { name: "actions.new_application" });
+    expect(createControls).toHaveLength(2);
+    expect(createControls.every((control) => control.hasAttribute("disabled"))).toBe(true);
+  });
+
   it("does not archive a demo row through its row action", async () => {
     const demo = application("demo", true, "interview");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
