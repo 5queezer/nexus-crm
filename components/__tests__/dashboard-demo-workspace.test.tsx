@@ -50,11 +50,14 @@ function application(id: string, isDemo: boolean, status: Application["status"])
   };
 }
 
-function renderDashboard(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderDashboard(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  isAdmin = false,
+) {
   return render(
     <QueryClientProvider client={client}>
       <Dashboard
-        user={{ id: "user-1", email: "user@example.com", isAdmin: false }}
+        user={{ id: "user-1", email: "user@example.com", isAdmin }}
         shareUrl="https://example.com/share"
       />
     </QueryClientProvider>,
@@ -89,6 +92,13 @@ describe("Dashboard demo workspace ownership", () => {
         applications = [application("demo", true, "interview")];
         return { ok: true, json: async () => ({ created: true }) } as Response;
       }
+      if (_input === "/api/demo-workspace") {
+        const hasDemoWorkspace = applications.some((item) => item.isDemo);
+        return { ok: true, json: async () => ({
+          hasDemoWorkspace,
+          canCreateDemoWorkspace: applications.length === 0,
+        }) } as Response;
+      }
       return { ok: true, json: async () => applications } as Response;
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -106,6 +116,9 @@ describe("Dashboard demo workspace ownership", () => {
     const demo = application("demo", true, "offer");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "DELETE") return { ok: true, json: async () => ({ deleted: 1 }) } as Response;
+      if (input === "/api/demo-workspace") {
+        return { ok: true, json: async () => ({ hasDemoWorkspace: true, canCreateDemoWorkspace: false }) } as Response;
+      }
       return { ok: true, json: async () => [demo] } as Response;
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -128,10 +141,9 @@ describe("Dashboard demo workspace ownership", () => {
 
   it("does not allow ordinary deletion of a demo row or hide its workspace banner", async () => {
     const demo = application("demo", true, "interview");
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => [demo],
-    }) as Response);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: true, canCreateDemoWorkspace: false }) } as Response
+      : { ok: true, json: async () => [demo] } as Response);
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("confirm", vi.fn(() => true));
     const user = userEvent.setup();
@@ -151,10 +163,9 @@ describe("Dashboard demo workspace ownership", () => {
 
   it("does not bulk-delete a selected demo row or hide its workspace banner", async () => {
     const demo = application("demo", true, "interview");
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => [demo],
-    }) as Response);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: true, canCreateDemoWorkspace: false }) } as Response
+      : { ok: true, json: async () => [demo] } as Response);
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("confirm", vi.fn(() => true));
     const user = userEvent.setup();
@@ -171,5 +182,59 @@ describe("Dashboard demo workspace ownership", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/applications/demo", { method: "DELETE" });
     expect(banner.isConnected).toBe(true);
     expect(within(banner).getByRole("button", { name: "dashboard.remove_demo" })).toBeTruthy();
+  });
+
+  it("does not offer demo creation when the owner has only archived real applications", async () => {
+    const archived = {
+      ...application("archived", false, "rejected"),
+      archivedAt: "2026-08-09T00:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: false, canCreateDemoWorkspace: false }) } as Response
+      : { ok: true, json: async () => [archived] } as Response));
+
+    renderDashboard();
+
+    await screen.findByText("focus.true_empty_title");
+    expect(screen.queryByRole("button", { name: "focus.create_demo" })).toBeNull();
+  });
+
+  it("does not show another tenant's demo-removal banner to an administrator", async () => {
+    const otherTenantDemo = application("other-demo", true, "interview");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: false, canCreateDemoWorkspace: true }) } as Response
+      : { ok: true, json: async () => [otherTenantDemo] } as Response));
+
+    renderDashboard(undefined, true);
+
+    await screen.findByText("Demo Company");
+    expect(screen.queryByRole("status", { name: "dashboard.demo_banner_title" })).toBeNull();
+  });
+
+  it("refreshes demo eligibility after deleting the final real application", async () => {
+    let applications = [application("real", false, "interview")];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === "/api/applications/real" && init?.method === "DELETE") {
+        applications = [];
+        return { ok: true } as Response;
+      }
+      if (input === "/api/demo-workspace") {
+        return { ok: true, json: async () => ({
+          hasDemoWorkspace: false,
+          canCreateDemoWorkspace: applications.length === 0,
+        }) } as Response;
+      }
+      return { ok: true, json: async () => applications } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const user = userEvent.setup();
+    renderDashboard();
+
+    await user.click(await screen.findByRole("button", { name: "actions.opportunity_actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "actions.delete" }));
+
+    expect(await screen.findByRole("button", { name: "focus.create_demo" })).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/demo-workspace")).toHaveLength(2);
   });
 });

@@ -5,6 +5,19 @@ import { requireSessionAuth } from "@/lib/session";
 
 const NO_STORE = { "Cache-Control": "private, no-store, max-age=0" };
 
+export async function GET() {
+  const auth = await requireSessionAuth({ allowDevBypass: false });
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: NO_STORE });
+
+  const applications = await getDb().listApplications(auth.userId, { demoVisibility: "include" });
+  const hasDemoWorkspace = applications.some((application) => application.isDemo === true);
+  const hasRealApplications = applications.some((application) => application.isDemo !== true);
+  return NextResponse.json(
+    { hasDemoWorkspace, canCreateDemoWorkspace: !hasDemoWorkspace && !hasRealApplications },
+    { headers: NO_STORE },
+  );
+}
+
 export async function POST() {
   const auth = await requireSessionAuth({ allowDevBypass: false });
   if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: NO_STORE });

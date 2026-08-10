@@ -64,6 +64,17 @@ async function fetchApplications(): Promise<Application[]> {
   return res.json();
 }
 
+interface DemoWorkspaceStatus {
+  hasDemoWorkspace: boolean;
+  canCreateDemoWorkspace: boolean;
+}
+
+async function fetchDemoWorkspaceStatus(): Promise<DemoWorkspaceStatus> {
+  const res = await fetch("/api/demo-workspace");
+  if (!res.ok) throw new Error("Failed to fetch demo workspace status");
+  return res.json();
+}
+
 async function createDemoWorkspace(): Promise<void> {
   const res = await fetch("/api/demo-workspace", { method: "POST" });
   if (!res.ok) throw new Error("Failed to create demo workspace");
@@ -188,11 +199,16 @@ export function Dashboard({
     queryKey: ["applications"],
     queryFn: fetchApplications,
   });
+  const { data: demoWorkspaceStatus } = useQuery({
+    queryKey: ["demo-workspace-status"],
+    queryFn: fetchDemoWorkspaceStatus,
+  });
 
   const refreshDemoQueries = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["applications"] }),
       queryClient.invalidateQueries({ queryKey: ["activity"] }),
+      queryClient.invalidateQueries({ queryKey: ["demo-workspace-status"] }),
     ]);
   }, [queryClient]);
 
@@ -218,6 +234,7 @@ export function Dashboard({
     mutationFn: deleteApplication,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["demo-workspace-status"] });
     },
   });
 
@@ -595,6 +612,7 @@ export function Dashboard({
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["demo-workspace-status"] });
       clearSelection();
     },
   });
@@ -806,7 +824,10 @@ export function Dashboard({
   }
 
   // Onboarding is only eligible after the initial request succeeds.
-  const showOnboarding = !onboardingComplete && applications.length === 0;
+  const showOnboarding =
+    !onboardingComplete &&
+    applications.length === 0 &&
+    demoWorkspaceStatus?.canCreateDemoWorkspace === true;
 
   return (
     <div className="nexus-shell">
@@ -830,7 +851,7 @@ export function Dashboard({
       ) : (
         <>
       <main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
-        {applications.some((application) => application.isDemo) && (
+        {demoWorkspaceStatus?.hasDemoWorkspace === true && (
           <section
             role="status"
             aria-label={t("demo_banner_title")}
@@ -993,7 +1014,9 @@ export function Dashboard({
             onDelete={handleDelete}
             onArchive={handleArchive}
             onCreate={handleNewApplication}
-            onCreateDemo={() => createDemoMutation.mutate()}
+            onCreateDemo={demoWorkspaceStatus?.canCreateDemoWorkspace
+              ? () => createDemoMutation.mutate()
+              : undefined}
             demoCreationPending={createDemoMutation.isPending}
             demoCreationError={createDemoMutation.isError ? t("demo_create_error") : undefined}
             onClearFilters={clearFilters}

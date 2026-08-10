@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   requireSessionAuth: vi.fn(),
   ensureDemoWorkspace: vi.fn(),
   deleteDemoWorkspace: vi.fn(),
+  listApplications: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({ requireSessionAuth: mocks.requireSessionAuth }));
@@ -11,10 +12,11 @@ vi.mock("@/lib/db", () => ({
   getDb: () => ({
     ensureDemoWorkspace: mocks.ensureDemoWorkspace,
     deleteDemoWorkspace: mocks.deleteDemoWorkspace,
+    listApplications: mocks.listApplications,
   }),
 }));
 
-import { DELETE, POST } from "../route";
+import { DELETE, GET, POST } from "../route";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -51,5 +53,31 @@ describe("/api/demo-workspace", () => {
     const response = await DELETE();
     expect(response.status).toBe(200);
     expect(mocks.deleteDemoWorkspace).toHaveBeenCalledWith("owner-1");
+  });
+
+  it("reports owner-scoped eligibility across active and archived rows", async () => {
+    mocks.requireSessionAuth.mockResolvedValue({ userId: "owner-1" });
+    mocks.listApplications.mockResolvedValue([{ id: "archived-real", isDemo: false, archivedAt: new Date() }]);
+
+    const response = await GET();
+
+    expect(mocks.listApplications).toHaveBeenCalledWith("owner-1", { demoVisibility: "include" });
+    await expect(response.json()).resolves.toEqual({
+      hasDemoWorkspace: false,
+      canCreateDemoWorkspace: false,
+    });
+  });
+
+  it("reports only the authenticated owner's demo workspace", async () => {
+    mocks.requireSessionAuth.mockResolvedValue({ userId: "admin-1" });
+    mocks.listApplications.mockResolvedValue([{ id: "own-demo", isDemo: true }]);
+
+    const response = await GET();
+
+    expect(mocks.listApplications).toHaveBeenCalledWith("admin-1", { demoVisibility: "include" });
+    await expect(response.json()).resolves.toEqual({
+      hasDemoWorkspace: true,
+      canCreateDemoWorkspace: false,
+    });
   });
 });
