@@ -289,6 +289,7 @@ export function Dashboard({
   }
 
   function handleArchive(id: string, archive: boolean) {
+    if (applications.some((application) => application.id === id && application.isDemo)) return;
     removeFromSelection(id);
     archiveMutation.mutate({ id, archive });
   }
@@ -624,7 +625,10 @@ export function Dashboard({
   }
 
   function handleBulkArchiveSelected() {
-    const ids = [...scopedSelectedIds];
+    const demoIds = new Set(
+      applications.filter((application) => application.isDemo).map((application) => application.id),
+    );
+    const ids = [...scopedSelectedIds].filter((id) => !demoIds.has(id));
     if (ids.length === 0) return;
     if (confirm(tc("bulk_archive_confirm", { count: ids.length }))) {
       bulkArchiveMutation.mutate(ids);

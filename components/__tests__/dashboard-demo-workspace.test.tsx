@@ -184,6 +184,45 @@ describe("Dashboard demo workspace ownership", () => {
     expect(within(banner).getByRole("button", { name: "dashboard.remove_demo" })).toBeTruthy();
   });
 
+  it("does not archive a demo row through its row action", async () => {
+    const demo = application("demo", true, "interview");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: true, canCreateDemoWorkspace: false }) } as Response
+      : { ok: true, json: async () => [demo] } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderDashboard();
+
+    await user.click(await screen.findByRole("button", { name: "actions.opportunity_actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "actions.archive" }));
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/applications/demo",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  it("does not archive a selected demo row through the bulk action", async () => {
+    const demo = application("demo", true, "interview");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input === "/api/demo-workspace"
+      ? { ok: true, json: async () => ({ hasDemoWorkspace: true, canCreateDemoWorkspace: false }) } as Response
+      : { ok: true, json: async () => [demo] } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const user = userEvent.setup();
+    renderDashboard();
+
+    await user.click(await screen.findByRole("button", { name: "actions.opportunity_actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "focus.select_action" }));
+    await user.click(await screen.findByRole("button", { name: "bulk_actions.archive_selected" }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/applications/demo",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("does not offer demo creation when the owner has only archived real applications", async () => {
     const archived = {
       ...application("archived", false, "rejected"),

@@ -111,6 +111,7 @@ jobs:
             trap - EXIT
             cleanup_transition_containers
             if [ "${service_stopped}" -eq 1 ]; then
+              timeout 45 docker compose -f docker-compose.yaml stop --timeout 30 "${service}" >/dev/null 2>&1 || true
               echo "Service remains stopped; recovery did not reach verified activation." >&2
             fi
             exit "${rc}"
@@ -168,6 +169,15 @@ jobs:
           # verification. Keep it bounded; a timeout or error leaves the trap armed
           # and the service fail-closed instead of retrying an unbounded restart.
           timeout 120 docker compose -f docker-compose.yaml up -d "${service}"
+          readiness_deadline=$((SECONDS + 120))
+          until docker compose -f docker-compose.yaml exec -T "${service}" \
+            node -e 'const http=require("node:http"); const request=http.get({host:"127.0.0.1",port:Number(process.env.PORT||3000),path:"/login",timeout:3000},response=>{response.resume();process.exit(response.statusCode<500?0:1)}); request.on("timeout",()=>request.destroy()); request.on("error",()=>process.exit(1));'; do
+            if [ "${SECONDS}" -ge "${readiness_deadline}" ]; then
+              echo "Service readiness probe timed out; refusing activation." >&2
+              exit 1
+            fi
+            sleep 2
+          done
           service_stopped=0
           cleanup_transition_containers
           trap - EXIT

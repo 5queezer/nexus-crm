@@ -22,10 +22,16 @@ describe("production database recovery workflow", () => {
   it("only restarts after verification, bounds activation, and otherwise remains fail-closed", () => {
     const verified = workflow.indexOf('echo "Applications after migration: ${count_after}"');
     const restart = workflow.indexOf('timeout 120 docker compose -f docker-compose.yaml up -d "${service}"');
+    const readiness = workflow.indexOf('path:"/login",timeout:3000');
+    const activated = workflow.indexOf("service_stopped=0", restart);
 
     const cleanup = workflow.match(/cleanup_transition_on_exit\(\) \{([\s\S]*?)\n          \}/)?.[1] ?? "";
     expect(restart).toBeGreaterThan(verified);
+    expect(readiness).toBeGreaterThan(restart);
+    expect(activated).toBeGreaterThan(readiness);
+    expect(workflow).toContain("Service readiness probe timed out; refusing activation.");
     expect(workflow).toContain("Service remains stopped; recovery did not reach verified activation.");
     expect(cleanup).not.toContain(" up -d");
+    expect(cleanup).toContain('stop --timeout 30 "${service}"');
   });
 });
