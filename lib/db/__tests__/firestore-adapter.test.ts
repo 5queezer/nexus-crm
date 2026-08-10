@@ -10,6 +10,8 @@ const { mockGetAll, stores, mockTimestamp, batchState, queryStats, applyUpdate }
     applicationSubmissions: new Map<string, Record<string, unknown>>(),
     applicationEvents: new Map<string, Record<string, unknown>>(),
     applicationCanonicalUrls: new Map<string, Record<string, unknown>>(),
+    demoWorkspaces: new Map<string, Record<string, unknown>>(),
+    ownerApplicationLifecycles: new Map<string, Record<string, unknown>>(),
     cvPatches: new Map<string, Record<string, unknown>>(),
   };
 
@@ -277,6 +279,7 @@ import {
   submissionInputRequestHash,
   submissionRequestHash,
 } from "../../applications/submission";
+import { createDemoFixtures } from "../../demo-workspace/fixtures";
 
 // ── Test seed helpers ───────────────────────────────────────────────────────
 
@@ -325,6 +328,182 @@ beforeEach(() => {
   queryStats.eventReadSizes = [];
 });
 
+describe("FirestoreAdapter — demo workspace lifecycle", () => {
+  beforeEach(() => {
+    stores.applications.clear();
+    stores.applicationEvents.clear();
+    stores.demoWorkspaces.clear();
+    stores.contacts.clear();
+    stores.documents.clear();
+    stores.applicationSubmissions.clear();
+    stores.applicationCanonicalUrls.clear();
+    stores.cvPatches.clear();
+    stores.ownerApplicationLifecycles.clear();
+  });
+
+  it("creates deterministic owner-scoped demos, replays, filters, and deletes safely", async () => {
+    const adapter = new FirestoreAdapter();
+    const fixtures = createDemoFixtures(new Date("2026-08-10T12:00:00.000Z"));
+
+    const created = await adapter.ensureDemoWorkspace("owner-1", fixtures);
+    expect(created.replayed).toBe(false);
+    expect(created.applications).toHaveLength(fixtures.applications.length);
+    expect(await adapter.listApplications("owner-1", { demoVisibility: "exclude" })).toEqual([]);
+    expect(await adapter.listApplications("owner-1", { demoVisibility: "only" })).toHaveLength(fixtures.applications.length);
+
+    const replay = await adapter.ensureDemoWorkspace("owner-1", fixtures);
+    expect(replay.replayed).toBe(true);
+    expect(stores.applications.size).toBe(fixtures.applications.length);
+
+    const demoApplication = replay.applications[0];
+    const canonicalJobUrl = "https://demo.invalid/job/1";
+    stores.applications.get(demoApplication.id)!.canonicalJobUrl = canonicalJobUrl;
+    stores.contacts.set("demo-contact", { userId: "owner-1", applicationId: demoApplication.id });
+    stores.applicationSubmissions.set("demo-submission", { userId: "owner-1", applicationId: demoApplication.id });
+    stores.documents.set("demo-document", {
+      userId: "owner-1", applicationIds: [demoApplication.id], submissionId: "demo-submission",
+      state: "submitted", filename: "demo.pdf", originalName: "demo.pdf", size: 1, mimeType: "application/pdf",
+    });
+    stores.cvPatches.set(demoApplication.id, { userId: "owner-1", applicationId: demoApplication.id });
+    stores.applicationCanonicalUrls.set(submissionRequestHash({ userId: "owner-1", canonicalJobUrl }), {
+      userId: "owner-1", canonicalJobUrl, applicationId: demoApplication.id,
+    });
+    await adapter.createApplicationEvent(demoApplication.id, "owner-1", {
+      type: "note_added", idempotencyKey: "delete-me", occurredAt: fixtures.createdAt, metadata: { note: "demo" },
+    });
+
+    stores.applications.set("foreign-real", { userId: "owner-2", company: "Real", role: "Role", isDemo: false, createdAt: mockTimestamp });
+    const removed = await adapter.deleteDemoWorkspace("owner-1");
+    expect(removed).toEqual({ deletedApplications: fixtures.applications.length, deletedEvents: fixtures.events.length + 1 });
+    expect(stores.contacts.has("demo-contact")).toBe(false);
+    expect(stores.applicationSubmissions.has("demo-submission")).toBe(false);
+    expect(stores.cvPatches.has(demoApplication.id)).toBe(false);
+    expect(stores.applicationCanonicalUrls.size).toBe(0);
+    expect(stores.documents.get("demo-document")).toMatchObject({ applicationIds: [], submissionId: null, state: "historical" });
+    expect(stores.applications.has("foreign-real")).toBe(true);
+    await expect(adapter.deleteDemoWorkspace("owner-1")).resolves.toEqual({ deletedApplications: 0, deletedEvents: 0 });
+  });
+
+  it("rejects first creation when legacy real applications exist", async () => {
+    const adapter = new FirestoreAdapter();
+    stores.applications.set("legacy-real", { userId: "owner-1", company: "Legacy", role: "Real", createdAt: mockTimestamp });
+    await expect(adapter.ensureDemoWorkspace("owner-1", createDemoFixtures())).rejects.toThrow("real_applications_exist");
+    expect(stores.demoWorkspaces.size).toBe(0);
+  });
+
+  it("reconciles a stale real lifecycle sentinel after the last real application is gone", async () => {
+    const adapter = new FirestoreAdapter();
+    const lifecycleId = submissionRequestHash({ kind: "application-owner", userId: "owner-1" });
+    stores.ownerApplicationLifecycles.set(lifecycleId, {
+      userId: "owner-1",
+      mode: "real",
+      updatedAt: mockTimestamp,
+    });
+    expect(stores.applications.size).toBe(0);
+
+    await expect(adapter.ensureDemoWorkspace("owner-1", createDemoFixtures()))
+      .resolves.toMatchObject({ replayed: false });
+    expect(stores.ownerApplicationLifecycles.get(lifecycleId)).toMatchObject({
+      userId: "owner-1",
+      mode: "demo",
+    });
+  });
+
+  it("propagates demo markers to ordinary events without breaking fixture replay", async () => {
+    const adapter = new FirestoreAdapter();
+    const fixtures = createDemoFixtures(new Date("2026-08-10T12:00:00.000Z"));
+    const created = await adapter.ensureDemoWorkspace("owner-1", fixtures);
+    const application = created.applications[0];
+    const event = await adapter.createApplicationEvent(application.id, "owner-1", {
+      type: "note_added",
+      idempotencyKey: "demo-note-1",
+      occurredAt: new Date("2026-08-10T12:01:00.000Z"),
+      metadata: { note: "Demo interaction" },
+    });
+    expect(event).toMatchObject({
+      isDemo: true,
+      demoWorkspaceId: created.workspace.id,
+      demoKey: expect.stringContaining(`${application.demoKey}:event:`),
+    });
+    await expect(adapter.ensureDemoWorkspace("owner-1", fixtures)).resolves.toMatchObject({ replayed: true });
+  });
+
+  it("requires ready exact owned fixture markers on replay", async () => {
+    const adapter = new FirestoreAdapter();
+    const fixtures = createDemoFixtures();
+    await adapter.ensureDemoWorkspace("owner-1", fixtures);
+    const workspace = Array.from(stores.demoWorkspaces.values())[0];
+    workspace.state = "deleting";
+    await expect(adapter.ensureDemoWorkspace("owner-1", fixtures)).rejects.toThrow("demo_workspace_unavailable");
+    workspace.state = "ready";
+    stores.applications.delete(Array.from(stores.applications.keys())[0]);
+    await expect(adapter.ensureDemoWorkspace("owner-1", fixtures)).rejects.toThrow("demo_workspace_incomplete");
+  });
+
+  it("serializes normal creation against an existing demo lifecycle", async () => {
+    const adapter = new FirestoreAdapter();
+    await adapter.ensureDemoWorkspace("owner-1", createDemoFixtures());
+    await expect(adapter.createApplication("owner-1", {
+      company: "Real", role: "Engineer", status: "inbound", appliedAt: null,
+      lastContact: null, followUpAt: null, notes: null, jobDescription: null,
+      source: null, remote: false, salaryMin: null, salaryMax: null, rating: null, jobUrl: null,
+    })).rejects.toThrow("demo_workspace_exists");
+  });
+
+  it("aborts deletion on inconsistent workspace markers", async () => {
+    const adapter = new FirestoreAdapter();
+    await adapter.ensureDemoWorkspace("owner-1", createDemoFixtures());
+    const app = Array.from(stores.applications.values())[0];
+    app.isDemo = false;
+    await expect(adapter.deleteDemoWorkspace("owner-1")).rejects.toThrow("demo_marker_conflict");
+    expect(stores.demoWorkspaces.size).toBe(1);
+  });
+
+  it("keeps deletion metadata fail-closed across a middle-cascade failure and fully retries", async () => {
+    const adapter = new FirestoreAdapter();
+    const fixtures = createDemoFixtures(new Date("2026-08-10T12:00:00.000Z"));
+    await adapter.ensureDemoWorkspace("owner-1", fixtures);
+    const applicationIds = [...stores.applications.keys()];
+    const workspaceId = [...stores.demoWorkspaces.keys()][0];
+    const lifecycleId = [...stores.ownerApplicationLifecycles.keys()][0];
+    batchState.failOnCommit = 2;
+
+    await expect(adapter.deleteDemoWorkspace("owner-1"))
+      .rejects.toThrow("injected_batch_failure");
+
+    expect(stores.demoWorkspaces.get(workspaceId)).toMatchObject({
+      state: "deleting",
+      deletionApplicationIds: applicationIds,
+      deletionApplicationCount: fixtures.applications.length,
+      deletionEventCount: fixtures.events.length,
+    });
+    expect(stores.ownerApplicationLifecycles.get(lifecycleId)).toMatchObject({
+      mode: "deleting",
+      workspaceId,
+    });
+    expect(stores.applications.size).toBeGreaterThan(0);
+    expect(stores.applications.size).toBeLessThan(fixtures.applications.length);
+
+    batchState.failOnCommit = null;
+    await expect(adapter.deleteDemoWorkspace("owner-1")).resolves.toEqual({
+      deletedApplications: fixtures.applications.length,
+      deletedEvents: fixtures.events.length,
+    });
+
+    expect(stores.demoWorkspaces.size).toBe(0);
+    expect(stores.ownerApplicationLifecycles.size).toBe(0);
+    expect(stores.applications.size).toBe(0);
+    expect(stores.applicationEvents.size).toBe(0);
+    expect(stores.contacts.size).toBe(0);
+    expect(stores.applicationSubmissions.size).toBe(0);
+    expect(stores.applicationCanonicalUrls.size).toBe(0);
+    expect(stores.cvPatches.size).toBe(0);
+    expect(Array.from(stores.documents.values()).every((document) =>
+      !applicationIds.some((id) => (document.applicationIds as string[] | undefined)?.includes(id))
+    )).toBe(true);
+  });
+});
+
 describe("FirestoreAdapter — application metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -369,6 +548,43 @@ describe("FirestoreAdapter — application metadata", () => {
     expect(result.eligibleCountries).toEqual(["ES", "AT"]);
     expect(result.salaryCurrency).toBe("EUR");
     expect(result.requisitionId).toBe("REQ-1");
+  });
+
+  it("persists explicit real markers for direct and delegated batch creates", async () => {
+    const adapter = new FirestoreAdapter();
+    const input = {
+      company: "Acme",
+      role: "Engineer",
+      status: "inbound" as const,
+      appliedAt: null,
+      lastContact: null,
+      followUpAt: null,
+      notes: null,
+      jobDescription: null,
+      source: null,
+      remote: false,
+      salaryMin: null,
+      salaryMax: null,
+      rating: null,
+      jobUrl: null,
+    };
+
+    const direct = await adapter.createApplication("user-1", input);
+    const batch = await adapter.batchUpsertApplications("user-1", [{
+      company: "Beta",
+      role: "Platform Engineer",
+    }]);
+
+    expect(stores.applications.get(direct.id)).toMatchObject({
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
+    });
+    expect(stores.applications.get(batch.results[0].id)).toMatchObject({
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
+    });
   });
 
   it("atomically rejects duplicate canonical job URLs", async () => {
@@ -1015,6 +1231,67 @@ describe("FirestoreAdapter — document operations", () => {
     });
   });
 
+  describe("guarded document mutation provenance", () => {
+    const guard = { requireNonDemoProvenance: true } as const;
+
+    function seedDemoOnlyDocument() {
+      seedApps([{ id: "demo-app", userId, company: "Demo", role: "Explorer" }]);
+      stores.applications.get("demo-app")!.isDemo = true;
+      seedDocs([{
+        id: "doc-1", userId, filename: "f.pdf", originalName: "f.pdf",
+        size: 100, mimeType: "application/pdf", applicationIds: ["demo-app"],
+      }]);
+    }
+
+    it("rejects metadata, relink, and delete atomically for a demo-only document", async () => {
+      seedDemoOnlyDocument();
+
+      await expect(adapter.updateDocumentMetadata("doc-1", userId, { version: 2 }, guard))
+        .rejects.toThrow("not_found");
+      await expect(adapter.updateDocumentLinks("doc-1", userId, [], guard))
+        .rejects.toThrow("not_found");
+      await expect(adapter.deleteDocument("doc-1", userId, guard))
+        .rejects.toThrow("not_found");
+
+      expect(stores.documents.get("doc-1")!.version).not.toBe(2);
+      expect(stores.documents.get("doc-1")!.applicationIds).toEqual(["demo-app"]);
+      expect(stores.documents.has("doc-1")).toBe(true);
+    });
+
+    it("rejects guarded replacement links to demo applications", async () => {
+      seedApps([
+        { id: "real-app", userId, company: "Real", role: "Engineer" },
+        { id: "demo-app", userId, company: "Demo", role: "Explorer" },
+      ]);
+      stores.applications.get("demo-app")!.isDemo = true;
+      seedDocs([{
+        id: "doc-1", userId, filename: "f.pdf", originalName: "f.pdf",
+        size: 100, mimeType: "application/pdf", applicationIds: ["real-app"],
+      }]);
+
+      await expect(adapter.updateDocumentLinks("doc-1", userId, ["demo-app"], guard))
+        .rejects.toThrow("invalid_applications");
+      expect(stores.documents.get("doc-1")!.applicationIds).toEqual(["real-app"]);
+    });
+
+    it("allows guarded mutation for unlinked and legacy-real documents", async () => {
+      seedDocs([{
+        id: "unlinked", userId, filename: "u.pdf", originalName: "u.pdf",
+        size: 100, mimeType: "application/pdf", applicationIds: [],
+      }]);
+      await expect(adapter.updateDocumentMetadata("unlinked", userId, { version: 2 }, guard))
+        .resolves.toMatchObject({ version: 2 });
+
+      seedApps([{ id: "legacy-real", userId, company: "Real", role: "Engineer" }]);
+      seedDocs([{
+        id: "linked", userId, filename: "l.pdf", originalName: "l.pdf",
+        size: 100, mimeType: "application/pdf", applicationIds: ["legacy-real"],
+      }]);
+      await expect(adapter.updateDocumentMetadata("linked", userId, { version: 3 }, guard))
+        .resolves.toMatchObject({ version: 3 });
+    });
+  });
+
   describe("renameDocument", () => {
     it("renames and resolves app refs via batch", async () => {
       seedDocs([{
@@ -1346,6 +1623,141 @@ describe("FirestoreAdapter — first-class application events", () => {
     });
     expect(page.items.map((event) => event.id)).toEqual(["1"]);
     expect(page.nextCursor).toBeNull();
+  });
+
+  it("keeps fixture event keys visible when workspace markers agree with their parents", async () => {
+    const adapter = new FirestoreAdapter();
+    const fixtures = createDemoFixtures(new Date("2026-08-10T12:00:00.000Z"));
+    await adapter.ensureDemoWorkspace(userId, fixtures);
+
+    const page = await adapter.listApplicationEventsFiltered(userId, {
+      order: "newest",
+      limit: 20,
+    }, { demoVisibility: "only" });
+
+    expect(page.items).toHaveLength(fixtures.events.length);
+    expect(page.items.every((event) => event.application?.company.includes("Fictional Demo")))
+      .toBe(true);
+  });
+
+  it("validates parent visibility and marker agreement before filtered pagination", async () => {
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    stores.applications.set("demo-app", {
+      userId,
+      company: "Demo",
+      role: "Engineer",
+      isDemo: true,
+      demoWorkspaceId: "workspace-1",
+      demoKey: "demo-app",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    stores.applications.set("real-app", {
+      userId,
+      company: "Real",
+      role: "Engineer",
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    for (let index = 99; index >= 40; index -= 1) {
+      const applicationId = index % 3 === 0 ? "missing-app" : index % 3 === 1 ? "demo-app" : "real-app";
+      const childClaimsDemo = applicationId === "real-app";
+      stores.applicationEvents.set(String(index).padStart(3, "0"), {
+        userId,
+        applicationId,
+        type: "stage_changed",
+        occurredAt: timestamp,
+        createdAt: timestamp,
+        isDemo: childClaimsDemo,
+        demoWorkspaceId: childClaimsDemo ? "mismatched-workspace" : null,
+        demoKey: childClaimsDemo ? `mismatch:event:${index}` : null,
+      });
+    }
+    stores.applicationEvents.set("002", {
+      userId,
+      applicationId: "real-app",
+      type: "stage_changed",
+      occurredAt: timestamp,
+      createdAt: timestamp,
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
+    });
+    stores.applicationEvents.set("001", {
+      userId,
+      applicationId: "real-app",
+      type: "stage_changed",
+      occurredAt: timestamp,
+      createdAt: timestamp,
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
+    });
+    const adapter = new FirestoreAdapter();
+
+    const first = await adapter.listApplicationEventsFiltered(userId, {
+      order: "newest",
+      limit: 1,
+    }, { demoVisibility: "exclude" });
+    expect(first.items.map((event) => event.id)).toEqual(["002"]);
+    expect(first.items[0].application?.company).toBe("Real");
+    expect(first.nextCursor).toBeTruthy();
+
+    const { decodeEventCursor } = await import("../../applications/events");
+    const second = await adapter.listApplicationEventsFiltered(userId, {
+      order: "newest",
+      limit: 1,
+      cursor: decodeEventCursor(first.nextCursor!),
+    }, { demoVisibility: "exclude" });
+    expect(second.items.map((event) => event.id)).toEqual(["001"]);
+    expect(second.nextCursor).toBeNull();
+    expect(queryStats.eventReadSizes.some((size) => size === 50)).toBe(true);
+  });
+
+  it("validates child marker agreement before applying an application timeline limit", async () => {
+    stores.applications.set("app-1", {
+      userId,
+      company: "Acme Demo",
+      role: "Engineer",
+      isDemo: true,
+      demoWorkspaceId: "workspace-1",
+      demoKey: "app-1",
+      createdAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+    });
+    const timestamp = { toDate: () => new Date("2026-07-24T09:00:00Z") };
+    stores.applicationEvents.set("2", {
+      userId,
+      applicationId: "app-1",
+      type: "stage_changed",
+      occurredAt: timestamp,
+      createdAt: timestamp,
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
+    });
+    stores.applicationEvents.set("1", {
+      userId,
+      applicationId: "app-1",
+      type: "stage_changed",
+      occurredAt: timestamp,
+      createdAt: timestamp,
+      isDemo: true,
+      demoWorkspaceId: "workspace-1",
+      demoKey: "app-1:event:1",
+    });
+
+    const events = await new FirestoreAdapter().listApplicationEvents(
+      "app-1",
+      userId,
+      1,
+      { demoVisibility: "include" },
+    );
+
+    expect(events.map((event) => event.id)).toEqual(["1"]);
   });
 
   it("applies legacy timeline limits before reading Firestore events", async () => {

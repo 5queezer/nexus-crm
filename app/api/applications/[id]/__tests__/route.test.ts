@@ -4,13 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getApplication: vi.fn(),
   updateApplication: vi.fn(),
+  deleteApplication: vi.fn(),
   requireAuth: vi.fn(),
 }));
 
-vi.mock("@/lib/db", () => ({ getDb: () => ({ getApplication: mocks.getApplication, updateApplication: mocks.updateApplication }) }));
+vi.mock("@/lib/db", () => ({ getDb: () => ({
+  getApplication: mocks.getApplication,
+  updateApplication: mocks.updateApplication,
+  deleteApplication: mocks.deleteApplication,
+}) }));
 vi.mock("@/lib/session", () => ({ requireAuth: mocks.requireAuth }));
 
-import { PATCH } from "../route";
+import { DELETE, PATCH } from "../route";
 
 const current = {
   id: "1",
@@ -102,5 +107,25 @@ describe("PATCH /api/applications/:id event-first boundaries", () => {
     const response = await PATCH(request({ company: "Acme 2", status: "interview", currentStage: "technical" }), context);
     expect(response.status).toBe(200);
     expect(mocks.updateApplication).toHaveBeenCalledWith("1", "owner-1", expect.not.objectContaining({ status: expect.anything(), currentStage: expect.anything() }));
+  });
+});
+
+describe("DELETE /api/applications/:id demo workspace boundary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireAuth.mockResolvedValue({ userId: "owner-1" });
+  });
+
+  it("rejects ordinary deletion of a demo application before mutation", async () => {
+    mocks.getApplication.mockResolvedValue({ ...current, isDemo: true, demoWorkspaceId: "workspace-1" });
+
+    const response = await DELETE(
+      new NextRequest("http://localhost/api/applications/1", { method: "DELETE" }),
+      context,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "demo_workspace_removal_required" });
+    expect(mocks.deleteApplication).not.toHaveBeenCalled();
   });
 });

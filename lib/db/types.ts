@@ -84,6 +84,9 @@ export interface ApplicationRecord {
   currentStage: string | null;
   createdAt: Date;
   updatedAt: Date;
+  isDemo: boolean;
+  demoWorkspaceId: string | null;
+  demoKey: string | null;
   contacts?: ContactRecord[];
 }
 
@@ -114,6 +117,8 @@ export interface DocumentRecord {
   submittedAt: Date | null;
   submissionId: string | null;
   uploadedAt: Date;
+  /** Raw parent IDs retained so machine boundaries can detect dangling links. */
+  applicationIds?: string[];
   applications?: ApplicationRef[];
 }
 
@@ -162,6 +167,9 @@ export interface ApplicationEventRecord {
   outcome: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
+  isDemo: boolean;
+  demoWorkspaceId: string | null;
+  demoKey: string | null;
   application?: ApplicationRef;
 }
 
@@ -209,6 +217,41 @@ export interface ApplicationRef {
   id: string;
   company: string;
   role: string;
+}
+
+export type DemoVisibility = "include" | "exclude" | "only";
+
+export interface DemoReadOptions {
+  demoVisibility?: DemoVisibility;
+}
+
+export interface DocumentMutationOptions {
+  /**
+   * Require current raw application associations, and any replacement
+   * associations, to retain owner-scoped non-demo provenance at the same
+   * transactional serialization point as the mutation.
+   */
+  requireNonDemoProvenance?: boolean;
+}
+
+export interface DemoWorkspaceRecord {
+  id: string;
+  userId: string;
+  seedVersion: number;
+  state: "creating" | "ready" | "deleting";
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EnsureDemoWorkspaceResult {
+  workspace: DemoWorkspaceRecord;
+  applications: ApplicationRecord[];
+  replayed: boolean;
+}
+
+export interface DeleteDemoWorkspaceResult {
+  deletedApplications: number;
+  deletedEvents: number;
 }
 
 export interface UserRecord {

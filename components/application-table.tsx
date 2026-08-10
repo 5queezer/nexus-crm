@@ -28,6 +28,7 @@ import { useLocale } from "next-intl";
 import { ActionMenu } from "./action-menu";
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
+import { DemoBadge } from "./demo-badge";
 
 const columnHelper = createColumnHelper<Application>();
 
@@ -213,6 +214,7 @@ function MobileApplicationCard({
           <span className="truncate text-sm font-semibold text-slate-950 dark:text-white">
             {app.company || "—"}
           </span>
+          {app.isDemo && <DemoBadge />}
           <StatusBadge status={app.status} />
         </div>
         <p className="mt-0.5 truncate text-sm text-slate-600 dark:text-slate-300">
@@ -390,6 +392,7 @@ export function ApplicationTable({
             >
               {info.getValue() || "—"}
             </button>
+            {info.row.original.isDemo && <DemoBadge />}
             {info.row.original.jobUrl && (
               <JobLink
                 jobUrl={info.row.original.jobUrl}

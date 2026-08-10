@@ -129,6 +129,7 @@ export async function uploadDocumentContent(
     applicationIds?: string[];
   },
   userId: string,
+  sanitizeDocument?: (document: DocumentRecord) => Promise<DocumentRecord | null>,
 ): Promise<McpToolResponse> {
   try {
     const doc = await uploadDocument({
@@ -138,8 +139,12 @@ export async function uploadDocumentContent(
       buffer: decodeBase64Content(args.contentBase64),
       applicationIds: args.applicationIds,
     });
+    const visible = sanitizeDocument ? await sanitizeDocument(doc) : doc;
+    if (!visible) {
+      return { content: [{ type: "text", text: "Application not found or access denied" }], isError: true };
+    }
     return {
-      content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
+      content: [{ type: "text", text: JSON.stringify(visible, null, 2) }],
     };
   } catch (err) {
     if (err instanceof DocumentUploadError) {

@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, getSourceCategory } from "@/types";
 import { AppHeader } from "./app-header";
+import { realApplications } from "@/lib/demo-workspace/presentation";
 
 async function fetchApplications(): Promise<Application[]> {
   const res = await fetch("/api/applications");
@@ -57,7 +58,10 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
     queryFn: fetchApplications,
   });
 
-  const activeApps = useMemo(() => applications.filter((a) => !a.archivedAt), [applications]);
+  const activeApps = useMemo(
+    () => realApplications(applications).filter((a) => !a.archivedAt),
+    [applications],
+  );
 
   // === Status Breakdown ===
   const { statusCounts, maxStatusCount } = useMemo(() => {

@@ -42,6 +42,7 @@ import { resolveOpportunityView } from "@/lib/applications/workspace-view";
 import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { useApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { applicationsToCsv } from "@/lib/applications/csv-export";
+import { realApplications } from "@/lib/demo-workspace/presentation";
 
 interface DashboardProps {
   user: {
@@ -61,6 +62,16 @@ async function fetchApplications(): Promise<Application[]> {
   const res = await fetch("/api/applications");
   if (!res.ok) throw new Error("Failed to fetch applications");
   return res.json();
+}
+
+async function createDemoWorkspace(): Promise<void> {
+  const res = await fetch("/api/demo-workspace", { method: "POST" });
+  if (!res.ok) throw new Error("Failed to create demo workspace");
+}
+
+async function deleteDemoWorkspace(): Promise<void> {
+  const res = await fetch("/api/demo-workspace", { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete demo workspace");
 }
 
 async function deleteApplication(id: string): Promise<void> {
@@ -178,6 +189,31 @@ export function Dashboard({
     queryFn: fetchApplications,
   });
 
+  const refreshDemoQueries = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["applications"] }),
+      queryClient.invalidateQueries({ queryKey: ["activity"] }),
+    ]);
+  }, [queryClient]);
+
+  const createDemoMutation = useMutation({
+    mutationFn: createDemoWorkspace,
+    onSuccess: refreshDemoQueries,
+  });
+
+  const deleteDemoMutation = useMutation({
+    mutationFn: deleteDemoWorkspace,
+    onSuccess: async () => {
+      const demoIds = new Set(
+        applications.filter((application) => application.isDemo).map(({ id }) => id),
+      );
+      setSelectedIds((previous) =>
+        new Set([...previous].filter((id) => !demoIds.has(id))),
+      );
+      await refreshDemoQueries();
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: deleteApplication,
     onSuccess: () => {
@@ -201,6 +237,7 @@ export function Dashboard({
   );
 
   function handleDelete(id: string) {
+    if (applications.find((application) => application.id === id)?.isDemo) return;
     if (confirm(tc("delete"))) {
       removeFromSelection(id);
       deleteMutation.mutate(id);
@@ -210,6 +247,12 @@ export function Dashboard({
   function handleNewApplication() {
     modalOpenerRef.current = document.activeElement as HTMLElement | null;
     setIsModalOpen(true);
+  }
+
+  function handleRemoveDemoWorkspace() {
+    if (confirm(tc("remove_demo"))) {
+      deleteDemoMutation.mutate();
+    }
   }
 
   function handleCloseModal() {
@@ -250,6 +293,10 @@ export function Dashboard({
   const archivedApplications = useMemo(
     () => applications.filter((application) => !!application.archivedAt),
     [applications],
+  );
+  const realActiveApplications = useMemo(
+    () => realApplications(activeApplications),
+    [activeApplications],
   );
   const visibleApplications = showArchived
     ? archivedApplications
@@ -313,7 +360,7 @@ export function Dashboard({
   function handleBulkArchive(days: number) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    const old = activeApplications.filter((a) => {
+    const old = realActiveApplications.filter((a) => {
       const d = a.appliedAt ? new Date(a.appliedAt) : new Date(a.createdAt);
       return d < cutoff;
     });
@@ -326,7 +373,7 @@ export function Dashboard({
   }
 
   function handleBulkArchiveByRating(maxRating: number) {
-    const lowRated = activeApplications.filter(
+    const lowRated = realActiveApplications.filter(
       (a) =>
         a.rating !== null && a.rating !== undefined && a.rating <= maxRating,
     );
@@ -346,13 +393,13 @@ export function Dashboard({
   }
 
   const stats = {
-    total: activeApplications.length,
-    inbound: activeApplications.filter((a) => a.status === "inbound").length,
-    active: activeApplications.filter((a) =>
+    total: realActiveApplications.length,
+    inbound: realActiveApplications.filter((a) => a.status === "inbound").length,
+    active: realActiveApplications.filter((a) =>
       (["applied", "interview"] as ApplicationStatus[]).includes(a.status),
     ).length,
-    offers: activeApplications.filter((a) => a.status === "offer").length,
-    rejected: activeApplications.filter((a) => a.status === "rejected").length,
+    offers: realActiveApplications.filter((a) => a.status === "offer").length,
+    rejected: realActiveApplications.filter((a) => a.status === "rejected").length,
   };
 
   // Triage stats — single pass over activeApplications
@@ -360,14 +407,14 @@ export function Dashboard({
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     const counts = { thisWeek: 0, 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unrated: 0 };
-    for (const a of activeApplications) {
+    for (const a of realActiveApplications) {
       if (new Date(a.createdAt) >= oneWeekAgo) counts.thisWeek++;
       const q = a.triageQuality;
       if (q != null && q >= 1 && q <= 5) counts[q as 1 | 2 | 3 | 4 | 5]++;
       else counts.unrated++;
     }
     return { ...counts, highPriority: counts[5] + counts[4] };
-  }, [activeApplications]);
+  }, [realActiveApplications]);
 
   function navigateToDataset(archived: boolean) {
     if (archived === showArchived) return;
@@ -396,7 +443,7 @@ export function Dashboard({
     for (const days of ARCHIVE_THRESHOLDS) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
-      const count = activeApplications.filter((application) => {
+      const count = realActiveApplications.filter((application) => {
         const date = application.appliedAt
           ? new Date(application.appliedAt)
           : new Date(application.createdAt);
@@ -412,7 +459,7 @@ export function Dashboard({
       });
     }
     for (const stars of RATING_THRESHOLDS) {
-      const count = activeApplications.filter(
+      const count = realActiveApplications.filter(
         (application) =>
           application.rating != null && application.rating <= stars,
       ).length;
@@ -441,7 +488,7 @@ export function Dashboard({
     }
   });
 
-  const overdueFollowUps = activeApplications.filter((a) => {
+  const overdueFollowUps = realActiveApplications.filter((a) => {
     if (!a.followUpAt) return false;
     // Only show for active pipeline statuses
     if (a.status === "offer" || a.status === "rejected") return false;
@@ -568,7 +615,9 @@ export function Dashboard({
   }
 
   function handleBulkDeleteSelected() {
-    const ids = [...scopedSelectedIds];
+    const ids = [...scopedSelectedIds].filter(
+      (id) => !applications.find((application) => application.id === id)?.isDemo,
+    );
     if (ids.length === 0) return;
     if (confirm(tc("bulk_delete_confirm", { count: ids.length }))) {
       clearSelection();
@@ -772,6 +821,7 @@ export function Dashboard({
 
       {showOnboarding ? (
         <OnboardingWizard
+          onCreateDemo={() => createDemoMutation.mutateAsync()}
           onComplete={() => {
             setOnboardingComplete(true);
             queryClient.invalidateQueries({ queryKey: ["applications"] });
@@ -780,6 +830,31 @@ export function Dashboard({
       ) : (
         <>
       <main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
+        {applications.some((application) => application.isDemo) && (
+          <section
+            role="status"
+            aria-label={t("demo_banner_title")}
+            className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200"
+          >
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold">{t("demo_banner_title")}</h2>
+              <p className="mt-1 text-xs opacity-80">{t("demo_banner_description")}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveDemoWorkspace}
+              disabled={deleteDemoMutation.isPending}
+              className="nexus-button-ghost nexus-target disabled:cursor-wait disabled:opacity-60"
+            >
+              {deleteDemoMutation.isPending ? t("removing_demo") : t("remove_demo")}
+            </button>
+          </section>
+        )}
+        {deleteDemoMutation.isError && (
+          <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-300">
+            {t("demo_remove_error")}
+          </p>
+        )}
         {/* Overdue follow-up banners */}
         {overdueFollowUps.length > 0 && (
           <div className="mb-6 space-y-2">
@@ -918,6 +993,9 @@ export function Dashboard({
             onDelete={handleDelete}
             onArchive={handleArchive}
             onCreate={handleNewApplication}
+            onCreateDemo={() => createDemoMutation.mutate()}
+            demoCreationPending={createDemoMutation.isPending}
+            demoCreationError={createDemoMutation.isError ? t("demo_create_error") : undefined}
             onClearFilters={clearFilters}
             statusMutation={statusMutation}
           />

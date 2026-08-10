@@ -283,7 +283,9 @@ export async function approveProposal(input: {
     executionError("UNSUPPORTED", "Unsupported proposal kind");
   }
 
-  const current = await input.db.getApplication(proposal.targetId, input.userId);
+  const current = await input.db.getApplication(proposal.targetId, input.userId, {
+    demoVisibility: "exclude",
+  });
   if (!current) executionError("TARGET_NOT_FOUND", "Proposal target not found");
   if (
     proposal.baseVersion &&
@@ -324,7 +326,9 @@ export async function approveProposal(input: {
     throw error;
   }
 
-  const readBack = await input.db.getApplication(proposal.targetId, input.userId);
+  const readBack = await input.db.getApplication(proposal.targetId, input.userId, {
+    demoVisibility: "exclude",
+  });
     if (!readBack) throw new Error("Applied target could not be verified");
     const expected = Object.fromEntries(
       proposal.expectedDiff.map((diff) => [diff.field, diff.to]),

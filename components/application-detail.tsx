@@ -23,6 +23,7 @@ import { ContactsSection } from "./application-form/contacts-section";
 import { DocumentsSection } from "./application-form/documents-section";
 import { ResumeSection } from "./application-form/resume-section";
 import { ApplicationTimeline } from "./application-timeline";
+import { DemoBadge } from "./demo-badge";
 
 interface ApplicationDetailProps {
   user: {
@@ -176,6 +177,7 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
                   {form.role || application.role}
                 </h1>
               </div>
+              {application.isDemo && <DemoBadge />}
               <span
                 className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_COLORS[form.status]}`}
               >

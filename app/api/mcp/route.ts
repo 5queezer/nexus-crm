@@ -28,8 +28,13 @@ import {
 } from "@/lib/documents/access";
 import { uploadDocumentContent, MAX_DOCUMENT_BASE64_SIZE } from "@/lib/documents/upload";
 import { deleteDocumentWithContent } from "@/lib/documents/service";
+import { sanitizeDocumentAssociations } from "@/lib/documents/provenance";
 import type { SessionAuthResult, SessionUser } from "@/lib/session";
-import type { SubmissionPolicyInput, UpsertCvProfileInput } from "@/lib/db/types";
+import type {
+  DocumentRecord,
+  SubmissionPolicyInput,
+  UpsertCvProfileInput,
+} from "@/lib/db/types";
 
 const structuredApplicationToolFields = {
   workMode: z.enum(["remote", "hybrid", "onsite", "flexible"]).nullable().optional(),
@@ -54,6 +59,9 @@ const structuredApplicationToolFields = {
   jobSummary: z.string().max(10_000).nullable().optional(),
   currentStage: z.string().max(255).nullable().optional(),
 };
+
+const MACHINE_DEMO_READ = { demoVisibility: "exclude" } as const;
+const MACHINE_DOCUMENT_MUTATION = { requireNonDemoProvenance: true } as const;
 
 const APPLICATION_UPDATE_ERROR_CODES = new Set([
   "not_found",
@@ -176,6 +184,36 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     content: [{ type: "text" as const, text: JSON.stringify({ error: { code: "insufficient_scope", required: "mcp:submissions" } }) }],
     isError: true,
   });
+  const getRealApplication = (id: string, userId: string | null = auth.userId) =>
+    getDb().getApplication(id, userId, MACHINE_DEMO_READ);
+  const requireRealApplication = async (id: string, userId: string | null = auth.userId) => {
+    const application = await getRealApplication(id, userId);
+    if (!application) throw new Error("not_found");
+    return application;
+  };
+  const filterRealDocumentApplications = async <T extends {
+    applicationIds?: string[];
+    applications?: Array<{ id: string }>;
+  }>(document: T, userId: string | null = auth.readScopeUserId): Promise<T | null> => {
+    return sanitizeDocumentAssociations(
+      document,
+      (applicationId) => getRealApplication(applicationId, userId),
+    );
+  };
+  const filterRealDocuments = async (documents: DocumentRecord[]) =>
+    (await Promise.all(documents.map((document) => filterRealDocumentApplications(document))))
+      .filter((document): document is DocumentRecord => document !== null);
+  const filterSubmissionDocuments = async <T extends { documents?: DocumentRecord[] }>(submission: T): Promise<T> =>
+    submission.documents
+      ? { ...submission, documents: await filterRealDocuments(submission.documents) }
+      : submission;
+  const requireExistingRealDocument = async (id: string) => {
+    const existing = await getDb().getDocument(id, auth.userId);
+    if (!existing || !await filterRealDocumentApplications(existing, auth.userId)) {
+      throw new Error("not_found");
+    }
+    return existing;
+  };
 
 
   // ── Applications ────────────────────────────────────────────────────────
@@ -185,7 +223,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     "List all job applications for the authenticated user",
     {},
     async () => {
-      const apps = await getDb().listApplications(auth.readScopeUserId);
+      const apps = await getDb().listApplications(auth.readScopeUserId, MACHINE_DEMO_READ);
       return {
         content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
       };
@@ -197,7 +235,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     "Get a single application by ID",
     { id: z.string().describe("Application ID") },
     async ({ id }) => {
-      const app = await getDb().getApplication(id, auth.readScopeUserId);
+      const app = await getRealApplication(id, auth.readScopeUserId);
       if (!app) {
         return {
           content: [{ type: "text", text: "Application not found" }],
@@ -303,6 +341,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         };
       }
       try {
+        const current = await requireRealApplication(id);
         const update: Record<string, unknown> = {};
         if (data.company !== undefined) update.company = data.company.slice(0, 255);
         if (data.role !== undefined) update.role = data.role.slice(0, 255);
@@ -332,8 +371,6 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         }
 
         if (data.dryRun) {
-          const current = await getDb().getApplication(id, auth.userId);
-          if (!current) throw new Error("not_found");
           if (
             data.expectedUpdatedAt &&
             current.updatedAt.getTime() !== new Date(data.expectedUpdatedAt).getTime()
@@ -372,6 +409,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ id }) => {
       if (!canAccessSubmissions) return submissionScopeError();
       try {
+        await requireRealApplication(id);
         await getDb().deleteApplication(id, auth.userId);
         return { content: [{ type: "text", text: "Application deleted" }] };
       } catch {
@@ -416,6 +454,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async (args) => {
       if (!canAccessSubmissions) return submissionScopeError();
       try {
+        await requireRealApplication(args.applicationId);
         if (
           args.candidateSalaryMin != null &&
           args.candidateSalaryMax != null &&
@@ -447,7 +486,8 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           source: "mcp",
           actor: auth.user.email,
         });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        const sanitized = await filterSubmissionDocuments(result);
+        return { content: [{ type: "text", text: JSON.stringify(sanitized, null, 2) }] };
       } catch (error) {
         const code = controlledErrorCode(error, SUBMISSION_ERROR_CODES, "submission_failed");
         return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
@@ -462,8 +502,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ applicationId }) => {
       if (!canAccessSubmissions) return submissionScopeError();
       try {
+        await requireRealApplication(applicationId);
         const submissions = await getDb().listApplicationSubmissions(applicationId, auth.userId, false);
-        return { content: [{ type: "text", text: JSON.stringify(submissions, null, 2) }] };
+        const sanitized = await Promise.all(submissions.map(filterSubmissionDocuments));
+        return { content: [{ type: "text", text: JSON.stringify(sanitized, null, 2) }] };
       } catch {
         return { content: [{ type: "text", text: "Application not found or access denied" }], isError: true };
       }
@@ -478,7 +520,11 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       if (!canAccessSubmissions) return submissionScopeError();
       const submission = await getDb().getApplicationSubmission(id, auth.userId);
       if (!submission) return { content: [{ type: "text", text: "Submission not found" }], isError: true };
-      return { content: [{ type: "text", text: JSON.stringify(submission, null, 2) }] };
+      if (!await getRealApplication(submission.applicationId)) {
+        return { content: [{ type: "text", text: "Submission not found" }], isError: true };
+      }
+      const sanitized = await filterSubmissionDocuments(submission);
+      return { content: [{ type: "text", text: JSON.stringify(sanitized, null, 2) }] };
     },
   );
 
@@ -494,6 +540,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async (args) => {
       try {
+        await requireRealApplication(args.applicationId);
         const command = parseApplicationEventCommand({
           type: "note_added",
           idempotencyKey: args.idempotencyKey,
@@ -529,6 +576,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async (args) => {
       try {
+        await requireRealApplication(args.applicationId);
         const command = parseApplicationEventCommand({
           type: args.type,
           idempotencyKey: args.idempotencyKey,
@@ -559,10 +607,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ applicationId, cursor, order, limit }) => {
       try {
         const db = getDb();
-        const application = await db.getApplication(applicationId, auth.userId);
+        const application = await db.getApplication(applicationId, auth.userId, MACHINE_DEMO_READ);
         if (!application) throw new Error("not_found");
         const filter = parseEventQuery({ applicationId, cursor, order, limit });
-        const page = await db.listApplicationEventsFiltered(auth.userId, filter);
+        const page = await db.listApplicationEventsFiltered(auth.userId, filter, MACHINE_DEMO_READ);
         return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_query_failed");
@@ -591,7 +639,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async (args) => {
       try {
         const filter = parseEventQuery(args);
-        const page = await getDb().listApplicationEventsFiltered(auth.userId, filter);
+        const page = await getDb().listApplicationEventsFiltered(auth.userId, filter, MACHINE_DEMO_READ);
         return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_query_failed");
@@ -607,17 +655,21 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ applicationId }) => {
       if (!canAccessSubmissions) return submissionScopeError();
       const db = getDb();
-      const application = await db.getApplication(applicationId, auth.userId);
+      const application = await db.getApplication(applicationId, auth.userId, MACHINE_DEMO_READ);
       if (!application) return { content: [{ type: "text", text: "Application not found" }], isError: true };
       const [submissions, events, documents] = await Promise.all([
         db.listApplicationSubmissions(applicationId, auth.userId, true),
-        db.listApplicationEvents(applicationId, auth.userId, 500),
+        db.listApplicationEvents(applicationId, auth.userId, 500, MACHINE_DEMO_READ),
         db.listDocumentsByApplication(applicationId, auth.userId),
+      ]);
+      const [sanitizedSubmissions, sanitizedDocuments] = await Promise.all([
+        Promise.all(submissions.map(filterSubmissionDocuments)),
+        filterRealDocuments(documents),
       ]);
       return {
         content: [{
           type: "text",
-          text: JSON.stringify({ application, submissions, events, documents }, null, 2),
+          text: JSON.stringify({ application, submissions: sanitizedSubmissions, events, documents: sanitizedDocuments }, null, 2),
         }],
       };
     },
@@ -630,7 +682,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ jobUrl }) => {
       const canonicalJobUrl = canonicalizeJobUrl(jobUrl);
       if (!canonicalJobUrl) return { content: [{ type: "text", text: "Invalid URL" }], isError: true };
-      const application = await getDb().findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
+      const application = await getDb().findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl, MACHINE_DEMO_READ);
       return { content: [{ type: "text", text: JSON.stringify({ canonicalJobUrl, application }, null, 2) }] };
     },
   );
@@ -662,7 +714,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           throw new Error("salary_range_invalid");
         }
         const db = getDb();
-        const existing = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
+        const existing = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl, MACHINE_DEMO_READ);
         const metadata = parseStructuredApplicationMetadata(args as unknown as Record<string, unknown>);
         const assertNoLifecycleUpdate = (application: { status: string; currentStage?: string | null }) => {
           if (args.status !== undefined && args.status !== application.status) {
@@ -736,7 +788,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         } catch (error) {
           const code = error instanceof Error ? error.message : "";
           if (code !== "canonical_job_url_conflict") throw error;
-          const concurrent = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl);
+          const concurrent = await db.findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl, MACHINE_DEMO_READ);
           if (!concurrent) throw error;
           application = await updateExisting(concurrent);
           operation = "updated";
@@ -757,17 +809,28 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       if (!canAccessSubmissions) return submissionScopeError();
       const db = getDb();
       const [applications, submissions, documents] = await Promise.all([
-        db.listApplications(auth.userId),
+        db.listApplications(auth.userId, MACHINE_DEMO_READ),
         db.listUserSubmissions(auth.userId),
         db.listDocuments(auth.userId),
       ]);
+      const realApplicationIds = new Set(applications.map((application) => application.id));
+      const visibleDocuments = (await Promise.all(
+        documents.map((document) => filterRealDocumentApplications(document, auth.userId)),
+      )).filter((document): document is NonNullable<typeof document> => document !== null);
       const findings = computeApplicationHealth({
         applications,
-        submissions,
-        documents: documents.map((document) => ({
-          id: document.id,
-          applicationIds: document.applications?.map((application) => application.id) ?? [],
-        })),
+        submissions: submissions.filter((submission) => realApplicationIds.has(submission.applicationId)),
+        documents: visibleDocuments
+          .filter((document) =>
+            !document.applications?.length
+            || document.applications.some((application) => realApplicationIds.has(application.id)),
+          )
+          .map((document) => ({
+            id: document.id,
+            applicationIds: document.applications
+              ?.map((application) => application.id)
+              .filter((applicationId) => realApplicationIds.has(applicationId)) ?? [],
+          })),
       });
       return {
         content: [{
@@ -815,6 +878,12 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ items }) => {
       try {
+        await Promise.all(
+          items
+            .map((item) => item.id)
+            .filter((id): id is string => Boolean(id))
+            .map((id) => requireRealApplication(id)),
+        );
         const sanitized = items.map((item) => ({
           id: item.id,
           company: item.company?.slice(0, 255),
@@ -861,6 +930,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     async ({ ids }) => {
       if (!canAccessSubmissions) return submissionScopeError();
       try {
+        await Promise.all(ids.map((id) => requireRealApplication(id)));
         const result = await getDb().batchDeleteApplications(ids, auth.userId);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -911,7 +981,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           fields: args.fields,
           limit: args.limit,
           includeContacts: args.include_contacts,
-        });
+        }, MACHINE_DEMO_READ);
         return {
           content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
         };
@@ -938,8 +1008,8 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       linkedIn: z.string().optional().describe("LinkedIn profile URL"),
     },
     async ({ applicationId, ...data }) => {
-      const owns = await getDb().verifyApplicationOwner(applicationId, auth.userId);
-      if (!owns) {
+      const application = await getRealApplication(applicationId);
+      if (!application) {
         return {
           content: [{ type: "text", text: "Application not found or access denied" }],
           isError: true,
@@ -972,6 +1042,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ contactId, applicationId, ...data }) => {
       try {
+        await requireRealApplication(applicationId);
         const contact = await getDb().updateContact(
           contactId,
           applicationId,
@@ -1008,6 +1079,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ contactId, applicationId }) => {
       try {
+        await requireRealApplication(applicationId);
         await getDb().deleteContact(contactId, applicationId, auth.userId);
         return { content: [{ type: "text", text: "Contact deleted" }] };
       } catch {
@@ -1035,12 +1107,42 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       pageSize: z.number().int().min(1).max(200).optional(),
     },
     async (args) => {
-      const docs = await getDb().listDocumentsFiltered(auth.readScopeUserId, {
-        ...args,
-        excludeSubmissionArtifacts: !canAccessSubmissions,
-      });
+      const requestedPage = args.page ?? 1;
+      const requestedPageSize = args.pageSize ?? 50;
+      const logicalPageEnd = requestedPage * requestedPageSize;
+      const scanPageSize = 200;
+      const visibleDocs: Partial<DocumentRecord>[] = [];
+      let scanPage = 1;
+      while (visibleDocs.length < logicalPageEnd) {
+        const docs = await getDb().listDocumentsFiltered(auth.readScopeUserId, {
+          ...args,
+          page: scanPage,
+          pageSize: scanPageSize,
+          fields: undefined,
+          excludeSubmissionArtifacts: !canAccessSubmissions,
+        });
+        const visibleBatch = (await Promise.all(
+          docs.map((document) => filterRealDocumentApplications(document)),
+        )).filter((document): document is NonNullable<typeof document> => Boolean(document));
+        visibleDocs.push(...visibleBatch);
+        if (docs.length < scanPageSize) break;
+        scanPage += 1;
+      }
+      const logicalDocs = visibleDocs.slice(
+        (requestedPage - 1) * requestedPageSize,
+        logicalPageEnd,
+      );
+      const selectedDocs = args.fields?.length
+        ? logicalDocs.map((document) => {
+            const selected: Record<string, unknown> = { id: document.id };
+            for (const field of args.fields ?? []) {
+              if (field in document) selected[field] = document[field as keyof typeof document];
+            }
+            return selected;
+          })
+        : logicalDocs;
       return {
-        content: [{ type: "text", text: JSON.stringify(docs, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(selectedDocs, null, 2) }],
       };
     },
   );
@@ -1050,7 +1152,8 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     "Get a single document by ID",
     { id: z.string().describe("Document ID") },
     async ({ id }) => {
-      const doc = await getDb().getDocument(id, auth.readScopeUserId);
+      const stored = await getDb().getDocument(id, auth.readScopeUserId);
+      const doc = stored ? await filterRealDocumentApplications(stored) : null;
       if (!doc) {
         return {
           content: [{ type: "text", text: "Document not found" }],
@@ -1075,7 +1178,23 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       contentBase64: z.string().min(1).max(MAX_DOCUMENT_BASE64_SIZE).describe("Raw file bytes encoded as standard base64"),
       applicationIds: z.array(z.string()).optional().describe("Application IDs to link"),
     },
-    async (args) => uploadDocumentContent(args, auth.userId),
+    async (args) => {
+      try {
+        await Promise.all(
+          (args.applicationIds ?? []).map((applicationId) => requireRealApplication(applicationId)),
+        );
+        return await uploadDocumentContent(
+          args,
+          auth.userId,
+          (document) => filterRealDocumentApplications(document, auth.userId),
+        );
+      } catch {
+        return {
+          content: [{ type: "text", text: "Application not found or access denied" }],
+          isError: true,
+        };
+      }
+    },
   );
 
   server.tool(
@@ -1083,7 +1202,8 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     "Download the binary content of a document. For files <=1MB the content is returned inline as base64. For larger files, a short-lived signed URL is returned instead when object storage is available (falls back to inline base64 otherwise).",
     { id: z.string().describe("Document ID") },
     async ({ id }) => {
-      const document = await getDb().getDocument(id, auth.readScopeUserId);
+      const stored = await getDb().getDocument(id, auth.readScopeUserId);
+      const document = stored ? await filterRealDocumentApplications(stored) : null;
       if (!document) {
         return { content: [{ type: "text", text: "Document not found" }], isError: true };
       }
@@ -1101,15 +1221,22 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ id, applicationIds }) => {
       try {
-        const existing = await getDb().getDocument(id, auth.userId);
-        if (!existing) throw new Error("not_found");
+        const existing = await requireExistingRealDocument(id);
+        await Promise.all(applicationIds.map((applicationId) => requireRealApplication(applicationId)));
         if (!canAccessSubmissions && requiresSubmissionScopeForDocumentMutation(existing)) {
           return submissionScopeError();
         }
-        const doc = await getDb().updateDocumentLinks(id, auth.userId, applicationIds);
+        const doc = await getDb().updateDocumentLinks(
+          id,
+          auth.userId,
+          applicationIds,
+          MACHINE_DOCUMENT_MUTATION,
+        );
         if (!canAccessSubmissions && isSubmissionDocument(doc)) return submissionScopeError();
+        const visible = await filterRealDocumentApplications(doc, auth.userId);
+        if (!visible) throw new Error("not_found");
         return {
-          content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(visible, null, 2) }],
         };
       } catch {
         return {
@@ -1135,25 +1262,31 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     },
     async ({ id, generatedAt, submittedAt, ...metadata }) => {
       try {
-        const existing = await getDb().getDocument(id, auth.userId);
-        if (!existing) throw new Error("not_found");
+        const existing = await requireExistingRealDocument(id);
         if (
           !canAccessSubmissions
           && (
             requiresSubmissionScopeForDocumentMutation(existing, metadata.state)
           )
         ) return submissionScopeError();
-        const document = await getDb().updateDocumentMetadata(id, auth.userId, {
-          ...metadata,
-          ...(generatedAt !== undefined && {
-            generatedAt: generatedAt ? new Date(generatedAt) : null,
-          }),
-          ...(submittedAt !== undefined && {
-            submittedAt: submittedAt ? new Date(submittedAt) : null,
-          }),
-        });
+        const document = await getDb().updateDocumentMetadata(
+          id,
+          auth.userId,
+          {
+            ...metadata,
+            ...(generatedAt !== undefined && {
+              generatedAt: generatedAt ? new Date(generatedAt) : null,
+            }),
+            ...(submittedAt !== undefined && {
+              submittedAt: submittedAt ? new Date(submittedAt) : null,
+            }),
+          },
+          MACHINE_DOCUMENT_MUTATION,
+        );
         if (!canAccessSubmissions && isSubmissionDocument(document)) return submissionScopeError();
-        return { content: [{ type: "text", text: JSON.stringify(document, null, 2) }] };
+        const visible = await filterRealDocumentApplications(document, auth.userId);
+        if (!visible) throw new Error("not_found");
+        return { content: [{ type: "text", text: JSON.stringify(visible, null, 2) }] };
       } catch {
         return {
           content: [{ type: "text", text: "Document not found or access denied" }],
@@ -1169,7 +1302,13 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     { id: z.string().describe("Document ID") },
     async ({ id }) => {
       try {
-        const result = await deleteDocumentWithContent(getDb(), id, auth.userId);
+        await requireExistingRealDocument(id);
+        const result = await deleteDocumentWithContent(
+          getDb(),
+          id,
+          auth.userId,
+          MACHINE_DOCUMENT_MUTATION,
+        );
         if (!result) {
           return {
             content: [{ type: "text", text: "Document not found or access denied" }],
@@ -1285,7 +1424,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         const db = getDb();
 
         // Verify application ownership
-        const app = await db.getApplication(args.applicationId, auth.readScopeUserId);
+        const app = await db.getApplication(args.applicationId, auth.readScopeUserId, MACHINE_DEMO_READ);
         if (!app) {
           return {
             content: [{ type: "text", text: "Application not found or access denied" }],

@@ -13,6 +13,9 @@ function application(overrides: Partial<ApplicationRecord> = {}): ApplicationRec
   return {
     id: "1",
     userId: "user-a",
+    isDemo: false,
+    demoWorkspaceId: null,
+    demoKey: null,
     company: "Acme",
     role: "Platform Engineer",
     status: "applied",
@@ -88,7 +91,7 @@ describe("tenant-scoped Nexus agent tools", () => {
 
     const summary = await getPipelineSummary(db, "user-a");
 
-    expect(db.listApplications).toHaveBeenCalledWith("user-a");
+    expect(db.listApplications).toHaveBeenCalledWith("user-a", { demoVisibility: "exclude" });
     expect(summary.total).toBe(2);
     expect(summary.byStatus).toMatchObject({ applied: 1, interview: 1 });
   });
@@ -103,7 +106,7 @@ describe("tenant-scoped Nexus agent tools", () => {
 
     const results = await searchApplicationsForAgent(db, "user-a", "platform");
 
-    expect(db.listApplications).toHaveBeenCalledWith("user-a");
+    expect(db.listApplications).toHaveBeenCalledWith("user-a", { demoVisibility: "exclude" });
     expect(results).toHaveLength(1);
     expect(results[0]).not.toHaveProperty("jobDescription");
   });
@@ -115,7 +118,7 @@ describe("tenant-scoped Nexus agent tools", () => {
       jobDescription: "d".repeat(5_000),
     })) } as unknown as DatabaseAdapter;
     const result = await getApplicationForAgent(db, "user-a", "1");
-    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a");
+    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a", { demoVisibility: "exclude" });
     expect(result).not.toHaveProperty("notes");
     expect(result).not.toHaveProperty("jobSummary");
     expect(result?.untrustedExternalContext).toMatchObject({
@@ -148,6 +151,7 @@ describe("application update proposals", () => {
     });
 
     expect(db.updateApplication).not.toHaveBeenCalled();
+    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a", { demoVisibility: "exclude" });
     expect(proposal).toMatchObject({
       userId: "user-a",
       kind: "update_application",

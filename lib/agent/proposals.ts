@@ -160,7 +160,9 @@ export async function proposeApplicationUpdate(input: {
   const existing = await input.repository.findByIdempotencyKey(input.userId, key);
   if (existing) return existing;
 
-  const application = await input.db.getApplication(input.applicationId, input.userId);
+  const application = await input.db.getApplication(input.applicationId, input.userId, {
+    demoVisibility: "exclude",
+  });
   if (!application) throw new Error("Application not found");
   const payload = canonicalizeChanges(input.changes);
   const expectedDiff: ProposalDiff[] = Object.entries(payload).map(([field, to]) => {

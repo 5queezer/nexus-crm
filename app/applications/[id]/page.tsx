@@ -31,6 +31,9 @@ function serializeContact(record: ContactRecord): Contact {
 function serializeApplication(record: ApplicationRecord): Application {
   return {
     id: record.id,
+    isDemo: record.isDemo,
+    demoWorkspaceId: record.demoWorkspaceId,
+    demoKey: record.demoKey,
     company: record.company,
     role: record.role,
     status: normalizeStatus(record.status),
