@@ -754,7 +754,12 @@
     "filtered_empty_description": "Your opportunities are still here. Adjust or clear the active filters.",
     "create": "New opportunity",
     "clear_filters": "Clear filters",
-    "dismiss_overdue": "Dismiss overdue follow-up for {company}"
+    "dismiss_overdue": "Dismiss overdue follow-up for {company}",
+    "dismiss_all_overdue": "Dismiss all overdue follow-ups",
+    "overdue_summary": "{count} overdue follow-ups",
+    "overdue_summary_one": "1 overdue follow-up",
+    "overdue_show": "Show",
+    "overdue_hide": "Hide"
   },
   "events": {
     "eventTypes": {
