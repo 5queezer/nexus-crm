@@ -262,6 +262,89 @@ describe("application update proposals", () => {
     ).resolves.toEqual(existing);
   });
 
+  it("revalidates an existing proposal target against demo exclusion", async () => {
+    const db = { getApplication: vi.fn().mockResolvedValue(null) } as unknown as DatabaseAdapter;
+    const repository = new MemoryProposalRepository();
+    await repository.create({
+      userId: "user-a",
+      threadId: null,
+      runId: null,
+      toolInvocationId: null,
+      kind: "update_application",
+      targetType: "application",
+      targetId: "demo-1",
+      payload: { status: "interview" },
+      expectedDiff: [],
+      assumptions: null,
+      baseVersion: application().updatedAt,
+      idempotencyKey: "existing-key",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      executedAt: null,
+    });
+
+    await expect(proposeApplicationUpdate({
+      db,
+      repository,
+      userId: "user-a",
+      applicationId: "demo-1",
+      changes: { status: "interview" },
+      reason: "replay",
+      idempotencyKey: "existing-key",
+    })).rejects.toThrow("Application not found");
+    expect(db.getApplication).toHaveBeenCalledWith("demo-1", "user-a", {
+      demoVisibility: "exclude",
+    });
+  });
+
+  it("revalidates a concurrent idempotency winner target against demo exclusion", async () => {
+    const visible = application();
+    const db = {
+      getApplication: vi.fn()
+        .mockResolvedValueOnce(visible)
+        .mockResolvedValueOnce(null),
+    } as unknown as DatabaseAdapter;
+    const winner = new MemoryProposalRepository();
+    const existing = await winner.create({
+      userId: "user-a",
+      threadId: null,
+      runId: null,
+      toolInvocationId: null,
+      kind: "update_application",
+      targetType: "application",
+      targetId: "1",
+      payload: { status: "interview" },
+      expectedDiff: [],
+      assumptions: null,
+      baseVersion: visible.updatedAt,
+      idempotencyKey: "race-hidden-key",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      executedAt: null,
+    });
+    let lookups = 0;
+    const repository: ProposalRepository = {
+      create: vi.fn().mockRejectedValue(Object.assign(new Error("unique"), {
+        code: "P2002",
+        meta: { target: ["userId", "idempotencyKey"] },
+      })),
+      findByIdempotencyKey: vi.fn(async () => (++lookups === 1 ? null : existing)),
+    };
+
+    await expect(proposeApplicationUpdate({
+      db,
+      repository,
+      userId: "user-a",
+      applicationId: "1",
+      changes: { status: "interview" },
+      reason: "race",
+      idempotencyKey: "race-hidden-key",
+    })).rejects.toThrow("Application not found");
+    expect(db.getApplication).toHaveBeenNthCalledWith(2, "1", "user-a", {
+      demoVisibility: "exclude",
+    });
+  });
+
   it("rethrows unrelated unique-constraint conflicts", async () => {
     const db = { getApplication: vi.fn().mockResolvedValue(application()) } as unknown as DatabaseAdapter;
     const unrelated = Object.assign(new Error("tool invocation conflict"), {

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { getDb } from "@/lib/db";
 import { deleteFile, uploadFile } from "@/lib/storage";
-import type { DocumentRecord } from "@/lib/db/types";
+import type { DocumentMutationOptions, DocumentRecord } from "@/lib/db/types";
 
 export const MAX_DOCUMENT_UPLOAD_SIZE = 10 * 1024 * 1024;
 export const MAX_DOCUMENT_BASE64_SIZE = Math.ceil(MAX_DOCUMENT_UPLOAD_SIZE / 3) * 4 + 4;
@@ -40,6 +40,7 @@ export type UploadDocumentInput = {
   mimeType: string;
   buffer: Buffer;
   applicationIds?: string[];
+  mutationOptions?: DocumentMutationOptions;
 };
 
 export type McpToolResponse = {
@@ -85,6 +86,7 @@ export async function uploadDocument({
   mimeType,
   buffer,
   applicationIds = [],
+  mutationOptions,
 }: UploadDocumentInput): Promise<DocumentRecord> {
   if (buffer.length > MAX_DOCUMENT_UPLOAD_SIZE) {
     throw new DocumentUploadError("too_large", "File too large (max 10 MB)");
@@ -114,7 +116,7 @@ export async function uploadDocument({
       version: 1,
       contentHash: crypto.createHash("sha256").update(buffer).digest("hex"),
       source: "upload",
-    });
+    }, mutationOptions);
   } catch (error) {
     await deleteFile(storedFilename).catch(() => {});
     throw error;
@@ -138,6 +140,7 @@ export async function uploadDocumentContent(
       mimeType: args.mimeType,
       buffer: decodeBase64Content(args.contentBase64),
       applicationIds: args.applicationIds,
+      mutationOptions: { requireNonDemoProvenance: true },
     });
     const visible = sanitizeDocument ? await sanitizeDocument(doc) : doc;
     if (!visible) {

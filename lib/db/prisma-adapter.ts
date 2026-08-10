@@ -187,7 +187,7 @@ function assertEventMatchesParent(
   if (
     (event.isDemo ?? false) !== expected.isDemo
     || (event.demoWorkspaceId ?? null) !== expected.demoWorkspaceId
-    || (expected.isDemo && !event.demoKey?.startsWith(`${application.demoKey}:event:`))
+    || (expected.isDemo && (typeof event.demoKey !== "string" || event.demoKey.length === 0))
     || (!expected.isDemo && event.demoKey != null)
   ) throw new Error("demo_marker_conflict");
 }
@@ -433,6 +433,17 @@ export class PrismaAdapter implements DatabaseAdapter {
         tx.application.count({ where: { userId, demoWorkspaceId: workspace.id, isDemo: true } }),
         tx.applicationEvent.count({ where: { userId, demoWorkspaceId: workspace.id, isDemo: true } }),
       ]);
+      // Preserve the Firestore cleanup contract before the workspace cascade deletes
+      // submissions and the database clears Document.submissionId via SetNull.
+      await tx.document.updateMany({
+        where: {
+          userId,
+          submission: {
+            application: { userId, demoWorkspaceId: workspace.id, isDemo: true },
+          },
+        },
+        data: { state: "historical" },
+      });
       await tx.demoWorkspace.delete({ where: { id: workspace.id, userId } });
       return { deletedApplications, deletedEvents };
     });
@@ -1740,14 +1751,18 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
-  async createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord> {
+  async createDocument(userId: string, data: CreateDocumentInput, options?: DocumentMutationOptions): Promise<DocumentRecord> {
     const { applicationIds, submissionId, ...rest } = data;
     if (submissionId || rest.state === "submitted") throw new Error("submitted_state_reserved");
     const requestedApplicationIds = Array.from(new Set(applicationIds.map(nid)));
     const row = await prisma.$transaction(async (tx) => {
       const owned = requestedApplicationIds.length
         ? await tx.application.findMany({
-            where: { id: { in: requestedApplicationIds }, userId },
+            where: {
+              id: { in: requestedApplicationIds },
+              userId,
+              ...(options?.requireNonDemoProvenance ? { isDemo: false } : {}),
+            },
             select: { id: true },
           })
         : [];

@@ -44,6 +44,25 @@ const fake = vi.hoisted(() => {
       document = null;
       return deleted;
     }),
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 3,
+      userId: "owner-1",
+      filename: "new.pdf",
+      originalName: "new.pdf",
+      mimeType: "application/pdf",
+      size: 100,
+      documentType: "other",
+      state: "current",
+      version: 1,
+      contentHash: null,
+      source: "upload",
+      generatedAt: null,
+      submittedAt: null,
+      submissionId: null,
+      uploadedAt: new Date("2026-08-10T00:00:00Z"),
+      ...data,
+      applications: [],
+    })),
   };
   const applicationApi = {
     findMany: vi.fn(async ({ where }: { where: { id: { in: number[] }; userId: string; isDemo?: boolean } }) =>
@@ -108,6 +127,17 @@ describe("Prisma guarded document mutations", () => {
     await expect(adapter.updateDocumentLinks("1", "owner-1", ["2"], guard))
       .rejects.toThrow("invalid_applications");
     expect(fake.documentApi.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a demo parent inside guarded document creation", async () => {
+    await expect(adapter.createDocument("owner-1", {
+      filename: "new.pdf",
+      originalName: "new.pdf",
+      mimeType: "application/pdf",
+      size: 100,
+      applicationIds: ["2"],
+    }, guard)).rejects.toThrow("invalid_applications");
+    expect(fake.documentApi.create).not.toHaveBeenCalled();
   });
 
   it("allows guarded mutations for real or mixed current provenance", async () => {

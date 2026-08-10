@@ -498,6 +498,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const applicationCount = workspaceData.state === "deleting"
         ? workspaceData.deletionApplicationCount
         : currentApplicationIds.length;
+      // Persist the preparation-time count so retries return one stable best-effort
+      // value. Events racing preparation are still cleaned up below, but are not
+      // retroactively included in the public deletion count.
       const eventCount = workspaceData.state === "deleting"
         ? workspaceData.deletionEventCount
         : events.docs.length;
@@ -534,6 +537,23 @@ export class FirestoreAdapter implements DatabaseAdapter {
     // CV patches, canonical indexes and every application event are handled consistently.
     for (const application of prepared.applications) {
       await this.deleteApplicationCascade(application.id, userId);
+    }
+
+    // An event can commit after a cascade has read its event snapshot but before the
+    // application is removed. No new event can pass the parent transaction once all
+    // applications are gone, so sweep those late arrivals without changing the stable
+    // preparation-time count returned to callers.
+    const lateEvents = await this.events.where("demoWorkspaceId", "==", workspaceId).get();
+    for (const document of lateEvents.docs) {
+      const data = document.data();
+      if (data.userId !== userId || data.isDemo !== true || data.demoWorkspaceId !== workspaceId) {
+        throw new Error("demo_marker_conflict");
+      }
+    }
+    for (let offset = 0; offset < lateEvents.docs.length; offset += 450) {
+      const batch = this.db.batch();
+      for (const document of lateEvents.docs.slice(offset, offset + 450)) batch.delete(document.ref);
+      await batch.commit();
     }
 
     const remnants: FirebaseFirestore.QuerySnapshot[] = await Promise.all([
@@ -1932,7 +1952,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return (await this.getDocument(id, userId))!;
   }
 
-  async createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord> {
+  async createDocument(userId: string, data: CreateDocumentInput, options?: DocumentMutationOptions): Promise<DocumentRecord> {
     const { applicationIds, submissionId, ...rest } = data;
     if (submissionId || rest.state === "submitted") throw new Error("submitted_state_reserved");
     const uniqueApplicationIds = Array.from(new Set(applicationIds));
@@ -1952,6 +1972,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         !snapshot.exists
         || snapshot.data()!.userId !== userId
         || snapshot.data()!.deletionState === "in_progress"
+        || (options?.requireNonDemoProvenance && snapshot.data()!.isDemo === true)
       )) {
         throw new Error("invalid_applications");
       }

@@ -144,6 +144,18 @@ function canonicalizeChanges(changes: ApplicationProposalChanges): ApplicationPr
   return canonical;
 }
 
+async function revalidateProposalTarget(
+  db: DatabaseAdapter,
+  userId: string,
+  proposal: ProposalRecord,
+): Promise<ProposalRecord> {
+  const application = await db.getApplication(proposal.targetId, userId, {
+    demoVisibility: "exclude",
+  });
+  if (!application) throw new Error("Application not found");
+  return proposal;
+}
+
 export async function proposeApplicationUpdate(input: {
   db: DatabaseAdapter;
   repository: ProposalRepository;
@@ -158,7 +170,7 @@ export async function proposeApplicationUpdate(input: {
 }) {
   const key = input.idempotencyKey ?? randomUUID();
   const existing = await input.repository.findByIdempotencyKey(input.userId, key);
-  if (existing) return existing;
+  if (existing) return revalidateProposalTarget(input.db, input.userId, existing);
 
   const application = await input.db.getApplication(input.applicationId, input.userId, {
     demoVisibility: "exclude",
@@ -206,6 +218,6 @@ export async function proposeApplicationUpdate(input: {
     if (String(details?.code ?? "") !== "P2002" || !idempotencyTarget) throw error;
     const winner = await input.repository.findByIdempotencyKey(input.userId, key);
     if (!winner) throw error;
-    return winner;
+    return revalidateProposalTarget(input.db, input.userId, winner);
   }
 }

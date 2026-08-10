@@ -1,15 +1,23 @@
 ## ADDED Requirements
 
-### Requirement: Seed execution is explicitly non-production
-The development seed command SHALL fail before database writes in production or when the target user is not explicitly supplied.
+### Requirement: Seed execution requires explicit development authorization
+The development seed command SHALL reject production environments, then require `DEMO_SEED_ENABLED` to equal the exact string `true` and an explicitly supplied target user before resolving a database adapter or accessing application data.
 
 #### Scenario: Production execution
 - **WHEN** the seed command runs with `NODE_ENV=production` or a production deployment marker
-- **THEN** it exits non-zero without reading, deleting, or creating application data
+- **THEN** it exits non-zero before adapter resolution without reading, deleting, or creating application data
+
+#### Scenario: Missing seed opt-in
+- **WHEN** `DEMO_SEED_ENABLED` is absent
+- **THEN** the command exits non-zero before adapter resolution or database access
+
+#### Scenario: Non-true seed opt-in
+- **WHEN** `DEMO_SEED_ENABLED` has any value other than the exact string `true`
+- **THEN** the command exits non-zero before adapter resolution or database access
 
 #### Scenario: Missing target user
 - **WHEN** no explicit demo seed user ID is supplied
-- **THEN** the command exits non-zero and does not select an arbitrary user
+- **THEN** the command exits non-zero before adapter resolution and does not select an arbitrary user
 
 ### Requirement: Seed is non-destructive and provider-neutral
 The seed command SHALL use the configured database adapter's demo-workspace lifecycle and SHALL never perform global deletion or alter real applications.

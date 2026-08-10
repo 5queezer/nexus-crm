@@ -414,17 +414,22 @@ describe("FirestoreAdapter — demo workspace lifecycle", () => {
     const fixtures = createDemoFixtures(new Date("2026-08-10T12:00:00.000Z"));
     const created = await adapter.ensureDemoWorkspace("owner-1", fixtures);
     const application = created.applications[0];
-    const event = await adapter.createApplicationEvent(application.id, "owner-1", {
-      type: "note_added",
+    const eventInput = {
+      type: "note_added" as const,
       idempotencyKey: "demo-note-1",
       occurredAt: new Date("2026-08-10T12:01:00.000Z"),
       metadata: { note: "Demo interaction" },
-    });
+    };
+    const event = await adapter.createApplicationEvent(application.id, "owner-1", eventInput);
     expect(event).toMatchObject({
       isDemo: true,
       demoWorkspaceId: created.workspace.id,
       demoKey: expect.stringContaining(`${application.demoKey}:event:`),
     });
+    await expect(adapter.createApplicationEvent(application.id, "owner-1", eventInput))
+      .resolves.toEqual(event);
+    expect(Array.from(stores.applicationEvents.values()).map((row) => row.demoKey))
+      .toEqual(expect.arrayContaining(fixtures.events.map((fixture) => fixture.demoKey)));
     await expect(adapter.ensureDemoWorkspace("owner-1", fixtures)).resolves.toMatchObject({ replayed: true });
   });
 
@@ -457,6 +462,32 @@ describe("FirestoreAdapter — demo workspace lifecycle", () => {
     app.isDemo = false;
     await expect(adapter.deleteDemoWorkspace("owner-1")).rejects.toThrow("demo_marker_conflict");
     expect(stores.demoWorkspaces.size).toBe(1);
+  });
+
+  it("deletes events added after preparation while returning the stable preparation count", async () => {
+    const adapter = new FirestoreAdapter();
+    const fixtures = createDemoFixtures(new Date("2026-08-10T12:00:00.000Z"));
+    const created = await adapter.ensureDemoWorkspace("owner-1", fixtures);
+    const application = created.applications[0];
+
+    batchState.beforeCommit = () => {
+      stores.applicationEvents.set("concurrent-demo-event", {
+        userId: "owner-1",
+        applicationId: application.id,
+        type: "note_added",
+        occurredAt: mockTimestamp,
+        isDemo: true,
+        demoWorkspaceId: created.workspace.id,
+        demoKey: `${application.demoKey}:event:concurrent`,
+        createdAt: mockTimestamp,
+      });
+    };
+
+    await expect(adapter.deleteDemoWorkspace("owner-1")).resolves.toEqual({
+      deletedApplications: fixtures.applications.length,
+      deletedEvents: fixtures.events.length,
+    });
+    expect(stores.applicationEvents.has("concurrent-demo-event")).toBe(false);
   });
 
   it("keeps deletion metadata fail-closed across a middle-cascade failure and fully retries", async () => {
@@ -1158,6 +1189,20 @@ describe("FirestoreAdapter — document operations", () => {
         mimeType: "application/pdf",
         applicationIds: ["app-1"],
       })).rejects.toThrow("invalid_applications");
+      expect(stores.documents.size).toBe(0);
+    });
+
+    it("rejects demo parents inside the creation transaction when guarded", async () => {
+      seedApps([{ id: "demo-app", userId, company: "Demo", role: "Explorer" }]);
+      stores.applications.get("demo-app")!.isDemo = true;
+
+      await expect(adapter.createDocument(userId, {
+        filename: "doc.pdf",
+        originalName: "doc.pdf",
+        size: 512,
+        mimeType: "application/pdf",
+        applicationIds: ["demo-app"],
+      }, { requireNonDemoProvenance: true })).rejects.toThrow("invalid_applications");
       expect(stores.documents.size).toBe(0);
     });
 

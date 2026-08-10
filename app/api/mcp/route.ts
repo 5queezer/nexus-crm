@@ -62,6 +62,9 @@ const structuredApplicationToolFields = {
 
 const MACHINE_DEMO_READ = { demoVisibility: "exclude" } as const;
 const MACHINE_DOCUMENT_MUTATION = { requireNonDemoProvenance: true } as const;
+const DOCUMENT_LIST_MAX_PAGE = 20;
+const DOCUMENT_LIST_SCAN_PAGE_SIZE = 200;
+const DOCUMENT_LIST_MAX_SCAN_PAGES = 20;
 
 const APPLICATION_UPDATE_ERROR_CODES = new Set([
   "not_found",
@@ -121,7 +124,7 @@ function controlledErrorCode(error: unknown, allowed: Set<string>, fallback: str
 // ── Auth helper ──────────────────────────────────────────────────────────────
 // Tries MCP OAuth access token first, then falls back to CRM API token.
 
-async function authenticateFromRequest(
+export async function authenticateFromRequest(
   req: NextRequest
 ): Promise<SessionAuthResult | null> {
   const authHeader = req.headers.get("authorization");
@@ -158,7 +161,7 @@ async function authenticateFromRequest(
 
   return {
     userId: user.id,
-    readScopeUserId: user.isAdmin ? null : user.id,
+    readScopeUserId: user.id,
     user: sessionUser,
     authType: "api_token",
     scopes: ["mcp:tools", "mcp:submissions"],
@@ -1103,30 +1106,60 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       submissionId: z.string().optional(),
       orphaned: z.boolean().optional(),
       fields: z.array(z.string()).max(30).optional(),
-      page: z.number().int().min(1).optional(),
+      page: z.number().int().min(1).max(DOCUMENT_LIST_MAX_PAGE).optional(),
       pageSize: z.number().int().min(1).max(200).optional(),
     },
     async (args) => {
       const requestedPage = args.page ?? 1;
       const requestedPageSize = args.pageSize ?? 50;
       const logicalPageEnd = requestedPage * requestedPageSize;
-      const scanPageSize = 200;
       const visibleDocs: Partial<DocumentRecord>[] = [];
+      const parentVisibility = new Map<string, ReturnType<typeof getRealApplication>>();
+      const resolveVisibleParent = (applicationId: string) => {
+        let visible = parentVisibility.get(applicationId);
+        if (!visible) {
+          visible = getRealApplication(applicationId, auth.readScopeUserId);
+          parentVisibility.set(applicationId, visible);
+        }
+        return visible;
+      };
       let scanPage = 1;
-      while (visibleDocs.length < logicalPageEnd) {
+      let sourceExhausted = false;
+      while (
+        visibleDocs.length < logicalPageEnd
+        && scanPage <= DOCUMENT_LIST_MAX_SCAN_PAGES
+      ) {
         const docs = await getDb().listDocumentsFiltered(auth.readScopeUserId, {
           ...args,
           page: scanPage,
-          pageSize: scanPageSize,
+          pageSize: DOCUMENT_LIST_SCAN_PAGE_SIZE,
           fields: undefined,
           excludeSubmissionArtifacts: !canAccessSubmissions,
         });
         const visibleBatch = (await Promise.all(
-          docs.map((document) => filterRealDocumentApplications(document)),
+          docs.map((document) => sanitizeDocumentAssociations(document, resolveVisibleParent)),
         )).filter((document): document is NonNullable<typeof document> => Boolean(document));
         visibleDocs.push(...visibleBatch);
-        if (docs.length < scanPageSize) break;
+        if (docs.length < DOCUMENT_LIST_SCAN_PAGE_SIZE) {
+          sourceExhausted = true;
+          break;
+        }
         scanPage += 1;
+      }
+      if (visibleDocs.length < logicalPageEnd && !sourceExhausted) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              error: {
+                code: "document_scan_limit_exceeded",
+                maxScannedDocuments:
+                  DOCUMENT_LIST_SCAN_PAGE_SIZE * DOCUMENT_LIST_MAX_SCAN_PAGES,
+              },
+            }),
+          }],
+          isError: true,
+        };
       }
       const logicalDocs = visibleDocs.slice(
         (requestedPage - 1) * requestedPageSize,

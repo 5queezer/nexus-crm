@@ -90,7 +90,7 @@ export interface DatabaseAdapter {
   /** List documents linked to a specific application. */
   listDocumentsByApplication(applicationId: string, userId: string): Promise<DocumentRecord[]>;
   getDocument(id: string, userId: string | null): Promise<DocumentRecord | null>;
-  createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord>;
+  createDocument(userId: string, data: CreateDocumentInput, options?: DocumentMutationOptions): Promise<DocumentRecord>;
   updateDocumentMetadata(id: string, userId: string, data: UpdateDocumentMetadataInput, options?: DocumentMutationOptions): Promise<DocumentRecord>;
   /** Replace the set of linked application IDs on a document. */
   updateDocumentLinks(id: string, userId: string, applicationIds: string[], options?: DocumentMutationOptions): Promise<DocumentRecord>;

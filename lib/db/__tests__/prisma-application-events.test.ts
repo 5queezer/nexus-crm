@@ -233,6 +233,43 @@ describe("PrismaAdapter — atomic application events", () => {
     expect(fake.events()).toHaveLength(1);
   });
 
+  it("accepts persisted fixture demo keys when replaying an event", async () => {
+    fake.setApplication({ isDemo: true, demoWorkspaceId: 9, demoKey: "fixture-app" });
+    const requestHash = submissionRequestHash({
+      applicationId: "1",
+      type: command.type,
+      occurredAt: command.occurredAt,
+      source: command.source,
+      actor: command.actor,
+      metadata: command.metadata,
+      contactId: command.contactId,
+      outcome: command.outcome,
+      expectedUpdatedAt: command.expectedUpdatedAt,
+    });
+    fake.seedEvent({
+      id: 99,
+      userId: "owner-1",
+      applicationId: 1,
+      type: command.type,
+      idempotencyKey: command.idempotencyKey,
+      requestHash,
+      occurredAt: command.occurredAt,
+      createdAt: command.occurredAt,
+      source: command.source,
+      actor: command.actor,
+      contactId: null,
+      outcome: null,
+      metadata: command.metadata,
+      isDemo: true,
+      demoWorkspaceId: 9,
+      demoKey: "fixture-stage-changed",
+    });
+
+    await expect(new PrismaAdapter().recordApplicationEvent("1", "owner-1", command))
+      .resolves.toMatchObject({ replayed: true });
+    expect(fake.events()).toHaveLength(1);
+  });
+
   it("fails closed when an inconsistent replay appears inside the transaction", async () => {
     const requestHash = submissionRequestHash({
       applicationId: "1",

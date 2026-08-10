@@ -251,6 +251,11 @@ export interface EnsureDemoWorkspaceResult {
 
 export interface DeleteDemoWorkspaceResult {
   deletedApplications: number;
+  /**
+   * Best-effort event count captured when deletion is prepared. The count is stable
+   * across retries, but may underreport events added concurrently; those events are
+   * still removed as part of the workspace deletion.
+   */
   deletedEvents: number;
 }
 

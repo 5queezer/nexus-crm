@@ -49,7 +49,7 @@ The onboarding wizard and true-empty state can call `POST /api/demo-workspace`. 
 
 ### 5. Seed CLI is a guarded lifecycle client
 
-`prisma/seed.ts` requires `DEMO_SEED_USER_ID`, rejects `NODE_ENV=production` and production deployment markers, resolves the configured adapter, and calls `ensureDemoWorkspace`. It performs no deletion and never chooses the first user. Failures set a non-zero exit code.
+`prisma/seed.ts` rejects `NODE_ENV=production` and production deployment markers, then requires `DEMO_SEED_ENABLED` to equal the exact string `true` and requires `DEMO_SEED_USER_ID`, all before resolving the configured adapter. Only after those guards pass does it call `ensureDemoWorkspace`. Missing or non-`true` opt-in values fail closed. It performs no deletion and never chooses the first user. Failures set a non-zero exit code.
 
 **Why:** The seed command becomes an explicit development convenience instead of a destructive database initializer.
 

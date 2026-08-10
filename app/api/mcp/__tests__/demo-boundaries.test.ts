@@ -246,6 +246,55 @@ describe("MCP demo application boundaries", () => {
       "owner-1",
       expect.objectContaining({ page: 2, pageSize: 200, fields: undefined }),
     );
+    expect(mocks.getApplication.mock.calls.filter(([id]) => id === "demo-app")).toHaveLength(1);
+    expect(mocks.getApplication.mock.calls.filter(([id]) => id === "real-app")).toHaveLength(1);
+  });
+
+  it("preserves logical pagination while scanning hidden document prefixes", async () => {
+    const hiddenPrefix = Array.from({ length: 198 }, (_, index) => ({
+      id: `demo-document-${index}`,
+      applications: [{ id: "demo-app" }],
+    }));
+    const visibleDocuments = [1, 2, 3, 4].map((index) => ({
+      id: `real-document-${index}`,
+      applications: [{ id: "real-app" }],
+    }));
+    mocks.listDocumentsFiltered
+      .mockResolvedValueOnce([...hiddenPrefix, ...visibleDocuments.slice(0, 2)])
+      .mockResolvedValueOnce(visibleDocuments.slice(2));
+    mocks.getApplication.mockImplementation(async (id: string) =>
+      id === "real-app" ? { id } : null,
+    );
+
+    const listed = await call("list_documents", { page: 2, pageSize: 2 });
+
+    expect(json(listed)).toEqual(visibleDocuments.slice(2));
+  });
+
+  it("rejects document pages beyond the declared logical pagination bound", async () => {
+    const listed = await call("list_documents", { page: 21, pageSize: 1 });
+
+    expect(listed.isError).toBe(true);
+    expect(mocks.listDocumentsFiltered).not.toHaveBeenCalled();
+  });
+
+  it("fails explicitly instead of returning an incomplete page at the scan bound", async () => {
+    const hiddenPage = Array.from({ length: 200 }, (_, index) => ({
+      id: `demo-document-${index}`,
+      applications: [{ id: "demo-app" }],
+    }));
+    for (let page = 0; page < 21; page += 1) {
+      mocks.listDocumentsFiltered.mockResolvedValueOnce(hiddenPage);
+    }
+    mocks.listDocumentsFiltered.mockResolvedValueOnce([]);
+
+    const listed = await call("list_documents", { page: 1, pageSize: 1 });
+
+    expect(listed.isError).toBe(true);
+    expect(json(listed)).toEqual({
+      error: { code: "document_scan_limit_exceeded", maxScannedDocuments: 4000 },
+    });
+    expect(mocks.listDocumentsFiltered).toHaveBeenCalledTimes(20);
   });
 
   const mutationCases = [
