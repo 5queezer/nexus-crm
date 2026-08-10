@@ -53,7 +53,12 @@ import type {
   ApplicationEventPage,
   ListDocumentsFilter,
   UpdateDocumentMetadataInput,
+  DocumentMutationOptions,
+  DemoReadOptions,
+  EnsureDemoWorkspaceResult,
+  DeleteDemoWorkspaceResult,
 } from "./types";
+import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
 // ── Helpers: convert Prisma int IDs ↔ string IDs ────────────────────────────
 
@@ -81,6 +86,7 @@ function mapApp(a: AppRow): ApplicationRecord {
   return {
     ...a,
     id: sid(a.id),
+    demoWorkspaceId: a.demoWorkspaceId === null ? null : sid(a.demoWorkspaceId),
     status: normalizeStatus(a.status),
     eligibleCountries: Array.isArray(a.eligibleCountries) ? (a.eligibleCountries as string[]) : [],
     primaryLocations: Array.isArray(a.primaryLocations) ? (a.primaryLocations as string[]) : [],
@@ -97,6 +103,7 @@ function mapDoc(d: DocumentWithApplications): DocumentRecord {
     ...d,
     id: sid(d.id),
     submissionId: d.submissionId ? sid(d.submissionId) : null,
+    applicationIds: d.applications?.map((application) => sid(application.id)),
     applications: d.applications?.map((a) => ({ id: sid(a.id), company: a.company, role: a.role })),
   };
 }
@@ -132,6 +139,9 @@ function publicEventMetadata(value: unknown): Record<string, unknown> | null {
 function mapEvent(row: EventWithApplication): ApplicationEventRecord {
   return {
     id: sid(row.id),
+    isDemo: row.isDemo,
+    demoWorkspaceId: row.demoWorkspaceId === null ? null : sid(row.demoWorkspaceId),
+    demoKey: row.demoKey,
     userId: row.userId,
     applicationId: sid(row.applicationId),
     type: row.type,
@@ -151,6 +161,35 @@ function mapEvent(row: EventWithApplication): ApplicationEventRecord {
 
 function submissionEventKey(idempotencyKey: string): string {
   return `submission:${idempotencyKey}`;
+}
+
+function eventDemoData(
+  application: { isDemo: boolean; demoWorkspaceId: number | null; demoKey: string | null },
+  stableKey: string,
+): { isDemo: boolean; demoWorkspaceId: number | null; demoKey: string | null } {
+  const complete = application.isDemo && application.demoWorkspaceId !== null && application.demoKey !== null;
+  const empty = !application.isDemo && application.demoWorkspaceId === null && application.demoKey === null;
+  if (!complete && !empty) throw new Error("demo_marker_conflict");
+  return complete
+    ? {
+        isDemo: true,
+        demoWorkspaceId: application.demoWorkspaceId,
+        demoKey: `${application.demoKey}:event:${stableKey}`,
+      }
+    : { isDemo: false, demoWorkspaceId: null, demoKey: null };
+}
+
+function assertEventMatchesParent(
+  event: { isDemo: boolean; demoWorkspaceId: number | null; demoKey: string | null },
+  application: { isDemo: boolean; demoWorkspaceId: number | null; demoKey: string | null },
+): void {
+  const expected = eventDemoData(application, "replay");
+  if (
+    (event.isDemo ?? false) !== expected.isDemo
+    || (event.demoWorkspaceId ?? null) !== expected.demoWorkspaceId
+    || (expected.isDemo && (typeof event.demoKey !== "string" || event.demoKey.length === 0))
+    || (!expected.isDemo && event.demoKey != null)
+  ) throw new Error("demo_marker_conflict");
 }
 
 async function loadSubmissionReplay(
@@ -183,6 +222,7 @@ async function loadSubmissionReplay(
     }),
   ]);
   if (!application) throw new Error("not_found");
+  if (event) assertEventMatchesParent(event, application);
   const mappedSubmission = mapSubmission(submission);
   return {
     replayed: true,
@@ -215,7 +255,13 @@ function mapCvProfile(row: CvProfileRow): CvProfileRecord {
 }
 
 function userWhere(userId: string | null): { userId: string } | object {
-  return userId ? { userId } : {};
+  return userId !== null ? { userId } : {};
+}
+
+function demoWhere(options?: DemoReadOptions): { isDemo?: boolean } {
+  if (options?.demoVisibility === "exclude") return { isDemo: false };
+  if (options?.demoVisibility === "only") return { isDemo: true };
+  return {};
 }
 
 function pickFields(apps: ApplicationRecord[], fields?: string[]): Partial<ApplicationRecord>[] {
@@ -269,11 +315,154 @@ function structuredApplicationData(data: Record<string, unknown>): Record<string
 // ── Implementation ──────────────────────────────────────────────────────────
 
 export class PrismaAdapter implements DatabaseAdapter {
+  async ensureDemoWorkspace(
+    userId: string,
+    fixtures: DemoFixtures,
+  ): Promise<EnsureDemoWorkspaceResult> {
+    return prisma.$transaction(async (tx) => {
+      const owner = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!owner.length) throw new Error("user_not_found");
+
+      const existing = await tx.demoWorkspace.findUnique({ where: { userId } });
+      if (existing) {
+        if (existing.seedVersion !== fixtures.seedVersion) throw new Error("demo_version_conflict");
+        if (existing.state !== "ready") throw new Error("demo_workspace_unavailable");
+        const applications = await tx.application.findMany({
+          where: { userId, demoWorkspaceId: existing.id, isDemo: true },
+          include: { contacts: true },
+          orderBy: { demoKey: "asc" },
+        });
+        const events = await tx.applicationEvent.findMany({
+          where: { userId, demoWorkspaceId: existing.id, isDemo: true },
+          select: { demoKey: true },
+        });
+        const actualApplicationKeys = applications.map((row) => row.demoKey).sort();
+        const expectedApplicationKeys = fixtures.applications.map((fixture) => fixture.demoKey).sort();
+        const actualEventKeys = events.map((row) => row.demoKey).sort();
+        const expectedEventKeys = fixtures.events.map((fixture) => fixture.demoKey).sort();
+        if (
+          JSON.stringify(actualApplicationKeys) !== JSON.stringify(expectedApplicationKeys)
+          || !expectedEventKeys.every((key) => actualEventKeys.includes(key))
+        ) throw new Error("demo_workspace_incomplete");
+        return {
+          workspace: { ...existing, id: sid(existing.id), state: existing.state as "creating" | "ready" | "deleting" },
+          applications: applications.map(mapApp),
+          replayed: true,
+        };
+      }
+
+      const realCount = await tx.application.count({ where: { userId, isDemo: false } });
+      if (realCount > 0) throw new Error("real_applications_exist");
+
+      const workspace = await tx.demoWorkspace.create({
+        data: { userId, seedVersion: fixtures.seedVersion, state: "creating", createdAt: fixtures.createdAt },
+      });
+      const applicationsByKey = new Map<string, number>();
+      for (const fixture of fixtures.applications) {
+        const row = await tx.application.create({
+          data: {
+            userId,
+            company: fixture.company,
+            role: fixture.role,
+            status: fixture.status,
+            appliedAt: fixture.appliedAt,
+            lastContact: fixture.lastContact,
+            followUpAt: fixture.followUpAt,
+            notes: fixture.notes,
+            jobDescription: null,
+            source: fixture.source,
+            remote: fixture.remote,
+            salaryMin: fixture.salaryMin,
+            salaryMax: fixture.salaryMax,
+            rating: fixture.rating,
+            jobUrl: null,
+            isDemo: true,
+            demoWorkspaceId: workspace.id,
+            demoKey: fixture.demoKey,
+            createdAt: fixtures.createdAt,
+          },
+        });
+        applicationsByKey.set(fixture.demoKey, row.id);
+      }
+      for (const fixture of fixtures.events) {
+        const applicationId = applicationsByKey.get(fixture.applicationDemoKey);
+        if (!applicationId) throw new Error("demo_fixture_invalid");
+        await tx.applicationEvent.create({
+          data: {
+            userId,
+            applicationId,
+            type: fixture.type,
+            occurredAt: fixture.occurredAt,
+            source: fixture.source,
+            actor: fixture.actor,
+            metadata: fixture.metadata as Prisma.InputJsonValue,
+            isDemo: true,
+            demoWorkspaceId: workspace.id,
+            demoKey: fixture.demoKey,
+          },
+        });
+      }
+      const ready = await tx.demoWorkspace.update({
+        where: { id: workspace.id },
+        data: { state: "ready" },
+      });
+      const applications = await tx.application.findMany({
+        where: { userId, demoWorkspaceId: workspace.id, isDemo: true },
+        include: { contacts: true },
+        orderBy: { demoKey: "asc" },
+      });
+      return {
+        workspace: { ...ready, id: sid(ready.id), state: "ready" as const },
+        applications: applications.map(mapApp),
+        replayed: false,
+      };
+    });
+  }
+
+  async deleteDemoWorkspace(userId: string): Promise<DeleteDemoWorkspaceResult> {
+    return prisma.$transaction(async (tx) => {
+      const owner = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!owner.length) throw new Error("user_not_found");
+      const workspace = await tx.demoWorkspace.findUnique({ where: { userId } });
+      if (!workspace) return { deletedApplications: 0, deletedEvents: 0 };
+      const [deletedApplications, deletedEvents] = await Promise.all([
+        tx.application.count({ where: { userId, demoWorkspaceId: workspace.id, isDemo: true } }),
+        tx.applicationEvent.count({ where: { userId, demoWorkspaceId: workspace.id, isDemo: true } }),
+      ]);
+      // Preserve the Firestore cleanup contract before the workspace cascade deletes
+      // submissions and the database clears Document.submissionId via SetNull.
+      await tx.document.updateMany({
+        where: {
+          userId,
+          applications: {
+            some: { userId, demoWorkspaceId: workspace.id, isDemo: true },
+          },
+        },
+        data: { demoProvenance: true },
+      });
+      await tx.document.updateMany({
+        where: {
+          userId,
+          submission: {
+            application: { userId, demoWorkspaceId: workspace.id, isDemo: true },
+          },
+        },
+        data: { state: "historical", demoProvenance: true },
+      });
+      await tx.demoWorkspace.delete({ where: { id: workspace.id, userId } });
+      return { deletedApplications, deletedEvents };
+    });
+  }
+
   // Applications
 
-  async listApplications(userId: string | null): Promise<ApplicationRecord[]> {
+  async listApplications(userId: string | null, options?: DemoReadOptions): Promise<ApplicationRecord[]> {
     const rows = await prisma.application.findMany({
-      where: { ...userWhere(userId) },
+      where: { ...userWhere(userId), ...demoWhere(options) },
       orderBy: { createdAt: "desc" },
       include: { contacts: true },
     });
@@ -282,11 +471,12 @@ export class PrismaAdapter implements DatabaseAdapter {
 
   async listApplicationsPaginated(
     userId: string | null,
-    params: PaginationParams
+    params: PaginationParams,
+    options?: DemoReadOptions,
   ): Promise<PaginatedResult<ApplicationRecord>> {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.max(1, Math.min(100, params.pageSize ?? 10));
-    const where = { ...userWhere(userId) };
+    const where = { ...userWhere(userId), ...demoWhere(options) };
 
     const [total, rows] = await Promise.all([
       prisma.application.count({ where }),
@@ -308,9 +498,9 @@ export class PrismaAdapter implements DatabaseAdapter {
     };
   }
 
-  async getApplication(id: string, userId: string | null): Promise<ApplicationRecord | null> {
+  async getApplication(id: string, userId: string | null, options?: DemoReadOptions): Promise<ApplicationRecord | null> {
     const row = await prisma.application.findFirst({
-      where: { id: nid(id), ...userWhere(userId) },
+      where: { id: nid(id), ...userWhere(userId), ...demoWhere(options) },
       include: { contacts: true },
     });
     return row ? mapApp(row) : null;
@@ -319,14 +509,21 @@ export class PrismaAdapter implements DatabaseAdapter {
   async createApplication(userId: string, data: CreateApplicationInput): Promise<ApplicationRecord> {
     validateApplicationSummary(data.notes);
     try {
-      const row = await prisma.application.create({
-        data: {
-          userId,
-          ...data,
-          status: normalizeStatus(data.status),
-          appliedAt: resolveAppliedAtForCreate(data.status, data.appliedAt),
-        },
-        include: { contacts: true },
+      const row = await prisma.$transaction(async (tx) => {
+        const owner = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+        `;
+        if (!owner.length) throw new Error("user_not_found");
+        if (await tx.demoWorkspace.count({ where: { userId } })) throw new Error("demo_workspace_exists");
+        return tx.application.create({
+          data: {
+            userId,
+            ...data,
+            status: normalizeStatus(data.status),
+            appliedAt: resolveAppliedAtForCreate(data.status, data.appliedAt),
+          },
+          include: { contacts: true },
+        });
       });
       return mapApp(row);
     } catch (error) {
@@ -429,9 +626,10 @@ export class PrismaAdapter implements DatabaseAdapter {
   async findApplicationByCanonicalJobUrl(
     userId: string,
     canonicalJobUrl: string,
+    options?: DemoReadOptions,
   ): Promise<ApplicationRecord | null> {
     const row = await prisma.application.findFirst({
-      where: { userId, canonicalJobUrl },
+      where: { userId, canonicalJobUrl, ...demoWhere(options) },
       include: { contacts: true },
     });
     return row ? mapApp(row) : null;
@@ -459,6 +657,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         include: { contacts: true },
       });
       if (!application) throw new Error("not_found");
+      assertEventMatchesParent(event, application);
       return { application: mapApp(application), event: mapEvent(event) };
     };
     const existingReplay = await loadReplay();
@@ -483,6 +682,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           if (replay) {
             const legacyHash = ((replay.metadata ?? {}) as Record<string, unknown>).requestHash;
             if ((replay.requestHash ?? legacyHash) !== requestHash) throw new Error("idempotency_conflict");
+            assertEventMatchesParent(replay, existing);
             return { application: mapApp(existing), event: mapEvent(replay) };
           }
         }
@@ -547,6 +747,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             source: eventInput.source ?? null,
             actor: eventInput.actor ?? null,
             metadata: (eventInput.metadata ?? {}) as Prisma.InputJsonValue,
+            ...eventDemoData(application, requestHash),
           },
         });
         return { application: mapApp(application), event: mapEvent(event) };
@@ -633,6 +834,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             },
           }),
         ]);
+        if (event) assertEventMatchesParent(event, application);
         return {
           replayed: true,
           dryRun: false,
@@ -825,6 +1027,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             answerCount: input.answers.length,
             policy,
           } as unknown as Prisma.InputJsonValue,
+          ...eventDemoData(updatedApplication, requestHash),
         },
       });
       const stored = await tx.applicationSubmission.findUniqueOrThrow({
@@ -904,8 +1107,6 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     input: CreateApplicationEventInput,
   ): Promise<ApplicationEventRecord> {
-    const owns = await prisma.application.count({ where: { id: nid(applicationId), userId } });
-    if (!owns) throw new Error("not_found");
     const requestHash = submissionRequestHash({
       applicationId,
       type: input.type,
@@ -920,6 +1121,9 @@ export class PrismaAdapter implements DatabaseAdapter {
         },
       });
       if (!replay) return null;
+      const application = await prisma.application.findFirst({ where: { id: nid(applicationId), userId } });
+      if (!application) throw new Error("not_found");
+      assertEventMatchesParent(replay, application);
       const legacyHash = ((replay.metadata ?? {}) as Record<string, unknown>).requestHash;
       if ((replay.requestHash ?? legacyHash) !== requestHash) throw new Error("idempotency_conflict");
       return mapEvent(replay);
@@ -928,6 +1132,9 @@ export class PrismaAdapter implements DatabaseAdapter {
     if (replay) return replay;
     try {
       const row = await prisma.$transaction(async (tx) => {
+        const application = await tx.application.findFirst({ where: { id: nid(applicationId), userId } });
+        if (!application) throw new Error("not_found");
+        eventDemoData(application, requestHash);
         const bumped = await tx.application.updateMany({
           where: { id: nid(applicationId), userId },
           data: { eventVersion: { increment: 1 } },
@@ -944,6 +1151,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             source: input.source ?? null,
             actor: input.actor ?? null,
             metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+            ...eventDemoData(application, requestHash),
           },
         });
       });
@@ -1001,6 +1209,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         include: { contacts: true },
       });
       if (!application) throw new Error("not_found");
+      assertEventMatchesParent(event, application);
       return { event: mapEvent(event), application: mapApp(application), replayed: true };
     };
 
@@ -1014,6 +1223,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           include: { contacts: true },
         });
         if (!application) throw new Error("not_found");
+        eventDemoData(application, requestHash);
         if (input.expectedUpdatedAt && application.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
           throw new Error("conflict");
         }
@@ -1030,6 +1240,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             if (typeof persistedRequestHash !== "string" || !acceptedRequestHashes.has(persistedRequestHash)) {
               throw new Error("idempotency_conflict");
             }
+            assertEventMatchesParent(existing, application);
             return { event: mapEvent(existing), application: mapApp(application), replayed: true };
           }
         }
@@ -1102,6 +1313,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             contactId: input.contactId ?? null,
             outcome: input.outcome ?? null,
             metadata: metadata as Prisma.InputJsonValue,
+            ...eventDemoData(updatedApplication, requestHash),
           },
         });
         return {
@@ -1130,12 +1342,19 @@ export class PrismaAdapter implements DatabaseAdapter {
   async listApplicationEventsFiltered(
     userId: string,
     filter: ListApplicationEventsFilter,
+    options?: DemoReadOptions,
   ): Promise<ApplicationEventPage> {
     const direction = filter.order === "oldest" ? "asc" : "desc";
+    const applicationWhere: Prisma.ApplicationWhereInput = {
+      userId,
+      ...demoWhere(options),
+      ...(filter.company ? { company: { contains: filter.company, mode: "insensitive" } } : {}),
+    };
     const where: Prisma.ApplicationEventWhereInput = {
       userId,
+      ...demoWhere(options),
+      application: applicationWhere,
       ...(filter.applicationId ? { applicationId: nid(filter.applicationId) } : {}),
-      ...(filter.company ? { application: { company: { contains: filter.company, mode: "insensitive" } } } : {}),
       ...(filter.types?.length ? { type: { in: filter.types } } : {}),
       ...(filter.source ? { source: filter.source } : {}),
       ...(filter.actor ? { actor: filter.actor } : {}),
@@ -1176,11 +1395,19 @@ export class PrismaAdapter implements DatabaseAdapter {
     applicationId: string,
     userId: string,
     limit = 100,
+    options?: DemoReadOptions,
   ): Promise<ApplicationEventRecord[]> {
-    const owns = await prisma.application.count({ where: { id: nid(applicationId), userId } });
+    const owns = await prisma.application.count({
+      where: { id: nid(applicationId), userId, ...demoWhere(options) },
+    });
     if (!owns) throw new Error("not_found");
     const rows = await prisma.applicationEvent.findMany({
-      where: { applicationId: nid(applicationId), userId },
+      where: {
+        applicationId: nid(applicationId),
+        userId,
+        ...demoWhere(options),
+        application: { userId, ...demoWhere(options) },
+      },
       orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
       take: Math.max(1, Math.min(500, limit)),
     });
@@ -1189,9 +1416,10 @@ export class PrismaAdapter implements DatabaseAdapter {
 
   async listApplicationsFiltered(
     userId: string | null,
-    filter: ListApplicationsFilter
+    filter: ListApplicationsFilter,
+    options?: DemoReadOptions,
   ): Promise<Partial<ApplicationRecord>[]> {
-    const where: Prisma.ApplicationWhereInput = { ...userWhere(userId) };
+    const where: Prisma.ApplicationWhereInput = { ...userWhere(userId), ...demoWhere(options) };
 
     if (filter.status?.length) {
       where.status = { in: filter.status };
@@ -1313,35 +1541,44 @@ export class PrismaAdapter implements DatabaseAdapter {
             failed++;
             continue;
           }
-          const row = await prisma.application.create({
-            data: {
-              userId,
-              company: item.company,
-              role: item.role,
-              status: normalizeStatus(item.status || "inbound"),
-              appliedAt: resolveAppliedAtForCreate(item.status || "inbound", item.appliedAt),
-              lastContact: item.lastContact ?? null,
-              followUpAt: item.followUpAt ?? null,
-              notes: validateApplicationSummary(item.notes),
-              jobDescription: item.jobDescription ?? null,
-              source: item.source ?? null,
-              remote: item.remote ?? false,
-              salaryMin: item.salaryMin ?? null,
-              salaryMax: item.salaryMax ?? null,
-              rating: item.rating ?? null,
-              jobUrl: item.jobUrl ?? null,
-              resumeId: item.resumeId ?? null,
-              ...structuredApplicationData(item as unknown as Record<string, unknown>),
-              ...sanitizeTriageFields({
-                companySize: item.companySize ?? null,
-                salaryBandMentioned: item.salaryBandMentioned ?? false,
-                triageQuality: item.triageQuality ?? null,
-                triageReason: item.triageReason ?? null,
-                incomingSource: item.incomingSource ?? null,
-                autoRejected: item.autoRejected ?? false,
-                autoRejectReason: item.autoRejectReason ?? null,
-              }),
-            },
+          const company = item.company;
+          const role = item.role;
+          const row = await prisma.$transaction(async (tx) => {
+            const owner = await tx.$queryRaw<Array<{ id: string }>>`
+              SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+            `;
+            if (!owner.length) throw new Error("user_not_found");
+            if (await tx.demoWorkspace.count({ where: { userId } })) throw new Error("demo_workspace_exists");
+            return tx.application.create({
+              data: {
+                userId,
+                company,
+                role,
+                status: normalizeStatus(item.status || "inbound"),
+                appliedAt: resolveAppliedAtForCreate(item.status || "inbound", item.appliedAt),
+                lastContact: item.lastContact ?? null,
+                followUpAt: item.followUpAt ?? null,
+                notes: validateApplicationSummary(item.notes),
+                jobDescription: item.jobDescription ?? null,
+                source: item.source ?? null,
+                remote: item.remote ?? false,
+                salaryMin: item.salaryMin ?? null,
+                salaryMax: item.salaryMax ?? null,
+                rating: item.rating ?? null,
+                jobUrl: item.jobUrl ?? null,
+                resumeId: item.resumeId ?? null,
+                ...structuredApplicationData(item as unknown as Record<string, unknown>),
+                ...sanitizeTriageFields({
+                  companySize: item.companySize ?? null,
+                  salaryBandMentioned: item.salaryBandMentioned ?? false,
+                  triageQuality: item.triageQuality ?? null,
+                  triageReason: item.triageReason ?? null,
+                  incomingSource: item.incomingSource ?? null,
+                  autoRejected: item.autoRejected ?? false,
+                  autoRejectReason: item.autoRejectReason ?? null,
+                }),
+              },
+            });
           });
           results.push({ index: i, id: sid(row.id), operation: "created" });
           succeeded++;
@@ -1484,44 +1721,62 @@ export class PrismaAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     data: UpdateDocumentMetadataInput,
+    options?: DocumentMutationOptions,
   ): Promise<DocumentRecord> {
     const documentId = nid(id);
-    const existing = await prisma.document.findFirst({ where: { id: documentId, userId } });
-    if (!existing) throw new Error("not_found");
-    const keys = Object.keys(data);
-    const stateOnly = keys.every((key) => key === "state");
-    const immutable = existing.submissionId !== null || existing.state === "submitted" || existing.state === "historical";
-    if (immutable) {
-      const allowedState = data.state === existing.state
-        || (existing.state === "submitted" && data.state === "historical");
-      if (!stateOnly || !allowedState) {
-        throw new Error("submitted_document_immutable");
+    return prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ submissionId: number | null; state: string }>>`
+        SELECT "submissionId", "state"
+        FROM "Document"
+        WHERE "id" = ${documentId} AND "userId" = ${userId}
+        FOR UPDATE
+      `;
+      if (!locked.length) throw new Error("not_found");
+      const existing = await tx.document.findFirstOrThrow({
+        where: { id: documentId, userId },
+        include: { applications: { select: { id: true, userId: true, isDemo: true } } },
+      });
+      if (
+        options?.requireNonDemoProvenance
+        && (existing.demoProvenance || existing.applications.length > 0)
+        && !existing.applications.some((application) => application.userId === userId && !application.isDemo)
+      ) throw new Error("not_found");
+      const keys = Object.keys(data);
+      const stateOnly = keys.every((key) => key === "state");
+      const immutable = existing.submissionId !== null || existing.state === "submitted" || existing.state === "historical";
+      if (immutable) {
+        const allowedState = data.state === existing.state
+          || (existing.state === "submitted" && data.state === "historical");
+        if (!stateOnly || !allowedState) throw new Error("submitted_document_immutable");
+      } else if (data.state === "submitted") {
+        throw new Error("submitted_state_reserved");
       }
-    } else if (data.state === "submitted") {
-      throw new Error("submitted_state_reserved");
-    }
-    const changed = await prisma.document.updateMany({
-      where: {
-        id: documentId,
-        userId,
-        submissionId: existing.submissionId,
-        state: existing.state,
-      },
-      data,
+      const row = await tx.document.update({
+        where: { id: documentId, userId },
+        data,
+        include: { applications: { select: { id: true, company: true, role: true } } },
+      });
+      return mapDoc(row);
     });
-    if (changed.count !== 1) throw new Error("submitted_document_immutable");
-    return (await this.getDocument(id, userId))!;
   }
 
-  async createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord> {
+  async createDocument(userId: string, data: CreateDocumentInput, options?: DocumentMutationOptions): Promise<DocumentRecord> {
     const { applicationIds, submissionId, ...rest } = data;
     if (submissionId || rest.state === "submitted") throw new Error("submitted_state_reserved");
     const requestedApplicationIds = Array.from(new Set(applicationIds.map(nid)));
     const row = await prisma.$transaction(async (tx) => {
+      const owner = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!owner.length) throw new Error("user_not_found");
       const owned = requestedApplicationIds.length
         ? await tx.application.findMany({
-            where: { id: { in: requestedApplicationIds }, userId },
-            select: { id: true },
+            where: {
+              id: { in: requestedApplicationIds },
+              userId,
+              ...(options?.requireNonDemoProvenance ? { isDemo: false } : {}),
+            },
+            select: { id: true, isDemo: true },
           })
         : [];
       if (owned.length !== requestedApplicationIds.length) throw new Error("invalid_applications");
@@ -1530,6 +1785,7 @@ export class PrismaAdapter implements DatabaseAdapter {
           userId,
           ...rest,
           submissionId: null,
+          demoProvenance: owned.some((application) => application.isDemo),
           applications: requestedApplicationIds.length
             ? { connect: requestedApplicationIds.map((id) => ({ id })) }
             : undefined,
@@ -1540,10 +1796,14 @@ export class PrismaAdapter implements DatabaseAdapter {
     return mapDoc(row);
   }
 
-  async updateDocumentLinks(id: string, userId: string, applicationIds: string[]): Promise<DocumentRecord> {
+  async updateDocumentLinks(id: string, userId: string, applicationIds: string[], options?: DocumentMutationOptions): Promise<DocumentRecord> {
     const documentId = nid(id);
     const requestedApplicationIds = Array.from(new Set(applicationIds)).map(nid);
     return prisma.$transaction(async (tx) => {
+      const owner = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+      `;
+      if (!owner.length) throw new Error("user_not_found");
       const locked = await tx.$queryRaw<Array<{ submissionId: number | null; state: string }>>`
         SELECT "submissionId", "state"
         FROM "Document"
@@ -1551,17 +1811,33 @@ export class PrismaAdapter implements DatabaseAdapter {
         FOR UPDATE
       `;
       if (!locked.length) throw new Error("not_found");
+      const existing = await tx.document.findFirstOrThrow({
+        where: { id: documentId, userId },
+        include: { applications: { select: { id: true, userId: true, isDemo: true } } },
+      });
+      if (
+        options?.requireNonDemoProvenance
+        && (existing.demoProvenance || existing.applications.length > 0)
+        && !existing.applications.some((application) => application.userId === userId && !application.isDemo)
+      ) throw new Error("not_found");
       if (locked[0].submissionId !== null || locked[0].state === "submitted" || locked[0].state === "historical") {
         throw new Error("submitted_document_immutable");
       }
       const owned = await tx.application.findMany({
-        where: { id: { in: requestedApplicationIds }, userId },
-        select: { id: true },
+        where: {
+          id: { in: requestedApplicationIds },
+          userId,
+          ...(options?.requireNonDemoProvenance ? { isDemo: false } : {}),
+        },
+        select: { id: true, isDemo: true },
       });
       if (owned.length !== requestedApplicationIds.length) throw new Error("invalid_applications");
       const row = await tx.document.update({
         where: { id: documentId, userId },
-        data: { applications: { set: owned.map((application) => ({ id: application.id })) } },
+        data: {
+          demoProvenance: existing.demoProvenance || owned.some((application) => application.isDemo),
+          applications: { set: owned.map((application) => ({ id: application.id })) },
+        },
         include: { applications: { select: { id: true, company: true, role: true } } },
       });
       return mapDoc(row);
@@ -1583,7 +1859,7 @@ export class PrismaAdapter implements DatabaseAdapter {
     throw new Error("submitted_document_immutable");
   }
 
-  async deleteDocument(id: string, userId: string): Promise<DocumentRecord | null> {
+  async deleteDocument(id: string, userId: string, options?: DocumentMutationOptions): Promise<DocumentRecord | null> {
     const documentId = nid(id);
     return prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ submissionId: number | null; state: string }>>`
@@ -1593,6 +1869,15 @@ export class PrismaAdapter implements DatabaseAdapter {
         FOR UPDATE
       `;
       if (!locked.length) return null;
+      const provenance = await tx.document.findFirstOrThrow({
+        where: { id: documentId, userId },
+        include: { applications: { select: { id: true, userId: true, isDemo: true } } },
+      });
+      if (
+        options?.requireNonDemoProvenance
+        && (provenance.demoProvenance || provenance.applications.length > 0)
+        && !provenance.applications.some((application) => application.userId === userId && !application.isDemo)
+      ) throw new Error("not_found");
       if (locked[0].submissionId !== null || locked[0].state === "submitted" || locked[0].state === "historical") {
         throw new Error("submitted_document_immutable");
       }

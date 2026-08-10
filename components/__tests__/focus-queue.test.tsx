@@ -102,6 +102,8 @@ describe("FocusQueue empty recovery", () => {
             onDelete={vi.fn()}
             onArchive={vi.fn()}
             onCreate={onCreate}
+            onCreateDemo={vi.fn()}
+            demoCreationPending={false}
             onClearFilters={vi.fn()}
             statusMutation={{ mutate: vi.fn() }}
           />
@@ -109,10 +111,45 @@ describe("FocusQueue empty recovery", () => {
       );
     });
 
-    const button = container.querySelector("button");
-    expect(button?.textContent).toBe("create");
-    await act(async () => button?.click());
+    const createButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "create",
+    );
+    expect(createButton).toBeTruthy();
+    await act(async () => createButton?.click());
     expect(onCreate).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain("groups.overdue");
+  });
+
+  it("offers demo creation alongside the regular true-empty action", async () => {
+    const onCreateDemo = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <FocusQueue
+            applications={[]}
+            isTrueEmpty
+            isFilteredEmpty={false}
+            selectedIds={new Set()}
+            onToggleSelect={vi.fn()}
+            onOpen={vi.fn()}
+            onEdit={vi.fn()}
+            onDelete={vi.fn()}
+            onArchive={vi.fn()}
+            onCreate={vi.fn()}
+            onCreateDemo={onCreateDemo}
+            demoCreationPending={false}
+            onClearFilters={vi.fn()}
+            statusMutation={{ mutate: vi.fn() }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const demoButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "create_demo",
+    );
+    expect(demoButton).toBeTruthy();
+    await act(async () => demoButton?.click());
+    expect(onCreateDemo).toHaveBeenCalledOnce();
   });
 });

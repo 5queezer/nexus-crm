@@ -1,76 +1,57 @@
-import { PrismaClient } from "@prisma/client";
+import { getDb } from "../lib/db";
+import type { DatabaseAdapter } from "../lib/db/adapter";
+import { createDemoFixtures } from "../lib/demo-workspace/fixtures";
 
-const prisma = new PrismaClient();
-
-async function main() {
-  // Find the first user to assign seeded data to
-  const user = await prisma.user.findFirst();
-  if (!user) {
-    console.error("No users found. Log in first, then re-run the seed.");
-    return;
-  }
-
-  // Clear existing data
-  await prisma.application.deleteMany();
-
-  const applications = [
-    {
-      company: "Amazon Ring",
-      role: "SDE",
-      status: "applied",
-      appliedAt: new Date("2026-02-10"),
-      lastContact: null,
-      notes: "Matt Brown (Recruiter); HackerRank offen",
-    },
-    {
-      company: "Zurich/NTT",
-      role: "Fullstack SE Alpha I",
-      status: "rejected",
-      appliedAt: new Date("2026-02-25"),
-      lastContact: null,
-      notes: "Franco Mahl; 240€/Tag; kein Feedback",
-    },
-    {
-      company: "Aircall",
-      role: "Senior Engineer",
-      status: "rejected",
-      appliedAt: new Date("2026-02-26"),
-      lastContact: null,
-      notes: "Guillaume Moulin; kein Feedback",
-    },
-    {
-      company: "Deloitte",
-      role: "Backend Engineer",
-      status: "applied",
-      appliedAt: null,
-      lastContact: null,
-      notes: "Carolina Rico Quinn; CV vorbereitet",
-    },
-    {
-      company: "KNAPP AG",
-      role: "Java Senior",
-      status: "inbound",
-      appliedAt: null,
-      lastContact: null,
-      notes: "Noch nicht abgeschickt",
-    },
-    {
-      company: "Ringier AG",
-      role: "Platform Engineer",
-      status: "inbound",
-      appliedAt: null,
-      lastContact: null,
-      notes: "Noch nicht abgeschickt",
-    },
-  ];
-
-  for (const app of applications) {
-    await prisma.application.create({ data: { ...app, userId: user.id } });
-  }
-
-  console.log(`Seeded ${applications.length} applications.`);
+interface SeedEnvironment {
+  NODE_ENV?: string;
+  DEMO_SEED_ENABLED?: string;
+  DEMO_SEED_USER_ID?: string;
+  VERCEL_ENV?: string;
+  RAILWAY_ENVIRONMENT_NAME?: string;
+  FLY_APP_NAME?: string;
+  K_SERVICE?: string;
 }
 
-main()
-  .catch(console.error)
-  .finally(() => prisma.$disconnect());
+type DemoLifecycleAdapter = Pick<DatabaseAdapter, "ensureDemoWorkspace">;
+
+function isProductionEnvironment(env: SeedEnvironment): boolean {
+  return env.NODE_ENV === "production"
+    || env.VERCEL_ENV === "production"
+    || env.RAILWAY_ENVIRONMENT_NAME === "production"
+    || Boolean(env.FLY_APP_NAME)
+    || Boolean(env.K_SERVICE);
+}
+
+export async function runDemoSeed(
+  env: SeedEnvironment = process.env,
+  resolveAdapter: () => DemoLifecycleAdapter = getDb,
+) {
+  if (isProductionEnvironment(env)) {
+    throw new Error("Demo seed is blocked in production environments");
+  }
+  if (env.DEMO_SEED_ENABLED !== "true") {
+    throw new Error("DEMO_SEED_ENABLED=true is required");
+  }
+  const userId = env.DEMO_SEED_USER_ID?.trim();
+  if (!userId) {
+    throw new Error("DEMO_SEED_USER_ID is required");
+  }
+
+  return resolveAdapter().ensureDemoWorkspace(userId, createDemoFixtures());
+}
+
+async function main() {
+  const result = await runDemoSeed();
+  console.log(
+    result.replayed
+      ? `Demo workspace already exists for ${process.env.DEMO_SEED_USER_ID}; replayed safely.`
+      : `Created ${result.applications.length} demo applications for ${process.env.DEMO_SEED_USER_ID}.`,
+  );
+}
+
+if (!process.env.VITEST) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

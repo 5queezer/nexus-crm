@@ -224,10 +224,17 @@
     "triage_weak": "Schwach",
     "triage_pass": "Ablehnen",
     "triage_unrated": "Unbewertet",
-    "triage_action": "Du hast {count} hochpriorisierte Opportunities zu prüfen"
+    "triage_action": "Du hast {count} hochpriorisierte Opportunities zu prüfen",
+    "demo_banner_title": "Demo-Workspace",
+    "demo_banner_description": "Diese klar markierten fiktiven Bewerbungen zeigen den Workflow und werden aus regulären Statistiken ausgeschlossen.",
+    "remove_demo": "Demo-Workspace entfernen",
+    "removing_demo": "Demo-Workspace wird entfernt…",
+    "demo_remove_error": "Der Demo-Workspace konnte nicht sicher entfernt werden.",
+    "demo_create_error": "Der Demo-Workspace konnte nicht erstellt werden."
   },
   "confirm": {
     "delete": "Opportunity wirklich löschen?",
+    "remove_demo": "Den vollständigen Demo-Workspace entfernen? Deine echten Bewerbungen werden nicht verändert.",
     "bulk_archive_confirm": "{count} ausgewählte Opportunities archivieren?",
     "bulk_delete_confirm": "{count} ausgewählte Opportunities löschen? Dies kann nicht rückgängig gemacht werden."
   },
@@ -533,6 +540,9 @@
     "create_app": "Opportunity erstellen",
     "required_fields": "Kunde und Projekt sind Pflichtfelder.",
     "error_create": "Fehler beim Erstellen der Opportunity.",
+    "create_demo": "Demo-Workspace erstellen",
+    "creating_demo": "Demo-Workspace wird erstellt…",
+    "error_create_demo": "Der Demo-Workspace konnte nicht erstellt werden.",
     "done_title": "Alles bereit!",
     "done_description": "Dein CRM ist einsatzbereit. Hier sind ein paar Tipps:",
     "tips_title": "Schnelltipps",
@@ -753,8 +763,13 @@
     "filtered_empty_title": "Keine passenden Opportunities",
     "filtered_empty_description": "Deine Opportunities sind weiterhin da. Passe die aktiven Filter an oder lösche sie.",
     "create": "Neue Opportunity",
+    "create_demo": "Demo-Workspace erstellen",
+    "creating_demo": "Demo-Workspace wird erstellt…",
     "clear_filters": "Filter löschen",
     "dismiss_overdue": "Überfällige Wiedervorlage für {company} ausblenden"
+  },
+  "demoWorkspace": {
+    "badge": "Demo"
   },
   "events": {
     "eventTypes": {

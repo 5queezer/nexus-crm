@@ -6,18 +6,20 @@ import { useQueryClient } from "@tanstack/react-query";
 
 interface OnboardingWizardProps {
   onComplete: () => void;
+  onCreateDemo: () => Promise<void>;
 }
 
 const STEPS = ["welcome", "profile", "first_app", "done"] as const;
 type Step = (typeof STEPS)[number];
 
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, onCreateDemo }: OnboardingWizardProps) {
   const t = useTranslations("onboarding");
   const [currentStep, setCurrentStep] = useState<Step>("welcome");
   const [appTitle, setAppTitle] = useState("");
   const [company, setCompany] = useState("");
   const [role, setRole] = useState("");
   const [error, setError] = useState("");
+  const [isCreatingDemo, setIsCreatingDemo] = useState(false);
   const queryClient = useQueryClient();
 
   const stepIndex = STEPS.indexOf(currentStep);
@@ -64,6 +66,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       nextStep();
     } catch {
       setError(t("error_create"));
+    }
+  }
+
+  async function handleCreateDemo() {
+    setError("");
+    setIsCreatingDemo(true);
+    try {
+      await onCreateDemo();
+      localStorage.setItem("onboarding-complete", "true");
+      onComplete();
+    } catch {
+      setError(t("error_create_demo"));
+    } finally {
+      setIsCreatingDemo(false);
     }
   }
 
@@ -195,6 +211,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   {t("create_app")}
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={handleCreateDemo}
+                disabled={isCreatingDemo}
+                className="w-full rounded-lg border border-blue-200 px-4 py-2.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
+              >
+                {isCreatingDemo ? t("creating_demo") : t("create_demo")}
+              </button>
             </div>
           )}
 

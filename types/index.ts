@@ -45,6 +45,9 @@ export const TRIAGE_COLORS: Record<TriageScore, string> = {
 
 export interface Application {
   id: string;
+  isDemo?: boolean;
+  demoWorkspaceId?: string | null;
+  demoKey?: string | null;
   company: string;
   role: string;
   status: ApplicationStatus;

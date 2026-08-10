@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { downloadFile, fileExists } from "@/lib/storage";
+import { sanitizeDocumentAssociations } from "@/lib/documents/provenance";
+
+const MACHINE_DEMO_READ = { demoVisibility: "exclude" } as const;
 
 const NOT_FOUND = NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -26,7 +29,11 @@ export async function GET(
 
   if (link.targetType === "document" && link.targetId) {
     const doc = await db.getDocument(link.targetId, link.userId);
-    if (!doc || doc.userId !== link.userId || !(await fileExists(doc.filename))) {
+    const visible = doc && doc.userId === link.userId && await sanitizeDocumentAssociations(
+      doc,
+      (applicationId) => db.getApplication(applicationId, link.userId, MACHINE_DEMO_READ),
+    );
+    if (!visible || !(await fileExists(doc.filename))) {
       return NOT_FOUND;
     }
 

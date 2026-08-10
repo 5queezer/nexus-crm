@@ -68,6 +68,7 @@ describe("MCP application event contracts", () => {
   });
 
   it("records a typed event with MCP provenance and controlled replay output", async () => {
+    mocks.getApplication.mockResolvedValue({ id: "app-1" });
     mocks.recordApplicationEvent.mockResolvedValue({ event: { id: "event-1" }, application: { id: "app-1" }, replayed: false });
     const result = await client.callTool({
       name: "record_application_event",
@@ -98,7 +99,8 @@ describe("MCP application event contracts", () => {
     expect(text(result)).toEqual({ items: [{ id: "event-1" }], nextCursor: null });
     expect(mocks.listApplicationEventsFiltered).toHaveBeenCalledWith("owner-1", expect.objectContaining({
       applicationId: "app-1", order: "oldest", limit: 20,
-    }));
+    }), { demoVisibility: "exclude" });
+    expect(mocks.getApplication).toHaveBeenCalledWith("app-1", "owner-1", { demoVisibility: "exclude" });
   });
 
   it("does not let duplicate-safe upserts bypass lifecycle events", async () => {
