@@ -148,6 +148,31 @@ describe("OverdueFollowUpsBanner", () => {
     );
   });
 
+  it("gives every interactive control the shared 48px target", async () => {
+    await render([overdue("a", "Bending Spoons"), overdue("b", "Quadrivia")]);
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(toggle?.className).toContain("nexus-target");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="dismiss_all_overdue"]',
+      )?.className,
+    ).toContain("nexus-target");
+
+    await act(async () => toggle?.click());
+
+    // Per-entry controls must not shrink below the shared minimum either.
+    const perEntry = container.querySelectorAll<HTMLButtonElement>(
+      `#${CSS.escape(toggle!.getAttribute("aria-controls")!)} button`,
+    );
+    expect(perEntry.length).toBe(4);
+    for (const button of perEntry) {
+      expect(button.className).toContain("nexus-target");
+    }
+  });
+
   it("dismisses every entry from the collapsed row", async () => {
     const applications = [overdue("a", "Bending Spoons"), overdue("b", "Quadrivia")];
     const props = await render(applications);

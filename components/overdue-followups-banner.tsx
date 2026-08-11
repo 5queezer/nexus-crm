@@ -66,19 +66,19 @@ export function OverdueFollowUpsBanner({
           {applications.map((application) => (
             <li
               key={application.id}
-              className="inline-flex items-center gap-1 rounded-full bg-red-100/80 pl-3 dark:bg-red-900/30"
+              className="inline-flex items-center overflow-hidden rounded-full bg-red-100/80 dark:bg-red-900/30"
             >
               <button
                 type="button"
                 onClick={() => onOpen(application)}
-                className="py-1.5 font-medium hover:underline"
+                className="nexus-target inline-flex items-center justify-center pl-4 pr-2 font-medium transition-colors hover:bg-red-200/70 hover:underline dark:hover:bg-red-900/60"
               >
                 {application.company}
               </button>
               <button
                 type="button"
                 onClick={() => onDismiss(application)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-200/80 dark:text-red-400 dark:hover:bg-red-900/60"
+                className="nexus-target inline-flex shrink-0 items-center justify-center pr-2 text-red-500 transition-colors hover:bg-red-200/80 dark:text-red-400 dark:hover:bg-red-900/60"
                 aria-label={tf("dismiss_overdue", {
                   company: application.company,
                 })}
