@@ -778,7 +778,12 @@
     "create_demo": "Create demo workspace",
     "creating_demo": "Creating demo workspace…",
     "clear_filters": "Clear filters",
-    "dismiss_overdue": "Dismiss overdue follow-up for {company}"
+    "dismiss_overdue": "Dismiss overdue follow-up for {company}",
+    "dismiss_all_overdue": "Dismiss all overdue follow-ups",
+    "overdue_summary": "{count} overdue follow-ups",
+    "overdue_summary_one": "1 overdue follow-up",
+    "overdue_show": "Show",
+    "overdue_hide": "Hide"
   },
   "demoWorkspace": {
     "badge": "Demo"

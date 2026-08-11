@@ -100,11 +100,10 @@ describe("Dashboard data states", () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("gives overdue dismiss an accessible 48px target", async () => {
-    localStorage.setItem("onboarding-complete", "true");
-    const overdue: Application = {
-      id: "overdue-1",
-      company: "Nexus",
+  function overdueApplication(id: string, company: string): Application {
+    return {
+      id,
+      company,
       role: "Engineer",
       status: "interview",
       appliedAt: null,
@@ -130,9 +129,13 @@ describe("Dashboard data states", () => {
       createdAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:00:00.000Z",
     };
+  }
+
+  async function renderDashboardWith(applications: Application[]) {
+    localStorage.setItem("onboarding-complete", "true");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: true, json: async () => [overdue] }),
+      vi.fn().mockResolvedValue({ ok: true, json: async () => applications }),
     );
 
     await act(async () => {
@@ -151,11 +154,50 @@ describe("Dashboard data states", () => {
       );
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
 
-    const dismiss = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="dismiss_overdue"]',
+  it("gives dismiss-all an accessible 48px target", async () => {
+    await renderDashboardWith([overdueApplication("overdue-1", "Nexus")]);
+
+    const dismissAll = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="dismiss_all_overdue"]',
     );
-    expect(dismiss?.className).toContain("nexus-target");
+    expect(dismissAll?.className).toContain("nexus-target");
+  });
+
+  it("renders one summary banner instead of one banner per follow-up", async () => {
+    await renderDashboardWith([
+      overdueApplication("overdue-1", "Bending Spoons"),
+      overdueApplication("overdue-2", "Quadrivia"),
+      overdueApplication("overdue-3", "Pearson"),
+    ]);
+
+    expect(
+      container.querySelectorAll('button[aria-label="dismiss_all_overdue"]')
+        .length,
+    ).toBe(1);
+    expect(
+      container.querySelectorAll('button[aria-label="dismiss_overdue"]').length,
+    ).toBe(0);
+  });
+
+  it("dismisses every overdue follow-up at once", async () => {
+    await renderDashboardWith([
+      overdueApplication("overdue-1", "Bending Spoons"),
+      overdueApplication("overdue-2", "Quadrivia"),
+    ]);
+
+    const dismissAll = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="dismiss_all_overdue"]',
+    );
+    await act(async () => dismissAll?.click());
+
+    expect(
+      container.querySelector('button[aria-label="dismiss_all_overdue"]'),
+    ).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("dismissed-overdue") ?? "[]"),
+    ).toEqual(["overdue-1:2020-01-01", "overdue-2:2020-01-01"]);
   });
 
   it("announces an error and exposes retry recovery", async () => {
