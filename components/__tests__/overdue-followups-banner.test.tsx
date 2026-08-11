@@ -7,7 +7,6 @@ import type { Application } from "@/types";
 import { OverdueFollowUpsBanner } from "../overdue-followups-banner";
 
 vi.mock("next-intl", () => ({
-  useLocale: () => "en",
   useTranslations: () =>
     ((key: string) => key) as (
       key: string,

@@ -171,11 +171,11 @@ describe("Dashboard data states", () => {
       overdueApplication("overdue-2", "Quadrivia"),
     ]);
 
-    const banner = container
-      .querySelector<HTMLButtonElement>('button[aria-label="dismiss_all_overdue"]')
-      ?.parentElement?.parentElement;
+    const toggle = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("overdue_show"));
     await act(async () =>
-      banner?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click(),
+      toggle?.click(),
     );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
@@ -199,10 +199,10 @@ describe("Dashboard data states", () => {
       container.querySelectorAll('button[aria-label="dismiss_all_overdue"]')
         .length,
     ).toBe(1);
-    const detailsId = container
-      .querySelector<HTMLButtonElement>('button[aria-label="dismiss_all_overdue"]')
-      ?.parentElement?.parentElement
-      ?.querySelector<HTMLButtonElement>("button[aria-expanded]")
+    const detailsId = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    )
+      .find((button) => button.textContent?.includes("overdue_show"))
       ?.getAttribute("aria-controls");
     expect(detailsId).toBeTruthy();
     expect(document.getElementById(detailsId!)?.hasAttribute("hidden")).toBe(true);
