@@ -69,6 +69,7 @@
     "more_actions": "Weitere Aktionen",
     "opportunity_actions": "Aktionen für {company}",
     "open_job": "Angebot öffnen",
+    "open_detail_new_tab": "Opportunity in neuem Tab öffnen",
     "select": "Auswählen",
     "deselect": "Abwählen",
     "select_opportunity": "{company} auswählen"
@@ -192,7 +193,18 @@
     "unsaved": "Ungespeicherte Änderungen",
     "leave_confirm": "Ungespeicherte Änderungen verwerfen?",
     "error_conflict": "Der Eintrag wurde inzwischen geändert. Seite neu laden und erneut versuchen.",
-    "section_details": "Details"
+    "section_details": "Details",
+    "copy_link": "Link kopieren",
+    "link_copied": "Link kopiert",
+    "application_facts": "Bewerbungsübersicht",
+    "current_stage": "Aktuelle Interviewphase",
+    "work_model": "Arbeitsmodell",
+    "locations": "Standorte",
+    "salary": "Gehalt",
+    "office_days": "Bürotage (Minimum)",
+    "travel": "Reiseanteil",
+    "timezone_overlap": "Zeitzonen-Überlappung",
+    "compact_summary": "Kompakte Zusammenfassung"
   },
   "status": {
     "inbound": "Neuer Lead",
