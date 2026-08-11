@@ -8,7 +8,8 @@ import { OverdueFollowUpsBanner } from "../overdue-followups-banner";
 
 vi.mock("next-intl", () => ({
   useTranslations: () =>
-    ((key: string) => key) as (
+    ((key: string, values?: Record<string, unknown>) =>
+      values ? `${key}:${JSON.stringify(values)}` : key) as (
       key: string,
       values?: Record<string, unknown>,
     ) => string,
@@ -141,10 +142,13 @@ describe("OverdueFollowUpsBanner", () => {
         ?.click(),
     );
     const dismissButtons = container.querySelectorAll<HTMLButtonElement>(
-      'button[aria-label="dismiss_overdue"]',
+      'button[aria-label^="dismiss_overdue:"]',
     );
     expect(dismissButtons.length).toBe(2);
     expect(dismissButtons[0]?.className).toContain("nexus-target");
+    expect(dismissButtons[0]?.getAttribute("aria-label")).toContain(
+      '"company":"Bending Spoons"',
+    );
 
     await act(async () => dismissButtons[0].click());
     expect(props.onDismiss).toHaveBeenCalledWith(
