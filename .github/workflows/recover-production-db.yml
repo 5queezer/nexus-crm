@@ -77,6 +77,7 @@ jobs:
           transition_count_container="nexus-transition-count"
           transition_backup_container="nexus-transition-backup"
           transition_migration_container="nexus-transition-migration"
+          service_stopped=0
 
           cleanup_transition_containers() {
             for container in \
@@ -109,6 +110,10 @@ jobs:
             rc=$?
             trap - EXIT
             cleanup_transition_containers
+            if [ "${service_stopped}" -eq 1 ]; then
+              timeout 45 docker compose -f docker-compose.yaml stop --timeout 30 "${service}" >/dev/null 2>&1 || true
+              echo "Service remains stopped; recovery did not reach verified activation." >&2
+            fi
             exit "${rc}"
           }
 
@@ -119,6 +124,12 @@ jobs:
             compose_run_bounded "${transition_count_container}" 120 \
               sh -c 'PG_DATABASE_URL="$(node -e "const u=new URL(process.env.DATABASE_URL); for (const key of [\"schema\",\"connection_limit\",\"pool_timeout\",\"socket_timeout\",\"pgbouncer\"]) u.searchParams.delete(key); process.stdout.write(u.toString())")"; exec psql "$PG_DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -Atc "SELECT COUNT(*) FROM \"Application\";"'
           }
+
+          # Hold all application and MCP writes outside the dump/migration recovery
+          # boundary. Any later failure deliberately leaves the service stopped.
+          timeout 45 docker compose -f docker-compose.yaml stop --timeout 30 "${service}"
+          service_stopped=1
+          echo "Production writes quiesced for database recovery."
 
           count_before="$(db_count)"
           case "${count_before}" in
@@ -154,7 +165,20 @@ jobs:
           fi
           echo "Applications after migration: ${count_after}"
 
-          docker compose -f docker-compose.yaml up -d "${service}"
+          # Activation is allowed only after backup, migration, and post-migration
+          # verification. Keep it bounded; a timeout or error leaves the trap armed
+          # and the service fail-closed instead of retrying an unbounded restart.
+          timeout 120 docker compose -f docker-compose.yaml up -d "${service}"
+          readiness_deadline=$((SECONDS + 120))
+          until docker compose -f docker-compose.yaml exec -T "${service}" \
+            node -e 'const http=require("node:http"); const request=http.get({host:"127.0.0.1",port:Number(process.env.PORT||3000),path:"/login",timeout:3000},response=>{response.resume();process.exit(response.statusCode<500?0:1)}); request.on("timeout",()=>request.destroy()); request.on("error",()=>process.exit(1));'; do
+            if [ "${SECONDS}" -ge "${readiness_deadline}" ]; then
+              echo "Service readiness probe timed out; refusing activation." >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          service_stopped=0
           cleanup_transition_containers
           trap - EXIT
           docker ps --filter "name=${service}" --format '{{.Names}} {{.Image}} {{.Status}}'

@@ -5,6 +5,10 @@ const mocks = vi.hoisted(() => ({
   requireSessionAuth: vi.fn(),
   listShareLinks: vi.fn(),
   deleteShareLink: vi.fn(),
+  getDocument: vi.fn(),
+  getApplication: vi.fn(),
+  findShareLink: vi.fn(),
+  createShareLink: vi.fn(),
 }));
 
 vi.mock("@/lib/session", () => ({
@@ -14,6 +18,10 @@ vi.mock("@/lib/db", () => ({
   getDb: () => ({
     listShareLinks: mocks.listShareLinks,
     deleteShareLink: mocks.deleteShareLink,
+    getDocument: mocks.getDocument,
+    getApplication: mocks.getApplication,
+    findShareLink: mocks.findShareLink,
+    createShareLink: mocks.createShareLink,
   }),
 }));
 
@@ -36,6 +44,46 @@ describe("POST /api/share-links", () => {
 
     expect(response.status).toBe(401);
     expect(mocks.requireSessionAuth).toHaveBeenCalledWith({ allowDevBypass: false });
+  });
+
+  it("does not mint a public link for a demo-only document", async () => {
+    mocks.requireSessionAuth.mockResolvedValue(session);
+    mocks.getDocument.mockResolvedValue({
+      id: "demo-doc",
+      userId: "user-1",
+      applicationIds: ["demo-app"],
+      applications: [{ id: "demo-app" }],
+    });
+    mocks.getApplication.mockResolvedValue(null);
+    const request = new NextRequest("https://example.test/api/share-links", {
+      method: "POST",
+      body: JSON.stringify({ targetType: "document", targetId: "demo-doc" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(404);
+    expect(mocks.getApplication).toHaveBeenCalledWith("demo-app", "user-1", { demoVisibility: "exclude" });
+    expect(mocks.createShareLink).not.toHaveBeenCalled();
+  });
+
+  it("does not mint a public link for a detached document with demo provenance", async () => {
+    mocks.requireSessionAuth.mockResolvedValue(session);
+    mocks.getDocument.mockResolvedValue({
+      id: "demo-doc", userId: "user-1", demoProvenance: true,
+      applicationIds: [], applications: [],
+    });
+    const request = new NextRequest("https://example.test/api/share-links", {
+      method: "POST",
+      body: JSON.stringify({ targetType: "document", targetId: "demo-doc" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(404);
+    expect(mocks.createShareLink).not.toHaveBeenCalled();
   });
 });
 

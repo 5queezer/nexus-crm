@@ -46,6 +46,18 @@ describe("login callback forwarding", () => {
     });
   });
 
+  it("preserves a same-origin absolute MCP authorization callback", async () => {
+    mocks.callbackURL = new URL("/api/mcp/authorize", window.location.origin).toString();
+    render(<LoginPage />);
+
+    await userEvent.click(screen.getByRole("button", { name: /login\.button/ }));
+
+    expect(mocks.social).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: mocks.callbackURL,
+    });
+  });
+
   it("replaces an external callback with the safe dashboard fallback", async () => {
     mocks.callbackURL = "https://evil.example/steal";
     render(<LoginPage />);

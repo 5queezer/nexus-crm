@@ -1,12 +1,26 @@
 const FALLBACK_CALLBACK_URL = "/";
 
-export function safeInternalCallbackURL(value: string | null | undefined): string {
-  if (!value || value.length > 2048 || !value.startsWith("/") || value.startsWith("//")) {
+export function safeInternalCallbackURL(
+  value: string | null | undefined,
+  currentOrigin?: string,
+): string {
+  if (!value || value.length > 2048 || /[\\\u0000-\u001f\u007f]/.test(value)) {
     return FALLBACK_CALLBACK_URL;
   }
-  if (/[\\\u0000-\u001f\u007f]/.test(value)) {
-    return FALLBACK_CALLBACK_URL;
+
+  if (!value.startsWith("/")) {
+    try {
+      const callback = new URL(value);
+      if (!currentOrigin || callback.origin !== new URL(currentOrigin).origin) {
+        return FALLBACK_CALLBACK_URL;
+      }
+      return value;
+    } catch {
+      return FALLBACK_CALLBACK_URL;
+    }
   }
+
+  if (value.startsWith("//")) return FALLBACK_CALLBACK_URL;
 
   let decoded = value;
   let stabilized = false;

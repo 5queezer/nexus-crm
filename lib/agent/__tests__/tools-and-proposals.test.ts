@@ -13,6 +13,9 @@ function application(overrides: Partial<ApplicationRecord> = {}): ApplicationRec
   return {
     id: "1",
     userId: "user-a",
+    isDemo: false,
+    demoWorkspaceId: null,
+    demoKey: null,
     company: "Acme",
     role: "Platform Engineer",
     status: "applied",
@@ -88,7 +91,7 @@ describe("tenant-scoped Nexus agent tools", () => {
 
     const summary = await getPipelineSummary(db, "user-a");
 
-    expect(db.listApplications).toHaveBeenCalledWith("user-a");
+    expect(db.listApplications).toHaveBeenCalledWith("user-a", { demoVisibility: "exclude" });
     expect(summary.total).toBe(2);
     expect(summary.byStatus).toMatchObject({ applied: 1, interview: 1 });
   });
@@ -103,7 +106,7 @@ describe("tenant-scoped Nexus agent tools", () => {
 
     const results = await searchApplicationsForAgent(db, "user-a", "platform");
 
-    expect(db.listApplications).toHaveBeenCalledWith("user-a");
+    expect(db.listApplications).toHaveBeenCalledWith("user-a", { demoVisibility: "exclude" });
     expect(results).toHaveLength(1);
     expect(results[0]).not.toHaveProperty("jobDescription");
   });
@@ -115,7 +118,7 @@ describe("tenant-scoped Nexus agent tools", () => {
       jobDescription: "d".repeat(5_000),
     })) } as unknown as DatabaseAdapter;
     const result = await getApplicationForAgent(db, "user-a", "1");
-    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a");
+    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a", { demoVisibility: "exclude" });
     expect(result).not.toHaveProperty("notes");
     expect(result).not.toHaveProperty("jobSummary");
     expect(result?.untrustedExternalContext).toMatchObject({
@@ -148,6 +151,7 @@ describe("application update proposals", () => {
     });
 
     expect(db.updateApplication).not.toHaveBeenCalled();
+    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a", { demoVisibility: "exclude" });
     expect(proposal).toMatchObject({
       userId: "user-a",
       kind: "update_application",
@@ -256,6 +260,89 @@ describe("application update proposals", () => {
         idempotencyKey: "race-key",
       }),
     ).resolves.toEqual(existing);
+  });
+
+  it("revalidates an existing proposal target against demo exclusion", async () => {
+    const db = { getApplication: vi.fn().mockResolvedValue(null) } as unknown as DatabaseAdapter;
+    const repository = new MemoryProposalRepository();
+    await repository.create({
+      userId: "user-a",
+      threadId: null,
+      runId: null,
+      toolInvocationId: null,
+      kind: "update_application",
+      targetType: "application",
+      targetId: "demo-1",
+      payload: { status: "interview" },
+      expectedDiff: [],
+      assumptions: null,
+      baseVersion: application().updatedAt,
+      idempotencyKey: "existing-key",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      executedAt: null,
+    });
+
+    await expect(proposeApplicationUpdate({
+      db,
+      repository,
+      userId: "user-a",
+      applicationId: "demo-1",
+      changes: { status: "interview" },
+      reason: "replay",
+      idempotencyKey: "existing-key",
+    })).rejects.toThrow("Application not found");
+    expect(db.getApplication).toHaveBeenCalledWith("demo-1", "user-a", {
+      demoVisibility: "exclude",
+    });
+  });
+
+  it("revalidates a concurrent idempotency winner target against demo exclusion", async () => {
+    const visible = application();
+    const db = {
+      getApplication: vi.fn()
+        .mockResolvedValueOnce(visible)
+        .mockResolvedValueOnce(null),
+    } as unknown as DatabaseAdapter;
+    const winner = new MemoryProposalRepository();
+    const existing = await winner.create({
+      userId: "user-a",
+      threadId: null,
+      runId: null,
+      toolInvocationId: null,
+      kind: "update_application",
+      targetType: "application",
+      targetId: "1",
+      payload: { status: "interview" },
+      expectedDiff: [],
+      assumptions: null,
+      baseVersion: visible.updatedAt,
+      idempotencyKey: "race-hidden-key",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      executedAt: null,
+    });
+    let lookups = 0;
+    const repository: ProposalRepository = {
+      create: vi.fn().mockRejectedValue(Object.assign(new Error("unique"), {
+        code: "P2002",
+        meta: { target: ["userId", "idempotencyKey"] },
+      })),
+      findByIdempotencyKey: vi.fn(async () => (++lookups === 1 ? null : existing)),
+    };
+
+    await expect(proposeApplicationUpdate({
+      db,
+      repository,
+      userId: "user-a",
+      applicationId: "1",
+      changes: { status: "interview" },
+      reason: "race",
+      idempotencyKey: "race-hidden-key",
+    })).rejects.toThrow("Application not found");
+    expect(db.getApplication).toHaveBeenNthCalledWith(2, "1", "user-a", {
+      demoVisibility: "exclude",
+    });
   });
 
   it("rethrows unrelated unique-constraint conflicts", async () => {

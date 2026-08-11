@@ -28,6 +28,7 @@ import {
   STATUS_COLORS,
   STATUS_ORDER,
 } from "@/types";
+import { DemoBadge } from "./demo-badge";
 
 type KanbanSortKey =
   | "rating_desc"
@@ -94,6 +95,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
             >
               {app.company}
             </span>
+            {app.isDemo && <DemoBadge />}
             {safeJobUrl && (
               <button
                 type="button"

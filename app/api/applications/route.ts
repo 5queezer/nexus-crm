@@ -130,6 +130,9 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && error.message === "appliedAt_invalid") {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    if (error instanceof Error && error.message === "demo_workspace_exists") {
+      return NextResponse.json({ error: "demo_workspace_removal_required" }, { status: 409 });
+    }
     return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
   }
 }

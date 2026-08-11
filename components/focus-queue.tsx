@@ -15,6 +15,7 @@ import { formatLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
 import { applicationPath } from "@/lib/applications/slug";
 import { ActionMenu } from "./action-menu";
+import { DemoBadge } from "./demo-badge";
 
 interface FocusQueueProps {
   applications: Application[];
@@ -27,6 +28,9 @@ interface FocusQueueProps {
   onDelete: (id: string) => void;
   onArchive: (id: string, archive: boolean) => void;
   onCreate: () => void;
+  onCreateDemo?: () => void;
+  demoCreationPending?: boolean;
+  demoCreationError?: string;
   onClearFilters: () => void;
   statusMutation: ApplicationStatusMutation;
 }
@@ -42,6 +46,9 @@ export function FocusQueue({
   onDelete,
   onArchive,
   onCreate,
+  onCreateDemo,
+  demoCreationPending = false,
+  demoCreationError,
   onClearFilters,
   statusMutation,
 }: FocusQueueProps) {
@@ -63,6 +70,21 @@ export function FocusQueue({
         >
           {t("create")}
         </button>
+        {demoCreationError && (
+          <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-300">
+            {demoCreationError}
+          </p>
+        )}
+        {onCreateDemo && (
+          <button
+            type="button"
+            onClick={onCreateDemo}
+            disabled={demoCreationPending}
+            className="nexus-button-ghost nexus-target mt-3 disabled:cursor-wait disabled:opacity-60"
+          >
+            {demoCreationPending ? t("creating_demo") : t("create_demo")}
+          </button>
+        )}
       </div>
     );
   }
@@ -180,6 +202,7 @@ function FocusRow({
           <span className="truncate text-sm font-semibold text-slate-950 dark:text-white">
             {application.company}
           </span>
+          {application.isDemo && <DemoBadge />}
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[application.status]}`}
           >

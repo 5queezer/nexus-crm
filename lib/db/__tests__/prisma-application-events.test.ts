@@ -6,6 +6,7 @@ const fake = vi.hoisted(() => {
   let application: Row;
   let events: Row[];
   let failCreate = false;
+  let replayAfterInitialLookup: Row | null = null;
 
   const reset = () => {
     application = {
@@ -28,12 +29,16 @@ const fake = vi.hoisted(() => {
       canonicalJobUrl: null,
       currentStage: "screen",
       eventVersion: 0,
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
       createdAt: new Date("2026-07-01T00:00:00Z"),
       updatedAt: new Date("2026-07-24T08:00:00Z"),
       contacts: [],
     };
     events = [];
     failCreate = false;
+    replayAfterInitialLookup = null;
   };
   reset();
 
@@ -71,10 +76,23 @@ const fake = vi.hoisted(() => {
       };
       return { ...application, contacts: [] };
     }),
+    create: vi.fn(async ({ data }: { data: Row }) => ({
+      ...application,
+      ...data,
+      id: Number(application.id) + 1,
+      contacts: [],
+    })),
+    count: vi.fn(async () => 1),
   };
   const eventApi = {
     findUnique: vi.fn(async ({ where }: { where: { userId_idempotencyKey: { userId: string; idempotencyKey: string } } }) => {
       const key = where.userId_idempotencyKey;
+      if (replayAfterInitialLookup) {
+        const row = replayAfterInitialLookup;
+        replayAfterInitialLookup = null;
+        events.push(row);
+        return null;
+      }
       return events.find((event) => event.userId === key.userId && event.idempotencyKey === key.idempotencyKey) ?? null;
     }),
     create: vi.fn(async ({ data }: { data: Row }) => {
@@ -83,16 +101,21 @@ const fake = vi.hoisted(() => {
       events.push(row);
       return row;
     }),
+    findMany: vi.fn(async () => events),
   };
   const contactApi = { count: vi.fn(async () => 1) };
   const documentApi = { count: vi.fn(async () => 1) };
   const submissionApi = { count: vi.fn(async () => 1) };
+  const demoWorkspaceApi = { count: vi.fn(async () => 0) };
+  const ownerLock = vi.fn(async () => [{ id: "owner-1" }]);
   Object.assign(prisma, {
     application: applicationApi,
     applicationEvent: eventApi,
     contact: contactApi,
     document: documentApi,
     applicationSubmission: submissionApi,
+    demoWorkspace: demoWorkspaceApi,
+    $queryRaw: ownerLock,
     $transaction: vi.fn(async (callback: (transaction: unknown) => Promise<unknown>) => {
       const applicationBefore = structuredClone(application);
       const eventsBefore = structuredClone(events);
@@ -117,6 +140,9 @@ const fake = vi.hoisted(() => {
     submissionCount: submissionApi.count,
     setApplication: (update: Row) => { application = { ...application, ...update }; },
     setFailCreate: (value: boolean) => { failCreate = value; },
+    setReplayAfterInitialLookup: (row: Row) => { replayAfterInitialLookup = row; },
+    demoWorkspaceCount: demoWorkspaceApi.count,
+    ownerLock,
   };
 });
 
@@ -157,6 +183,23 @@ describe("PrismaAdapter — atomic application events", () => {
     expect(fake.events()[0].requestHash).toEqual(expect.any(String));
   });
 
+  it("propagates demo ownership markers to ordinary event writes", async () => {
+    fake.setApplication({ isDemo: true, demoWorkspaceId: 9, demoKey: "fixture-app" });
+    await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
+    expect(fake.events()[0]).toMatchObject({
+      isDemo: true,
+      demoWorkspaceId: 9,
+      demoKey: expect.stringMatching(/^fixture-app:event:/),
+    });
+  });
+
+  it("fails closed when a parent has inconsistent demo markers", async () => {
+    fake.setApplication({ isDemo: false, demoWorkspaceId: 9, demoKey: "fixture-app" });
+    await expect(new PrismaAdapter().recordApplicationEvent("1", "owner-1", command))
+      .rejects.toThrow("demo_marker_conflict");
+    expect(fake.events()).toHaveLength(0);
+  });
+
   it("replays a pre-migration legacy idempotency hash", async () => {
     const legacyHash = submissionRequestHash({
       applicationId: "1",
@@ -193,6 +236,78 @@ describe("PrismaAdapter — atomic application events", () => {
     const replay = await adapter.recordApplicationEvent("1", "owner-1", command);
     expect(replay.replayed).toBe(true);
     expect(fake.events()).toHaveLength(1);
+  });
+
+  it("accepts persisted fixture demo keys when replaying an event", async () => {
+    fake.setApplication({ isDemo: true, demoWorkspaceId: 9, demoKey: "fixture-app" });
+    const requestHash = submissionRequestHash({
+      applicationId: "1",
+      type: command.type,
+      occurredAt: command.occurredAt,
+      source: command.source,
+      actor: command.actor,
+      metadata: command.metadata,
+      contactId: command.contactId,
+      outcome: command.outcome,
+      expectedUpdatedAt: command.expectedUpdatedAt,
+    });
+    fake.seedEvent({
+      id: 99,
+      userId: "owner-1",
+      applicationId: 1,
+      type: command.type,
+      idempotencyKey: command.idempotencyKey,
+      requestHash,
+      occurredAt: command.occurredAt,
+      createdAt: command.occurredAt,
+      source: command.source,
+      actor: command.actor,
+      contactId: null,
+      outcome: null,
+      metadata: command.metadata,
+      isDemo: true,
+      demoWorkspaceId: 9,
+      demoKey: "fixture-stage-changed",
+    });
+
+    await expect(new PrismaAdapter().recordApplicationEvent("1", "owner-1", command))
+      .resolves.toMatchObject({ replayed: true });
+    expect(fake.events()).toHaveLength(1);
+  });
+
+  it("fails closed when an inconsistent replay appears inside the transaction", async () => {
+    const requestHash = submissionRequestHash({
+      applicationId: "1",
+      type: command.type,
+      occurredAt: command.occurredAt,
+      source: command.source,
+      actor: command.actor,
+      metadata: command.metadata,
+      contactId: command.contactId,
+      outcome: command.outcome,
+      expectedUpdatedAt: command.expectedUpdatedAt,
+    });
+    fake.setReplayAfterInitialLookup({
+      id: 99,
+      userId: "owner-1",
+      applicationId: 1,
+      type: command.type,
+      idempotencyKey: command.idempotencyKey,
+      requestHash,
+      occurredAt: command.occurredAt,
+      createdAt: command.occurredAt,
+      source: command.source,
+      actor: command.actor,
+      contactId: null,
+      outcome: null,
+      metadata: command.metadata,
+      isDemo: true,
+      demoWorkspaceId: 9,
+      demoKey: "foreign:event:replay",
+    });
+
+    await expect(new PrismaAdapter().recordApplicationEvent("1", "owner-1", command))
+      .rejects.toThrow("demo_marker_conflict");
   });
 
   it("rejects a changed payload for the same idempotency key", async () => {
@@ -284,6 +399,53 @@ describe("PrismaAdapter — atomic application events", () => {
       results: [{ error: "lifecycle_event_required" }],
     });
     expect((fake.prisma.application as { update: ReturnType<typeof vi.fn> }).update).not.toHaveBeenCalled();
+  });
+
+  it("serializes every batch create against the demo lifecycle while preserving partial success", async () => {
+    fake.demoWorkspaceCount
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1);
+
+    const result = await new PrismaAdapter().batchUpsertApplications("owner-1", [
+      { company: "First", role: "Engineer" },
+      { company: "Second", role: "Designer" },
+    ]);
+
+    expect(result).toMatchObject({
+      succeeded: 1,
+      failed: 1,
+      results: [
+        { index: 0, operation: "created" },
+        { index: 1, operation: "created", error: "demo_workspace_exists" },
+      ],
+    });
+    expect(fake.ownerLock).toHaveBeenCalledTimes(2);
+    expect((fake.prisma as { $transaction: ReturnType<typeof vi.fn> }).$transaction).toHaveBeenCalledTimes(2);
+    expect((fake.prisma.application as { create: ReturnType<typeof vi.fn> }).create).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a visible matching parent on event reads", async () => {
+    const adapter = new PrismaAdapter();
+    await adapter.listApplicationEventsFiltered("owner-1", { limit: 10, order: "newest" }, { demoVisibility: "exclude" });
+    expect((fake.prisma.applicationEvent as { findMany: ReturnType<typeof vi.fn> }).findMany)
+      .toHaveBeenLastCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "owner-1",
+          isDemo: false,
+          application: { userId: "owner-1", isDemo: false },
+        }),
+      }));
+
+    await adapter.listApplicationEvents("1", "owner-1", 10, { demoVisibility: "only" });
+    expect((fake.prisma.applicationEvent as { findMany: ReturnType<typeof vi.fn> }).findMany)
+      .toHaveBeenLastCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          applicationId: 1,
+          userId: "owner-1",
+          isDemo: true,
+          application: { userId: "owner-1", isDemo: true },
+        }),
+      }));
   });
 
   it("rolls back projection changes when event creation fails", async () => {

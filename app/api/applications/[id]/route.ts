@@ -204,6 +204,16 @@ export async function DELETE(
 
   const { id } = await params;
   try {
+    const application = await getDb().getApplication(id, auth.userId);
+    if (!application) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    if (application.isDemo) {
+      return NextResponse.json(
+        { error: "demo_workspace_removal_required" },
+        { status: 409 },
+      );
+    }
     await getDb().deleteApplication(id, auth.userId);
     return NextResponse.json({ success: true });
   } catch (error) {

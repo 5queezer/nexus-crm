@@ -9,6 +9,7 @@ interface WorkspaceToolbarProps {
   onViewModeChange: (viewMode: WorkspaceViewMode) => void;
   moreMenu: ReactNode;
   onCreate: () => void;
+  createDisabled?: boolean;
   createLabel: string;
   focusLabel: string;
   tableLabel: string;
@@ -25,6 +26,7 @@ export function WorkspaceToolbar({
   onViewModeChange,
   moreMenu,
   onCreate,
+  createDisabled = false,
   createLabel,
   focusLabel,
   tableLabel,
@@ -51,6 +53,7 @@ export function WorkspaceToolbar({
           <button
             type="button"
             onClick={onCreate}
+            disabled={createDisabled}
             data-dashboard-create-control="desktop"
             className="nexus-button-primary nexus-target hidden whitespace-nowrap lg:inline-flex"
           >

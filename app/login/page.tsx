@@ -20,7 +20,10 @@ export default function LoginPage() {
     setError(null);
     try {
       // Support redirect back to MCP authorize endpoint after login
-      const callbackURL = safeInternalCallbackURL(searchParams.get("callbackURL"));
+      const callbackURL = safeInternalCallbackURL(
+        searchParams.get("callbackURL"),
+        window.location.origin,
+      );
       await authClient.signIn.social({
         provider: "google",
         callbackURL,
