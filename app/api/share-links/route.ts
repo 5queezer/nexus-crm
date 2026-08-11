@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSessionAuth } from "@/lib/session";
 import { getDb } from "@/lib/db";
 import { generateShortCode } from "@/lib/token";
+import { sanitizeDocumentAssociations } from "@/lib/documents/provenance";
+
+const MACHINE_DEMO_READ = { demoVisibility: "exclude" } as const;
 
 export async function GET() {
   const session = await requireSessionAuth({ allowDevBypass: false });
@@ -53,7 +56,11 @@ export async function POST(request: NextRequest) {
   // For document links, verify the document exists and belongs to the user
   if (targetType === "document") {
     const doc = await db.getDocument(targetId, session.user.id);
-    if (!doc) {
+    const visible = doc && await sanitizeDocumentAssociations(
+      doc,
+      (applicationId) => db.getApplication(applicationId, session.user.id, MACHINE_DEMO_READ),
+    );
+    if (!visible) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
   }

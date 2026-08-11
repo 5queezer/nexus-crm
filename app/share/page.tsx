@@ -43,7 +43,7 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   }
 
   const [allApplications, ownerUser] = await Promise.all([
-    db.listApplications(link.userId),
+    db.listApplications(link.userId, { demoVisibility: "exclude" }),
     db.getUser(link.userId),
   ]);
 

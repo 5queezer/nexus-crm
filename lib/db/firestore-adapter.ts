@@ -53,7 +53,12 @@ import type {
   ApplicationEventPage,
   ListDocumentsFilter,
   UpdateDocumentMetadataInput,
+  DocumentMutationOptions,
+  DemoReadOptions,
+  EnsureDemoWorkspaceResult,
+  DeleteDemoWorkspaceResult,
 } from "./types";
+import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
 // ── Firestore init ──────────────────────────────────────────────────────────
 
@@ -123,6 +128,9 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     jobLiveness: data.jobLiveness ?? null,
     jobSummary: data.jobSummary ?? null,
     currentStage: data.currentStage ?? null,
+    isDemo: data.isDemo === true,
+    demoWorkspaceId: data.demoWorkspaceId ?? null,
+    demoKey: data.demoKey ?? null,
     createdAt: toDate(data.createdAt) ?? new Date(),
     updatedAt: toDate(data.updatedAt) ?? new Date(),
     contacts: data._contacts,
@@ -159,6 +167,8 @@ function mapDoc(id: string, data: FirebaseFirestore.DocumentData): DocumentRecor
     submittedAt: toDate(data.submittedAt),
     submissionId: data.submissionId ?? null,
     uploadedAt: toDate(data.uploadedAt) ?? new Date(),
+    demoProvenance: data.demoProvenance === true,
+    applicationIds: Array.isArray(data.applicationIds) ? data.applicationIds : [],
     applications: data._applications,
   };
 }
@@ -214,6 +224,9 @@ function mapEvent(id: string, data: FirebaseFirestore.DocumentData): Application
     outcome: data.outcome ?? null,
     metadata: publicEventMetadata(data.metadata),
     createdAt: toDate(data.createdAt) ?? new Date(),
+    isDemo: data.isDemo === true,
+    demoWorkspaceId: data.demoWorkspaceId ?? null,
+    demoKey: data.demoKey ?? null,
     application: data._application,
   };
 }
@@ -242,6 +255,61 @@ function structuredMetadataForFirestore(data: Record<string, unknown>): Record<s
   return result;
 }
 
+function isDemoVisible(data: FirebaseFirestore.DocumentData, options?: DemoReadOptions): boolean {
+  const isDemo = data.isDemo === true;
+  if (options?.demoVisibility === "exclude") return !isDemo;
+  if (options?.demoVisibility === "only") return isDemo;
+  return true;
+}
+
+function firestoreEventDemoData(
+  application: FirebaseFirestore.DocumentData,
+  stableKey: string,
+): { isDemo: boolean; demoWorkspaceId: string | null; demoKey: string | null } {
+  const complete = application.isDemo === true
+    && typeof application.demoWorkspaceId === "string"
+    && typeof application.demoKey === "string";
+  const empty = application.isDemo !== true
+    && application.demoWorkspaceId == null
+    && application.demoKey == null;
+  if (!complete && !empty) throw new Error("demo_marker_conflict");
+  return complete
+    ? {
+        isDemo: true,
+        demoWorkspaceId: application.demoWorkspaceId,
+        demoKey: `${application.demoKey}:event:${stableKey}`,
+      }
+    : { isDemo: false, demoWorkspaceId: null, demoKey: null };
+}
+
+function assertFirestoreEventMatchesParent(
+  event: FirebaseFirestore.DocumentData,
+  application: FirebaseFirestore.DocumentData,
+): void {
+  const expected = firestoreEventDemoData(application, "replay");
+  if (
+    (event.isDemo === true) !== expected.isDemo
+    || (event.demoWorkspaceId ?? null) !== expected.demoWorkspaceId
+    || (expected.isDemo && (typeof event.demoKey !== "string" || event.demoKey.length === 0))
+    || (!expected.isDemo && event.demoKey != null)
+  ) throw new Error("demo_marker_conflict");
+}
+
+function isFirestoreEventVisibleWithParent(
+  event: FirebaseFirestore.DocumentData,
+  application: FirebaseFirestore.DocumentData | undefined,
+  userId: string,
+  options?: DemoReadOptions,
+): boolean {
+  if (!application || application.userId !== userId || !isDemoVisible(application, options)) return false;
+  try {
+    assertFirestoreEventMatchesParent(event, application);
+    return isDemoVisible(event, options);
+  } catch {
+    return false;
+  }
+}
+
 // ── Implementation ──────────────────────────────────────────────────────────
 
 export class FirestoreAdapter implements DatabaseAdapter {
@@ -251,19 +319,292 @@ export class FirestoreAdapter implements DatabaseAdapter {
   private get docs() { return this.db.collection("documents"); }
   private get submissions() { return this.db.collection("applicationSubmissions"); }
   private get events() { return this.db.collection("applicationEvents"); }
+  private get demoWorkspaces() { return this.db.collection("demoWorkspaces"); }
+  private get ownerLifecycles() { return this.db.collection("ownerApplicationLifecycles"); }
   private get canonicalUrls() { return this.db.collection("applicationCanonicalUrls"); }
 
   private canonicalUrlRef(userId: string, canonicalJobUrl: string) {
     return this.canonicalUrls.doc(submissionRequestHash({ userId, canonicalJobUrl }));
   }
 
+  private ownerLifecycleRef(userId: string) {
+    return this.ownerLifecycles.doc(submissionRequestHash({ kind: "application-owner", userId }));
+  }
+
+  async ensureDemoWorkspace(
+    userId: string,
+    fixtures: DemoFixtures,
+  ): Promise<EnsureDemoWorkspaceResult> {
+    const workspaceId = submissionRequestHash({ kind: "demo-workspace", userId });
+    const workspaceRef = this.demoWorkspaces.doc(workspaceId);
+    const lifecycleRef = this.ownerLifecycleRef(userId);
+    let replayed = false;
+    await this.db.runTransaction(async (transaction) => {
+      const [existing, lifecycle] = await Promise.all([
+        transaction.get(workspaceRef),
+        transaction.get(lifecycleRef),
+      ]);
+      if (lifecycle.exists && lifecycle.data()!.userId !== userId) throw new Error("demo_marker_conflict");
+      if (existing.exists) {
+        const data = existing.data()!;
+        if (data.userId !== userId) throw new Error("not_found");
+        if (data.seedVersion !== fixtures.seedVersion) throw new Error("demo_version_conflict");
+        if (data.state !== "ready") throw new Error("demo_workspace_unavailable");
+        const [applications, events] = await Promise.all([
+          transaction.get(this.apps.where("demoWorkspaceId", "==", workspaceId)),
+          transaction.get(this.events.where("demoWorkspaceId", "==", workspaceId)),
+        ]);
+        const applicationKeys = applications.docs.map((document) => {
+          const row = document.data();
+          if (row.userId !== userId || row.isDemo !== true || row.demoWorkspaceId !== workspaceId) {
+            throw new Error("demo_marker_conflict");
+          }
+          return row.demoKey;
+        }).sort();
+        const eventKeys = events.docs.map((document) => {
+          const row = document.data();
+          if (row.userId !== userId || row.isDemo !== true || row.demoWorkspaceId !== workspaceId) {
+            throw new Error("demo_marker_conflict");
+          }
+          return row.demoKey;
+        }).sort();
+        if (
+          JSON.stringify(applicationKeys) !== JSON.stringify(fixtures.applications.map((fixture) => fixture.demoKey).sort())
+          || !fixtures.events.every((fixture) => eventKeys.includes(fixture.demoKey))
+        ) throw new Error("demo_workspace_incomplete");
+        transaction.set(lifecycleRef, { userId, mode: "demo", workspaceId, updatedAt: Timestamp.now() });
+        replayed = true;
+        return;
+      }
+      const realApplications = await transaction.get(
+        this.apps.where("userId", "==", userId).where("isDemo", "==", false),
+      );
+      const legacyApplications = await transaction.get(this.apps.where("userId", "==", userId));
+      if (
+        !realApplications.empty ||
+        legacyApplications.docs.some((document) => document.data().isDemo !== true)
+      ) {
+        throw new Error("real_applications_exist");
+      }
+
+      const createdAt = toTimestamp(fixtures.createdAt);
+      transaction.create(workspaceRef, {
+        userId,
+        seedVersion: fixtures.seedVersion,
+        state: "ready",
+        createdAt,
+        updatedAt: createdAt,
+      });
+      transaction.set(lifecycleRef, { userId, mode: "demo", workspaceId, updatedAt: createdAt });
+      const appIds = new Map<string, string>();
+      for (const fixture of fixtures.applications) {
+        const id = submissionRequestHash({ workspaceId, demoKey: fixture.demoKey });
+        appIds.set(fixture.demoKey, id);
+        transaction.create(this.apps.doc(id), {
+          userId,
+          company: fixture.company,
+          role: fixture.role,
+          status: fixture.status,
+          appliedAt: toTimestamp(fixture.appliedAt),
+          lastContact: toTimestamp(fixture.lastContact),
+          followUpAt: toTimestamp(fixture.followUpAt),
+          notes: fixture.notes,
+          jobDescription: null,
+          source: fixture.source,
+          remote: fixture.remote,
+          salaryMin: fixture.salaryMin,
+          salaryMax: fixture.salaryMax,
+          rating: fixture.rating,
+          jobUrl: null,
+          isDemo: true,
+          demoWorkspaceId: workspaceId,
+          demoKey: fixture.demoKey,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+      for (const fixture of fixtures.events) {
+        const applicationId = appIds.get(fixture.applicationDemoKey);
+        if (!applicationId) throw new Error("demo_fixture_invalid");
+        const id = submissionRequestHash({ workspaceId, demoEventKey: fixture.demoKey });
+        transaction.create(this.events.doc(id), {
+          userId,
+          applicationId,
+          type: fixture.type,
+          idempotencyKey: null,
+          occurredAt: toTimestamp(fixture.occurredAt),
+          source: fixture.source,
+          actor: fixture.actor,
+          metadata: fixture.metadata,
+          isDemo: true,
+          demoWorkspaceId: workspaceId,
+          demoKey: fixture.demoKey,
+          createdAt,
+        });
+      }
+    });
+
+    const workspace = await workspaceRef.get();
+    if (!workspace.exists) throw new Error("demo_workspace_incomplete");
+    const data = workspace.data()!;
+    const applications = await this.listApplications(userId, { demoVisibility: "only" });
+    return {
+      workspace: {
+        id: workspaceId,
+        userId,
+        seedVersion: data.seedVersion,
+        state: data.state,
+        createdAt: toDate(data.createdAt) ?? fixtures.createdAt,
+        updatedAt: toDate(data.updatedAt) ?? fixtures.createdAt,
+      },
+      applications,
+      replayed,
+    };
+  }
+
+  async deleteDemoWorkspace(userId: string): Promise<DeleteDemoWorkspaceResult> {
+    const workspaceId = submissionRequestHash({ kind: "demo-workspace", userId });
+    const workspaceRef = this.demoWorkspaces.doc(workspaceId);
+    const lifecycleRef = this.ownerLifecycleRef(userId);
+    const prepared = await this.db.runTransaction(async (transaction) => {
+      const [workspace, lifecycle, applications, events] = await Promise.all([
+        transaction.get(workspaceRef),
+        transaction.get(lifecycleRef),
+        transaction.get(this.apps.where("demoWorkspaceId", "==", workspaceId)),
+        transaction.get(this.events.where("demoWorkspaceId", "==", workspaceId)),
+      ]);
+      if (!workspace.exists) return null;
+      const workspaceData = workspace.data()!;
+      if (workspaceData.userId !== userId) throw new Error("not_found");
+      if (workspaceData.state === "creating") throw new Error("demo_workspace_unavailable");
+      if (lifecycle.exists && (lifecycle.data()!.userId !== userId || lifecycle.data()!.workspaceId !== workspaceId)) {
+        throw new Error("demo_marker_conflict");
+      }
+      for (const document of applications.docs) {
+        const data = document.data();
+        if (data.userId !== userId || data.isDemo !== true || data.demoWorkspaceId !== workspaceId || typeof data.demoKey !== "string") {
+          throw new Error("demo_marker_conflict");
+        }
+      }
+      for (const document of events.docs) {
+        const data = document.data();
+        if (data.userId !== userId || data.isDemo !== true || data.demoWorkspaceId !== workspaceId || typeof data.demoKey !== "string") {
+          throw new Error("demo_marker_conflict");
+        }
+      }
+      const currentApplicationIds = applications.docs.map((document) => document.id);
+      const applicationIds = workspaceData.state === "deleting"
+        ? workspaceData.deletionApplicationIds
+        : currentApplicationIds;
+      const applicationCount = workspaceData.state === "deleting"
+        ? workspaceData.deletionApplicationCount
+        : currentApplicationIds.length;
+      // Persist the preparation-time count so retries return one stable best-effort
+      // value. Events racing preparation are still cleaned up below, but are not
+      // retroactively included in the public deletion count.
+      const eventCount = workspaceData.state === "deleting"
+        ? workspaceData.deletionEventCount
+        : events.docs.length;
+      if (
+        !Array.isArray(applicationIds)
+        || applicationIds.some((id) => typeof id !== "string")
+        || typeof applicationCount !== "number"
+        || applicationCount !== applicationIds.length
+        || typeof eventCount !== "number"
+        || currentApplicationIds.some((id) => !applicationIds.includes(id))
+      ) throw new Error("demo_deletion_incomplete");
+      const deletionMetadata = {
+        deletionApplicationIds: applicationIds,
+        deletionApplicationCount: applicationCount,
+        deletionEventCount: eventCount,
+      };
+      transaction.update(workspaceRef, {
+        state: "deleting",
+        ...deletionMetadata,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.set(lifecycleRef, {
+        userId,
+        mode: "deleting",
+        workspaceId,
+        ...deletionMetadata,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { applications: applications.docs, applicationIds, applicationCount, eventCount };
+    });
+    if (!prepared) return { deletedApplications: 0, deletedEvents: 0 };
+
+    // Reuse the retryable application cascade so contacts, submissions, document links,
+    // CV patches, canonical indexes and every application event are handled consistently.
+    for (const application of prepared.applications) {
+      await this.deleteApplicationCascade(application.id, userId);
+    }
+
+    // An event can commit after a cascade has read its event snapshot but before the
+    // application is removed. No new event can pass the parent transaction once all
+    // applications are gone, so sweep those late arrivals without changing the stable
+    // preparation-time count returned to callers.
+    const lateEvents = await this.events.where("demoWorkspaceId", "==", workspaceId).get();
+    for (const document of lateEvents.docs) {
+      const data = document.data();
+      if (data.userId !== userId || data.isDemo !== true || data.demoWorkspaceId !== workspaceId) {
+        throw new Error("demo_marker_conflict");
+      }
+    }
+    for (let offset = 0; offset < lateEvents.docs.length; offset += 450) {
+      const batch = this.db.batch();
+      for (const document of lateEvents.docs.slice(offset, offset + 450)) batch.delete(document.ref);
+      await batch.commit();
+    }
+
+    const remnants: FirebaseFirestore.QuerySnapshot[] = await Promise.all([
+      this.apps.where("demoWorkspaceId", "==", workspaceId).get(),
+      this.events.where("demoWorkspaceId", "==", workspaceId).get(),
+      ...prepared.applicationIds.flatMap((applicationId) => [
+        this.contacts.where("applicationId", "==", applicationId).get(),
+        this.submissions.where("applicationId", "==", applicationId).get(),
+        this.events.where("applicationId", "==", applicationId).get(),
+        this.docs.where("applicationIds", "array-contains", applicationId).get(),
+        this.canonicalUrls.where("applicationId", "==", applicationId).get(),
+      ]),
+    ]);
+    const patchRemnants = await Promise.all(
+      prepared.applicationIds.map((applicationId) => this.db.collection("cvPatches").doc(applicationId).get()),
+    );
+    if (remnants.some((snapshot) => !snapshot.empty) || patchRemnants.some((snapshot) => snapshot.exists)) {
+      throw new Error("demo_deletion_incomplete");
+    }
+    await this.db.runTransaction(async (transaction) => {
+      const [workspace, lifecycle] = await Promise.all([
+        transaction.get(workspaceRef),
+        transaction.get(lifecycleRef),
+      ]);
+      if (!workspace.exists) return;
+      if (
+        workspace.data()!.userId !== userId
+        || workspace.data()!.state !== "deleting"
+        || !lifecycle.exists
+        || lifecycle.data()!.userId !== userId
+        || lifecycle.data()!.mode !== "deleting"
+        || JSON.stringify(workspace.data()!.deletionApplicationIds) !== JSON.stringify(prepared.applicationIds)
+        || workspace.data()!.deletionApplicationCount !== prepared.applicationCount
+        || workspace.data()!.deletionEventCount !== prepared.eventCount
+      ) throw new Error("demo_deletion_incomplete");
+      transaction.delete(workspaceRef);
+      transaction.delete(lifecycleRef);
+    });
+    return { deletedApplications: prepared.applicationCount, deletedEvents: prepared.eventCount };
+  }
+
   // ── Applications ────────────────────────────────────────────────────────
 
-  async listApplications(userId: string | null): Promise<ApplicationRecord[]> {
+  async listApplications(userId: string | null, options?: DemoReadOptions): Promise<ApplicationRecord[]> {
     let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
     if (userId !== null) q = q.where("userId", "==", userId);
     const snap = await q.get();
-    const applications = snap.docs.map((d) => mapApp(d.id, d.data()));
+    const applications = snap.docs
+      .filter((document) => isDemoVisible(document.data(), options))
+      .map((document) => mapApp(document.id, document.data()));
 
     // Batch-load contacts for all applications
     const appIds = applications.map((a) => a.id);
@@ -278,7 +619,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   async listApplicationsPaginated(
     userId: string | null,
-    params: PaginationParams
+    params: PaginationParams,
+    options?: DemoReadOptions,
   ): Promise<PaginatedResult<ApplicationRecord>> {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.max(1, Math.min(100, params.pageSize ?? 10));
@@ -288,11 +630,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
     if (userId !== null) q = q.where("userId", "==", userId);
 
     const snap = await q.get();
-    const total = snap.docs.length;
+    const visibleDocs = snap.docs.filter((document) => isDemoVisible(document.data(), options));
+    const total = visibleDocs.length;
     const totalPages = Math.ceil(total / pageSize);
 
     const start = (page - 1) * pageSize;
-    const pageDocs = snap.docs.slice(start, start + pageSize);
+    const pageDocs = visibleDocs.slice(start, start + pageSize);
     const applications = pageDocs.map((d) => mapApp(d.id, d.data()));
 
     // Batch-load contacts for the page
@@ -307,11 +650,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return { data: applications, total, page, pageSize, totalPages };
   }
 
-  async getApplication(id: string, userId: string | null): Promise<ApplicationRecord | null> {
+  async getApplication(id: string, userId: string | null, options?: DemoReadOptions): Promise<ApplicationRecord | null> {
     const doc = await this.apps.doc(id).get();
     if (!doc.exists) return null;
     const data = doc.data()!;
     if (userId !== null && data.userId !== userId) return null;
+    if (!isDemoVisible(data, options)) return null;
 
     const app = mapApp(id, data);
     // Load contacts
@@ -348,11 +692,24 @@ export class FirestoreAdapter implements DatabaseAdapter {
       incomingSource: data.incomingSource ?? null,
       autoRejected: data.autoRejected ?? false,
       autoRejectReason: data.autoRejectReason ?? null,
+      isDemo: false,
+      demoWorkspaceId: null,
+      demoKey: null,
       ...structuredMetadataForFirestore(data as unknown as Record<string, unknown>),
       createdAt: now,
       updatedAt: now,
     };
     await this.db.runTransaction(async (transaction) => {
+      const lifecycleRef = this.ownerLifecycleRef(userId);
+      const workspaceRef = this.demoWorkspaces.doc(submissionRequestHash({ kind: "demo-workspace", userId }));
+      const [lifecycle, workspace] = await Promise.all([
+        transaction.get(lifecycleRef),
+        transaction.get(workspaceRef),
+      ]);
+      if (lifecycle.exists && lifecycle.data()!.userId !== userId) throw new Error("demo_marker_conflict");
+      if (workspace.exists || (lifecycle.exists && lifecycle.data()!.mode !== "real")) {
+        throw new Error("demo_workspace_exists");
+      }
       if (data.canonicalJobUrl) {
         const indexReference = this.canonicalUrlRef(userId, data.canonicalJobUrl);
         const duplicate = await transaction.get(indexReference);
@@ -364,6 +721,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           createdAt: now,
         });
       }
+      transaction.set(lifecycleRef, { userId, mode: "real", updatedAt: now });
       transaction.create(reference, payload);
     });
     const app = mapApp(reference.id, payload);
@@ -447,13 +805,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   private async deleteApplicationCascade(id: string, userId: string): Promise<void> {
     const ref = this.apps.doc(id);
-    await this.db.runTransaction(async (transaction) => {
+    const deletingDemo = await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(ref);
       if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
       transaction.update(ref, {
         deletionState: "in_progress",
         deletionStartedAt: FieldValue.serverTimestamp(),
       });
+      return existing.data()!.isDemo === true;
     });
 
     const [contactSnap, submissionSnap, eventSnap, linkedDocumentSnap] = await Promise.all([
@@ -487,6 +846,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         ref: document.ref,
         data: {
           applicationIds: FieldValue.arrayRemove(id),
+          ...(deletingDemo && { demoProvenance: true }),
           ...(belongsToDeletedSubmission && {
             submissionId: null,
             state: "historical",
@@ -538,14 +898,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
   async findApplicationByCanonicalJobUrl(
     userId: string,
     canonicalJobUrl: string,
+    options?: DemoReadOptions,
   ): Promise<ApplicationRecord | null> {
     const snapshot = await this.apps
       .where("userId", "==", userId)
       .where("canonicalJobUrl", "==", canonicalJobUrl)
-      .limit(1)
       .get();
-    if (snapshot.empty) return null;
-    const document = snapshot.docs[0];
+    const document = snapshot.docs.find((candidate) => isDemoVisible(candidate.data(), options));
+    if (!document) return null;
     return mapApp(document.id, document.data());
   }
 
@@ -571,6 +931,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (appSnapshot.data()!.deletionState === "in_progress") throw new Error("application_deleting");
       if (eventSnapshot.exists) {
         if (eventSnapshot.data()!.requestHash !== requestHash) throw new Error("idempotency_conflict");
+        assertFirestoreEventMatchesParent(eventSnapshot.data()!, appSnapshot.data()!);
         return { appData: appSnapshot.data()!, eventData: eventSnapshot.data()! };
       }
       if (eventInput.expectedUpdatedAt) {
@@ -594,6 +955,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         actor: eventInput.actor ?? null,
         metadata: eventInput.metadata ?? {},
         createdAt: now,
+        ...firestoreEventDemoData(appSnapshot.data()!, requestHash),
       };
       transaction.update(appRef, { notes, updatedAt: now });
       transaction.create(eventRef, eventData);
@@ -652,6 +1014,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const appSnapshot = await transaction.get(appRef);
       if (!appSnapshot.exists || appSnapshot.data()!.userId !== userId) throw new Error("not_found");
       const appData = appSnapshot.data()!;
+      firestoreEventDemoData(appData, normalizedRequestHash);
       if (appData.deletionState === "in_progress") throw new Error("application_deleting");
       if (input.expectedUpdatedAt) {
         const updatedAt = toDate(appData.updatedAt);
@@ -749,6 +1112,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           policy,
         },
         createdAt: now,
+        ...firestoreEventDemoData(appData, normalizedRequestHash),
       };
       transaction.create(submissionRef, submissionData);
       transaction.create(this.events.doc(eventId), eventData);
@@ -804,6 +1168,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       this.events.doc(eventId).get(),
     ]);
     if (!application || !submission) throw new Error("verification_failed");
+    if (event.exists) assertFirestoreEventMatchesParent(event.data()!, application);
     const documents = await Promise.all(
       submission.documentIds.map(async (documentId) => {
         const document = await this.getDocument(documentId, userId);
@@ -911,6 +1276,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         if (!input.idempotencyKey || existing.data()!.userId !== userId || existing.data()!.requestHash !== requestHash) {
           throw new Error("idempotency_conflict");
         }
+        assertFirestoreEventMatchesParent(existing.data()!, application.data()!);
         return existing.data()!;
       }
       const data = {
@@ -924,6 +1290,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         actor: input.actor ?? null,
         metadata: input.metadata ?? {},
         createdAt: Timestamp.now(),
+        ...firestoreEventDemoData(application.data()!, requestHash),
       };
       transaction.create(eventRef, data);
       return data;
@@ -977,6 +1344,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           || typeof persistedRequestHash !== "string"
           || !acceptedRequestHashes.has(persistedRequestHash)
         ) throw new Error("idempotency_conflict");
+        assertFirestoreEventMatchesParent(existingData, applicationData);
         return { replayed: true, eventData: existingData };
       }
       const metadataInput = input.metadata ?? {};
@@ -1041,6 +1409,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         outcome: input.outcome ?? null,
         metadata,
         createdAt: Timestamp.now(),
+        ...firestoreEventDemoData(applicationData, requestHash),
       };
       transaction.create(eventRef, eventData);
       return { replayed: false, eventData };
@@ -1060,6 +1429,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
   async listApplicationEventsFiltered(
     userId: string,
     filter: ListApplicationEventsFilter,
+    options?: DemoReadOptions,
   ): Promise<ApplicationEventPage> {
     const direction = filter.order === "oldest" ? "asc" : "desc";
     let query: FirebaseFirestore.Query = this.events.where("userId", "==", userId);
@@ -1107,21 +1477,30 @@ export class FirestoreAdapter implements DatabaseAdapter {
         document,
         event: mapEvent(document.id, document.data()),
       }));
-      const appMap = await this.loadVerifiedAppRefs([
+      const parentMap = await this.loadVerifiedEventParents([
         ...new Set(scannedEvents.map(({ event }) => event.applicationId)),
       ], userId);
-      for (const { event } of scannedEvents) event.application = appMap.get(event.applicationId);
-      matchingEvents.push(...scannedEvents.filter(({ event }) =>
-        (!filter.applicationId || event.applicationId === filter.applicationId)
-        && (!filter.company || event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
-        && (!filter.types?.length || filter.types.includes(event.type))
-        && (!filter.occurredAfter || event.occurredAt >= filter.occurredAfter)
-        && (!filter.occurredBefore || event.occurredAt <= filter.occurredBefore)
-        && (!filter.source || event.source === filter.source)
-        && (!filter.actor || event.actor === filter.actor)
-        && (!filter.contactId || event.contactId === filter.contactId)
-        && (!filter.outcome || event.outcome === filter.outcome)
-      ));
+      for (const candidate of scannedEvents) {
+        const parent = parentMap.get(candidate.event.applicationId);
+        if (!isFirestoreEventVisibleWithParent(
+          candidate.document.data(),
+          parent?.data,
+          userId,
+          options,
+        )) continue;
+        candidate.event.application = parent?.summary;
+        if (
+          (!filter.applicationId || candidate.event.applicationId === filter.applicationId)
+          && (!filter.company || candidate.event.application?.company.toLocaleLowerCase().includes(filter.company.toLocaleLowerCase()))
+          && (!filter.types?.length || filter.types.includes(candidate.event.type))
+          && (!filter.occurredAfter || candidate.event.occurredAt >= filter.occurredAfter)
+          && (!filter.occurredBefore || candidate.event.occurredAt <= filter.occurredBefore)
+          && (!filter.source || candidate.event.source === filter.source)
+          && (!filter.actor || candidate.event.actor === filter.actor)
+          && (!filter.contactId || candidate.event.contactId === filter.contactId)
+          && (!filter.outcome || candidate.event.outcome === filter.outcome)
+        ) matchingEvents.push(candidate);
+      }
       if (matchingEvents.length > filter.limit || snapshot.docs.length < scanLimit) break;
       const lastDocument = snapshot.docs.at(-1)!;
       const lastEvent = mapEvent(lastDocument.id, lastDocument.data());
@@ -1154,23 +1533,43 @@ export class FirestoreAdapter implements DatabaseAdapter {
     applicationId: string,
     userId: string,
     limit = 100,
+    options?: DemoReadOptions,
   ): Promise<ApplicationEventRecord[]> {
-    const application = await this.getApplication(applicationId, userId);
-    if (!application) throw new Error("not_found");
+    const application = await this.apps.doc(applicationId).get();
+    if (
+      !application.exists
+      || application.data()!.userId !== userId
+      || !isDemoVisible(application.data()!, options)
+    ) throw new Error("not_found");
+    const applicationData = application.data()!;
     const queryLimit = Math.max(1, Math.min(500, limit));
-    const snapshot = await this.events
+    let query = this.events
       .where("applicationId", "==", applicationId)
       .where("userId", "==", userId)
       .orderBy("occurredAt", "desc")
-      .orderBy(FieldPath.documentId(), "desc")
-      .limit(queryLimit)
-      .get();
-    return snapshot.docs.map((document) => mapEvent(document.id, document.data()));
+      .orderBy(FieldPath.documentId(), "desc");
+    const visibleEvents: ApplicationEventRecord[] = [];
+    while (visibleEvents.length < queryLimit) {
+      const remaining = queryLimit - visibleEvents.length;
+      const snapshot = await query.limit(remaining).get();
+      if (!snapshot.docs.length) break;
+      for (const document of snapshot.docs) {
+        if (isFirestoreEventVisibleWithParent(document.data(), applicationData, userId, options)) {
+          visibleEvents.push(mapEvent(document.id, document.data()));
+        }
+      }
+      if (snapshot.docs.length < remaining) break;
+      const lastDocument = snapshot.docs.at(-1)!;
+      const lastEvent = mapEvent(lastDocument.id, lastDocument.data());
+      query = query.startAfter(Timestamp.fromDate(lastEvent.occurredAt), lastEvent.id);
+    }
+    return visibleEvents;
   }
 
   async listApplicationsFiltered(
     userId: string | null,
-    filter: ListApplicationsFilter
+    filter: ListApplicationsFilter,
+    options?: DemoReadOptions,
   ): Promise<Partial<ApplicationRecord>[]> {
     // Firestore has limited query capabilities, so we fetch and filter in memory
     let q: FirebaseFirestore.Query = this.apps.orderBy("createdAt", "desc");
@@ -1183,7 +1582,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
     }
 
     const snap = await q.get();
-    let apps = snap.docs.map((d) => mapApp(d.id, d.data()));
+    let apps = snap.docs
+      .filter((document) => isDemoVisible(document.data(), options))
+      .map((document) => mapApp(document.id, document.data()));
 
     // In-memory filters for capabilities Firestore doesn't support natively
     if (filter.status && filter.status.length > 1) {
@@ -1508,6 +1909,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     data: UpdateDocumentMetadataInput,
+    options?: DocumentMutationOptions,
   ): Promise<DocumentRecord> {
     const reference = this.docs.doc(id);
     const update: Record<string, unknown> = {};
@@ -1521,6 +1923,23 @@ export class FirestoreAdapter implements DatabaseAdapter {
     await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
       if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
+      const currentApplicationIds = Array.isArray(existing.data()!.applicationIds)
+        ? Array.from(new Set(existing.data()!.applicationIds as string[]))
+        : [];
+      if (options?.requireNonDemoProvenance) {
+        const applications = await Promise.all(
+          currentApplicationIds.map((applicationId) => transaction.get(this.apps.doc(applicationId))),
+        );
+        const hasConfirmedRealParent = applications.some((application) =>
+          application.exists
+          && application.data()!.userId === userId
+          && application.data()!.isDemo !== true
+          && application.data()!.deletionState !== "in_progress"
+        );
+        if ((existing.data()!.demoProvenance === true || currentApplicationIds.length > 0) && !hasConfirmedRealParent) {
+          throw new Error("not_found");
+        }
+      }
       const submissionId = existing.data()!.submissionId;
       const keys = Object.keys(data);
       const stateOnly = keys.every((key) => key === "state");
@@ -1539,7 +1958,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return (await this.getDocument(id, userId))!;
   }
 
-  async createDocument(userId: string, data: CreateDocumentInput): Promise<DocumentRecord> {
+  async createDocument(userId: string, data: CreateDocumentInput, options?: DocumentMutationOptions): Promise<DocumentRecord> {
     const { applicationIds, submissionId, ...rest } = data;
     if (submissionId || rest.state === "submitted") throw new Error("submitted_state_reserved");
     const uniqueApplicationIds = Array.from(new Set(applicationIds));
@@ -1551,7 +1970,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       applicationIds: uniqueApplicationIds,
       uploadedAt: Timestamp.now(),
     };
-    const applicationData = await this.db.runTransaction(async (transaction) => {
+    const creation = await this.db.runTransaction(async (transaction) => {
       const applicationSnapshots = await Promise.all(
         applicationReferences.map((applicationReference) => transaction.get(applicationReference)),
       );
@@ -1559,28 +1978,50 @@ export class FirestoreAdapter implements DatabaseAdapter {
         !snapshot.exists
         || snapshot.data()!.userId !== userId
         || snapshot.data()!.deletionState === "in_progress"
+        || (options?.requireNonDemoProvenance && snapshot.data()!.isDemo === true)
       )) {
         throw new Error("invalid_applications");
       }
-      transaction.create(reference, payload);
-      return applicationSnapshots.map((snapshot) => ({
-        id: snapshot.id,
-        company: String(snapshot.data()!.company),
-        role: String(snapshot.data()!.role),
-      }));
+      const demoProvenance = applicationSnapshots.some((snapshot) => snapshot.data()!.isDemo === true);
+      transaction.create(reference, { ...payload, demoProvenance });
+      return {
+        demoProvenance,
+        applications: applicationSnapshots.map((snapshot) => ({
+          id: snapshot.id,
+          company: String(snapshot.data()!.company),
+          role: String(snapshot.data()!.role),
+        })),
+      };
     });
-    const record = mapDoc(reference.id, payload);
-    record.applications = applicationData;
+    const record = mapDoc(reference.id, { ...payload, demoProvenance: creation.demoProvenance });
+    record.applications = creation.applications;
     return record;
   }
 
-  async updateDocumentLinks(id: string, userId: string, applicationIds: string[]): Promise<DocumentRecord> {
+  async updateDocumentLinks(id: string, userId: string, applicationIds: string[], options?: DocumentMutationOptions): Promise<DocumentRecord> {
     const reference = this.docs.doc(id);
     const uniqueApplicationIds = Array.from(new Set(applicationIds));
     const applicationReferences = uniqueApplicationIds.map((applicationId) => this.apps.doc(applicationId));
     await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
       if (!existing.exists || existing.data()!.userId !== userId) throw new Error("not_found");
+      const currentApplicationIds = Array.isArray(existing.data()!.applicationIds)
+        ? Array.from(new Set(existing.data()!.applicationIds as string[]))
+        : [];
+      if (options?.requireNonDemoProvenance) {
+        const currentApplications = await Promise.all(
+          currentApplicationIds.map((applicationId) => transaction.get(this.apps.doc(applicationId))),
+        );
+        const hasConfirmedRealParent = currentApplications.some((application) =>
+          application.exists
+          && application.data()!.userId === userId
+          && application.data()!.isDemo !== true
+          && application.data()!.deletionState !== "in_progress"
+        );
+        if ((existing.data()!.demoProvenance === true || currentApplicationIds.length > 0) && !hasConfirmedRealParent) {
+          throw new Error("not_found");
+        }
+      }
       if (
         existing.data()!.submissionId
         || existing.data()!.state === "submitted"
@@ -1593,10 +2034,15 @@ export class FirestoreAdapter implements DatabaseAdapter {
         !snapshot.exists
         || snapshot.data()!.userId !== userId
         || snapshot.data()!.deletionState === "in_progress"
+        || (options?.requireNonDemoProvenance && snapshot.data()!.isDemo === true)
       )) {
         throw new Error("invalid_applications");
       }
-      transaction.update(reference, { applicationIds: uniqueApplicationIds });
+      transaction.update(reference, {
+        applicationIds: uniqueApplicationIds,
+        demoProvenance: existing.data()!.demoProvenance === true
+          || applicationSnapshots.some((snapshot) => snapshot.data()!.isDemo === true),
+      });
     });
     return (await this.getDocument(id, userId))!;
   }
@@ -1617,11 +2063,28 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return changed ? this.getDocument(id, userId) : null;
   }
 
-  async deleteDocument(id: string, userId: string): Promise<DocumentRecord | null> {
+  async deleteDocument(id: string, userId: string, options?: DocumentMutationOptions): Promise<DocumentRecord | null> {
     const reference = this.docs.doc(id);
     const document = await this.db.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
       if (!existing.exists || existing.data()!.userId !== userId) return null;
+      const currentApplicationIds = Array.isArray(existing.data()!.applicationIds)
+        ? Array.from(new Set(existing.data()!.applicationIds as string[]))
+        : [];
+      if (options?.requireNonDemoProvenance) {
+        const applications = await Promise.all(
+          currentApplicationIds.map((applicationId) => transaction.get(this.apps.doc(applicationId))),
+        );
+        const hasConfirmedRealParent = applications.some((application) =>
+          application.exists
+          && application.data()!.userId === userId
+          && application.data()!.isDemo !== true
+          && application.data()!.deletionState !== "in_progress"
+        );
+        if ((existing.data()!.demoProvenance === true || currentApplicationIds.length > 0) && !hasConfirmedRealParent) {
+          throw new Error("not_found");
+        }
+      }
       if (
         existing.data()!.submissionId
         || existing.data()!.state === "submitted"
@@ -1807,6 +2270,33 @@ export class FirestoreAdapter implements DatabaseAdapter {
             map.set(snap.id, { id: snap.id, company: d.company, role: d.role });
           }
         }
+      }
+    }
+    return map;
+  }
+
+  private async loadVerifiedEventParents(
+    ids: string[],
+    userId: string,
+  ): Promise<Map<string, {
+    data: FirebaseFirestore.DocumentData;
+    summary: { id: string; company: string; role: string };
+  }>> {
+    const map = new Map<string, {
+      data: FirebaseFirestore.DocumentData;
+      summary: { id: string; company: string; role: string };
+    }>();
+    for (let i = 0; i < ids.length; i += 30) {
+      const refs = ids.slice(i, i + 30).map((id) => this.apps.doc(id));
+      const snapshots = await this.db.getAll(...refs);
+      for (const snapshot of snapshots) {
+        if (!snapshot.exists) continue;
+        const data = snapshot.data()!;
+        if (data.userId !== userId) continue;
+        map.set(snapshot.id, {
+          data,
+          summary: { id: snapshot.id, company: data.company, role: data.role },
+        });
       }
     }
     return map;

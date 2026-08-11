@@ -13,6 +13,7 @@ import { canonicalizeMcpCall } from "../mcp-proposal";
 function application(overrides: Partial<ApplicationRecord> = {}): ApplicationRecord {
   return {
     id: "1", userId: "user-a", company: "Acme", role: "Engineer", status: "applied",
+    isDemo: false, demoWorkspaceId: null, demoKey: null,
     appliedAt: null, lastContact: null, followUpAt: null, notes: null,
     jobDescription: null, source: null, remote: true, salaryMin: null, salaryMax: null,
     rating: null, jobUrl: null, canonicalJobUrl: null, resumeId: null, companySize: null,
@@ -148,6 +149,21 @@ describe("proposal executor", () => {
     await expect(approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" }))
       .rejects.toThrow("Proposal is stale");
     expect(repository.value.status).toBe("stale");
+    expect(db.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("rejects a hidden demo target before transitioning or mutating", async () => {
+    const repository = new MemoryExecutionRepository();
+    const db = {
+      getApplication: vi.fn().mockResolvedValue(null),
+      updateApplication: vi.fn(),
+    } as unknown as DatabaseAdapter;
+
+    await expect(approveProposal({ repository, db, userId: "user-a", proposalId: "proposal-1" }))
+      .rejects.toThrow("Proposal target not found");
+
+    expect(db.getApplication).toHaveBeenCalledWith("1", "user-a", { demoVisibility: "exclude" });
+    expect(repository.transitions).toEqual([]);
     expect(db.updateApplication).not.toHaveBeenCalled();
   });
 

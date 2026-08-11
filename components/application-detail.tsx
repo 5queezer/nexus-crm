@@ -3,8 +3,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { STATUS_COLORS, type Application } from "@/types";
+import { applicationPath } from "@/lib/applications/slug";
 import { AppHeader } from "./app-header";
 import {
   updateApplication,
@@ -23,6 +25,7 @@ import { ContactsSection } from "./application-form/contacts-section";
 import { DocumentsSection } from "./application-form/documents-section";
 import { ResumeSection } from "./application-form/resume-section";
 import { ApplicationTimeline } from "./application-timeline";
+import { DemoBadge } from "./demo-badge";
 
 interface ApplicationDetailProps {
   user: {
@@ -33,10 +36,61 @@ interface ApplicationDetailProps {
     isAdmin: boolean;
   };
   application: Application;
+  canonicalPath: string;
 }
 
-export function ApplicationDetail({ user, application }: ApplicationDetailProps) {
+function ApplicationFacts({ application }: { application: Application }) {
+  const t = useTranslations("detail");
+  const salary = application.salaryMin != null || application.salaryMax != null
+    ? [
+        application.salaryCurrency,
+        [application.salaryMin, application.salaryMax].filter((value) => value != null).join("–"),
+        application.salaryPeriod ? `/ ${application.salaryPeriod}` : null,
+      ].filter(Boolean).join(" ")
+    : null;
+  const locations = application.primaryLocations?.length
+    ? application.primaryLocations.join(", ")
+    : application.eligibleCountries?.length
+      ? application.eligibleCountries.join(", ")
+      : null;
+  const facts = [
+    [t("current_stage"), application.currentStage],
+    [t("work_model"), application.workMode || (application.remote ? "remote" : null)],
+    [t("locations"), locations],
+    [t("salary"), salary],
+    [t("office_days"), application.officeDaysMin != null ? String(application.officeDaysMin) : null],
+    [t("travel"), application.travelPercent != null ? `${application.travelPercent}%` : null],
+    [t("timezone_overlap"), application.timezoneOverlap],
+  ].filter((fact): fact is [string, string] => Boolean(fact[1]));
+
+  if (facts.length === 0 && !application.jobSummary) return null;
+  return (
+    <SectionCard title={t("application_facts")}>
+      {facts.length > 0 && (
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+              <dd className="mt-1 text-sm text-slate-800 dark:text-slate-200">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {application.jobSummary && (
+        <div className={facts.length ? "mt-5 border-t border-slate-200 pt-4 dark:border-white/8" : ""}>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-400">{t("compact_summary")}</h3>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-300">
+            {application.jobSummary}
+          </p>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+export function ApplicationDetail({ user, application, canonicalPath }: ApplicationDetailProps) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const td = useTranslations("detail");
   const ta = useTranslations("actions");
   const ts = useTranslations("status");
@@ -59,6 +113,8 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [displayApplication, setDisplayApplication] = useState(application);
 
   const updateMutation = useMutation({
     mutationFn: ({
@@ -72,11 +128,14 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
       // Renew the baseline so the next save sends the fresh updatedAt —
       // otherwise every subsequent PATCH would answer with 409.
       markSaved(saved, variables.data);
+      setDisplayApplication(saved);
       setConflict(false);
       setError(null);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2500);
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      const nextPath = applicationPath(saved);
+      if (nextPath !== canonicalPath) router.replace(nextPath);
     },
     onError: (mutationError) => {
       if (mutationError instanceof UpdateConflictError) {
@@ -128,11 +187,29 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
     function handlePopState(event: PopStateEvent) {
       if (window.confirm(td("leave_confirm"))) return;
       event.stopImmediatePropagation();
-      window.history.pushState(null, "", `/applications/${application.id}`);
+      window.history.pushState(null, "", canonicalPath);
     }
     window.addEventListener("popstate", handlePopState, true);
     return () => window.removeEventListener("popstate", handlePopState, true);
-  }, [hasUnsavedChanges, td, application.id]);
+  }, [hasUnsavedChanges, td, canonicalPath]);
+
+  async function handleCopyLink() {
+    const absoluteUrl = new URL(canonicalPath, window.location.origin).toString();
+    try {
+      await window.navigator.clipboard.writeText(absoluteUrl);
+    } catch {
+      const input = document.createElement("textarea");
+      input.value = absoluteUrl;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -176,11 +253,20 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
                   {form.role || application.role}
                 </h1>
               </div>
+              {application.isDemo && <DemoBadge />}
               <span
                 className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_COLORS[form.status]}`}
               >
                 {ts(form.status)}
               </span>
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="nexus-button-ghost nexus-target shrink-0"
+                aria-label={td("copy_link")}
+              >
+                {copied ? td("link_copied") : td("copy_link")}
+              </button>
               <div className="flex shrink-0 items-center gap-3">
                 <span
                   aria-live="polite"
@@ -252,6 +338,10 @@ export function ApplicationDetail({ user, application }: ApplicationDetailProps)
                 variant="open"
               />
             </div>
+          </div>
+
+          <div className="mt-5">
+            <ApplicationFacts application={displayApplication} />
           </div>
 
           <div className="mt-5 space-y-5">

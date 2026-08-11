@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { mockGetShareLinkByCode, mockGetDocument, mockFileExists, mockDownloadFile } = vi.hoisted(() => ({
+const { mockGetShareLinkByCode, mockGetDocument, mockGetApplication, mockFileExists, mockDownloadFile } = vi.hoisted(() => ({
   mockGetShareLinkByCode: vi.fn(),
   mockGetDocument: vi.fn(),
+  mockGetApplication: vi.fn(),
   mockFileExists: vi.fn(),
   mockDownloadFile: vi.fn(),
 }));
@@ -12,6 +13,7 @@ vi.mock("@/lib/db", () => ({
   getDb: () => ({
     getShareLinkByCode: mockGetShareLinkByCode,
     getDocument: mockGetDocument,
+    getApplication: mockGetApplication,
   }),
 }));
 
@@ -38,6 +40,7 @@ describe("GET /s/[code]", () => {
     vi.resetAllMocks();
     process.env.BETTER_AUTH_URL = "https://nexus.example.com";
     process.env.PUBLIC_READ_TOKEN = "legacy-public-token";
+    mockGetApplication.mockResolvedValue({ id: "real-app" });
   });
 
   afterEach(() => {
@@ -123,5 +126,38 @@ describe("GET /s/[code]", () => {
 
     expect(mockDownloadFile).not.toHaveBeenCalled();
     expect(res.status).toBe(404);
+  });
+
+  it("rejects a public document link whose only parent is a demo", async () => {
+    mockGetShareLinkByCode.mockResolvedValue({
+      id: "1", code: "doc123", userId: "user-1", targetType: "document", targetId: "42", createdAt: new Date(),
+    });
+    mockGetDocument.mockResolvedValue({
+      id: "42", userId: "user-1", filename: "stored.pdf", originalName: "CV.pdf",
+      mimeType: "application/pdf", applicationIds: ["demo-app"], applications: [{ id: "demo-app" }],
+    });
+    mockGetApplication.mockResolvedValue(null);
+
+    const res = await GET(makeRequest("http://localhost/s/doc123"), makeParams("doc123"));
+
+    expect(res.status).toBe(404);
+    expect(mockFileExists).not.toHaveBeenCalled();
+    expect(mockDownloadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a detached document with durable demo provenance after workspace removal", async () => {
+    mockGetShareLinkByCode.mockResolvedValue({
+      id: "1", code: "doc123", userId: "user-1", targetType: "document", targetId: "42", createdAt: new Date(),
+    });
+    mockGetDocument.mockResolvedValue({
+      id: "42", userId: "user-1", filename: "stored.pdf", originalName: "CV.pdf",
+      mimeType: "application/pdf", demoProvenance: true, applicationIds: [], applications: [],
+    });
+
+    const res = await GET(makeRequest("http://localhost/s/doc123"), makeParams("doc123"));
+
+    expect(res.status).toBe(404);
+    expect(mockFileExists).not.toHaveBeenCalled();
+    expect(mockDownloadFile).not.toHaveBeenCalled();
   });
 });

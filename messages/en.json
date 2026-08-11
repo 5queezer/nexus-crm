@@ -69,6 +69,7 @@
     "more_actions": "More actions",
     "opportunity_actions": "Actions for {company}",
     "open_job": "Open listing",
+    "open_detail_new_tab": "Open opportunity in a new tab",
     "select": "Select",
     "deselect": "Deselect",
     "select_opportunity": "Select {company}"
@@ -192,7 +193,18 @@
     "unsaved": "Unsaved changes",
     "leave_confirm": "Discard unsaved changes?",
     "error_conflict": "This entry was changed elsewhere. Reload the page and try again.",
-    "section_details": "Details"
+    "section_details": "Details",
+    "copy_link": "Copy link",
+    "link_copied": "Link copied",
+    "application_facts": "Application overview",
+    "current_stage": "Current interview stage",
+    "work_model": "Work model",
+    "locations": "Locations",
+    "salary": "Salary",
+    "office_days": "Minimum office days",
+    "travel": "Travel",
+    "timezone_overlap": "Timezone overlap",
+    "compact_summary": "Compact summary"
   },
   "status": {
     "inbound": "New Lead",
@@ -224,10 +236,17 @@
     "triage_weak": "Weak",
     "triage_pass": "Pass",
     "triage_unrated": "Unrated",
-    "triage_action": "You have {count} high-priority opportunities to review"
+    "triage_action": "You have {count} high-priority opportunities to review",
+    "demo_banner_title": "Demo workspace",
+    "demo_banner_description": "These clearly marked fictional opportunities demonstrate the workflow and are excluded from regular statistics.",
+    "remove_demo": "Remove demo workspace",
+    "removing_demo": "Removing demo workspace…",
+    "demo_remove_error": "The demo workspace could not be removed safely.",
+    "demo_create_error": "The demo workspace could not be created."
   },
   "confirm": {
     "delete": "Really delete this opportunity?",
+    "remove_demo": "Remove the complete demo workspace? Your real opportunities will not be changed.",
     "bulk_archive_confirm": "Archive {count} selected opportunities?",
     "bulk_delete_confirm": "Delete {count} selected opportunities? This cannot be undone."
   },
@@ -533,6 +552,9 @@
     "create_app": "Create Opportunity",
     "required_fields": "Account and opportunity are required.",
     "error_create": "Failed to create opportunity.",
+    "create_demo": "Create demo workspace",
+    "creating_demo": "Creating demo workspace…",
+    "error_create_demo": "Failed to create the demo workspace.",
     "done_title": "You're All Set!",
     "done_description": "Your CRM is ready to use. Here are some tips to get you started:",
     "tips_title": "Quick Tips",
@@ -753,6 +775,8 @@
     "filtered_empty_title": "No matching opportunities",
     "filtered_empty_description": "Your opportunities are still here. Adjust or clear the active filters.",
     "create": "New opportunity",
+    "create_demo": "Create demo workspace",
+    "creating_demo": "Creating demo workspace…",
     "clear_filters": "Clear filters",
     "dismiss_overdue": "Dismiss overdue follow-up for {company}",
     "dismiss_all_overdue": "Dismiss all overdue follow-ups",
@@ -760,6 +784,9 @@
     "overdue_summary_one": "1 overdue follow-up",
     "overdue_show": "Show",
     "overdue_hide": "Hide"
+  },
+  "demoWorkspace": {
+    "badge": "Demo"
   },
   "events": {
     "eventTypes": {

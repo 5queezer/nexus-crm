@@ -71,10 +71,12 @@ describe("Dashboard AI operator lifetime", () => {
   });
 
   it("preserves the operator instance when onboarding completes", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify([]), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => new Response(
+      JSON.stringify(input === "/api/demo-workspace"
+        ? { hasDemoWorkspace: false, canCreateDemoWorkspace: true }
+        : []),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const user = userEvent.setup();
     render(
@@ -94,8 +96,10 @@ describe("Dashboard AI operator lifetime", () => {
 
   it("hides the operator launcher when bulk selection is active", async () => {
     localStorage.setItem("onboarding-complete", "true");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([opportunity]), {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      new Response(JSON.stringify(input === "/api/demo-workspace"
+        ? { hasDemoWorkspace: false, canCreateDemoWorkspace: false }
+        : [opportunity]), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),

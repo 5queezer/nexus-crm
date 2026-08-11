@@ -3,6 +3,7 @@
 import { ExternalLink } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
+import Link from "next/link";
 import type { Application, ApplicationStatus } from "@/types";
 import { STATUS_COLORS, STATUS_ORDER, TRIAGE_COLORS } from "@/types";
 import {
@@ -12,7 +13,9 @@ import {
 import type { ApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { formatLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
+import { applicationPath } from "@/lib/applications/slug";
 import { ActionMenu } from "./action-menu";
+import { DemoBadge } from "./demo-badge";
 
 interface FocusQueueProps {
   applications: Application[];
@@ -25,6 +28,9 @@ interface FocusQueueProps {
   onDelete: (id: string) => void;
   onArchive: (id: string, archive: boolean) => void;
   onCreate: () => void;
+  onCreateDemo?: () => void;
+  demoCreationPending?: boolean;
+  demoCreationError?: string;
   onClearFilters: () => void;
   statusMutation: ApplicationStatusMutation;
 }
@@ -40,6 +46,9 @@ export function FocusQueue({
   onDelete,
   onArchive,
   onCreate,
+  onCreateDemo,
+  demoCreationPending = false,
+  demoCreationError,
   onClearFilters,
   statusMutation,
 }: FocusQueueProps) {
@@ -61,6 +70,21 @@ export function FocusQueue({
         >
           {t("create")}
         </button>
+        {demoCreationError && (
+          <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-300">
+            {demoCreationError}
+          </p>
+        )}
+        {onCreateDemo && (
+          <button
+            type="button"
+            onClick={onCreateDemo}
+            disabled={demoCreationPending}
+            className="nexus-button-ghost nexus-target mt-3 disabled:cursor-wait disabled:opacity-60"
+          >
+            {demoCreationPending ? t("creating_demo") : t("create_demo")}
+          </button>
+        )}
       </div>
     );
   }
@@ -178,6 +202,7 @@ function FocusRow({
           <span className="truncate text-sm font-semibold text-slate-950 dark:text-white">
             {application.company}
           </span>
+          {application.isDemo && <DemoBadge />}
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[application.status]}`}
           >
@@ -202,6 +227,15 @@ function FocusRow({
         className="flex shrink-0 items-center gap-1"
         onClick={(event) => event.stopPropagation()}
       >
+        <Link
+          href={applicationPath(application)}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={ta("open_detail_new_tab")}
+          className="nexus-target nexus-focus-ring inline-flex items-center justify-center rounded-xl text-slate-400 transition hover:text-indigo-600 dark:hover:text-indigo-400"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </Link>
         <select
           value={application.status}
           onChange={(event) =>

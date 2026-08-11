@@ -1,7 +1,9 @@
 import type { DatabaseAdapter } from "@/lib/db/adapter";
 
+const AGENT_DEMO_READ = { demoVisibility: "exclude" } as const;
+
 export async function getPipelineSummary(db: DatabaseAdapter, userId: string) {
-  const applications = await db.listApplications(userId);
+  const applications = await db.listApplications(userId, AGENT_DEMO_READ);
   const byStatus: Record<string, number> = {};
   let overdueFollowUps = 0;
   const now = Date.now();
@@ -24,7 +26,7 @@ export async function searchApplicationsForAgent(
   query: string,
 ) {
   const normalized = query.trim().toLowerCase();
-  const applications = await db.listApplications(userId);
+  const applications = await db.listApplications(userId, AGENT_DEMO_READ);
   return applications
     .filter((application) => {
       if (!normalized) return true;
@@ -50,7 +52,7 @@ export async function getApplicationForAgent(
   userId: string,
   applicationId: string,
 ) {
-  const application = await db.getApplication(applicationId, userId);
+  const application = await db.getApplication(applicationId, userId, AGENT_DEMO_READ);
   if (!application) return null;
   return {
     id: application.id,

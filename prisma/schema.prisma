@@ -57,6 +57,10 @@ model Application {
   jobSummary          String?
   currentStage        String?
   eventVersion        Int                     @default(0)
+  isDemo              Boolean                 @default(false)
+  demoWorkspaceId     Int?
+  demoWorkspace       DemoWorkspace?          @relation(fields: [demoWorkspaceId, userId], references: [id, userId], onDelete: Cascade)
+  demoKey             String?
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
   documents           Document[]
@@ -66,8 +70,11 @@ model Application {
   events              ApplicationEvent[]
 
   @@unique([userId, canonicalJobUrl])
+  @@unique([demoWorkspaceId, demoKey])
+  @@unique([id, userId, isDemo])
   @@index([userId, followUpAt])
   @@index([userId, status])
+  @@index([userId, isDemo, createdAt])
 }
 
 model Contact {
@@ -83,24 +90,25 @@ model Contact {
 }
 
 model Document {
-  id           Int                    @id @default(autoincrement())
-  userId       String
-  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  filename     String // stored filename on disk (uuid-based)
-  originalName String // user-facing name
-  size         Int // bytes
-  mimeType     String
-  documentType String                 @default("other")
-  state        String                 @default("current")
-  version      Int                    @default(1)
-  contentHash  String?
-  source       String?
-  generatedAt  DateTime?
-  submittedAt  DateTime?
-  submissionId Int?
-  submission   ApplicationSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
-  uploadedAt   DateTime               @default(now())
-  applications Application[]
+  id             Int                    @id @default(autoincrement())
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename       String // stored filename on disk (uuid-based)
+  originalName   String // user-facing name
+  size           Int // bytes
+  mimeType       String
+  documentType   String                 @default("other")
+  state          String                 @default("current")
+  version        Int                    @default(1)
+  contentHash    String?
+  source         String?
+  generatedAt    DateTime?
+  submittedAt    DateTime?
+  submissionId   Int?
+  submission     ApplicationSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  uploadedAt     DateTime               @default(now())
+  demoProvenance Boolean                @default(false)
+  applications   Application[]
 
   @@index([userId, documentType, state])
   @@index([submissionId])
@@ -136,28 +144,49 @@ model ApplicationSubmission {
 }
 
 model ApplicationEvent {
-  id             Int         @id @default(autoincrement())
-  userId         String
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicationId  Int
-  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  type           String
-  idempotencyKey String?
-  requestHash    String?
-  occurredAt     DateTime
-  source         String?
-  actor          String?
-  contactId      String?
-  outcome        String?
-  metadata       Json?
-  createdAt      DateTime    @default(now())
+  id              Int            @id @default(autoincrement())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId   Int
+  application     Application    @relation(fields: [applicationId, userId, isDemo], references: [id, userId, isDemo], onDelete: Cascade)
+  type            String
+  idempotencyKey  String?
+  requestHash     String?
+  occurredAt      DateTime
+  source          String?
+  actor           String?
+  contactId       String?
+  outcome         String?
+  metadata        Json?
+  createdAt       DateTime       @default(now())
+  isDemo          Boolean        @default(false)
+  demoWorkspaceId Int?
+  demoWorkspace   DemoWorkspace? @relation(fields: [demoWorkspaceId, userId], references: [id, userId], onDelete: Cascade)
+  demoKey         String?
 
   @@unique([userId, idempotencyKey])
+  @@unique([demoWorkspaceId, demoKey])
   @@index([applicationId, occurredAt, id])
   @@index([userId, occurredAt, id])
   @@index([userId, type, occurredAt])
   @@index([userId, contactId, occurredAt])
   @@index([userId, outcome, occurredAt])
+  @@index([userId, isDemo, occurredAt, id])
+}
+
+model DemoWorkspace {
+  id           Int                @id @default(autoincrement())
+  userId       String             @unique
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seedVersion  Int
+  state        String             @default("creating")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  applications Application[]
+  events       ApplicationEvent[]
+
+  @@unique([id, userId])
+  @@index([state])
 }
 
 model User {
@@ -183,6 +212,7 @@ model User {
   cvProfile              CvProfile?
   applicationSubmissions ApplicationSubmission[]
   applicationEvents      ApplicationEvent[]
+  demoWorkspace          DemoWorkspace?
   llmCredentials         LlmCredential[]
   agentThreads           AgentThread[]
   agentMessages          AgentMessage[]

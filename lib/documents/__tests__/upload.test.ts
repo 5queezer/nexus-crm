@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockCreateDocument, mockUploadFile } = vi.hoisted(() => ({
+const { mockCreateDocument, mockUploadFile, mockDeleteFile } = vi.hoisted(() => ({
   mockCreateDocument: vi.fn(),
   mockUploadFile: vi.fn(),
+  mockDeleteFile: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -11,6 +12,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/storage", () => ({
   uploadFile: mockUploadFile,
+  deleteFile: mockDeleteFile,
 }));
 
 import {
@@ -36,6 +38,7 @@ describe("uploadDocument", () => {
   beforeEach(() => {
     mockCreateDocument.mockReset();
     mockUploadFile.mockReset();
+    mockDeleteFile.mockReset();
     mockCreateDocument.mockResolvedValue(fixtureDoc);
   });
 
@@ -65,7 +68,7 @@ describe("uploadDocument", () => {
       version: 1,
       contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
       source: "upload",
-    });
+    }, undefined);
   });
 
   it("rejects files over 10MB before writing storage", async () => {
@@ -111,6 +114,7 @@ describe("uploadDocumentContent", () => {
   beforeEach(() => {
     mockCreateDocument.mockReset();
     mockUploadFile.mockReset();
+    mockDeleteFile.mockReset();
     mockCreateDocument.mockResolvedValue(fixtureDoc);
   });
 
@@ -144,5 +148,24 @@ describe("uploadDocumentContent", () => {
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toMatch(/invalid base64/i);
     expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("guards creation transactionally and removes storage when a parent becomes forbidden", async () => {
+    mockCreateDocument.mockRejectedValue(new Error("invalid_applications"));
+
+    const res = await uploadDocumentContent({
+      filename: "CV.pdf",
+      mimeType: "application/pdf",
+      contentBase64: PDF_BYTES.toString("base64"),
+      applicationIds: ["app-1"],
+    }, "user-1");
+
+    expect(res.isError).toBe(true);
+    expect(mockCreateDocument).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ applicationIds: ["app-1"] }),
+      { requireNonDemoProvenance: true },
+    );
+    expect(mockDeleteFile).toHaveBeenCalledTimes(1);
   });
 });

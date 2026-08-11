@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/types";
 import { authClient } from "@/lib/auth-client";
 import { ApplicationDetail } from "../application-detail";
@@ -14,9 +14,11 @@ vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
 
+const navigationMocks = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/applications/application-1",
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/applications/application-1/acme-engineer",
+  useRouter: () => navigationMocks,
 }));
 
 // Render links as plain anchors so navigation clicks stay observable in the
@@ -89,6 +91,7 @@ function renderDetail(application: Application) {
           isAdmin: false,
         }}
         application={application}
+        canonicalPath="/applications/application-1/acme-engineer"
       />
     </QueryClientProvider>,
   );
@@ -103,6 +106,19 @@ function notesTextarea(): HTMLTextAreaElement {
 function saveButtons(): HTMLButtonElement[] {
   return screen.getAllByRole("button", { name: "save" }) as HTMLButtonElement[];
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  if (!globalThis.localStorage) {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+    });
+  }
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -161,6 +177,7 @@ describe("ApplicationDetail", () => {
             json: async () => ({
               ...fixtureApplication(),
               notes: body.notes,
+              jobSummary: "Updated summary",
               updatedAt: `2026-07-0${patchBodies.length + 1}T00:00:00.000Z`,
             }),
           } as Response;
@@ -185,6 +202,7 @@ describe("ApplicationDetail", () => {
       }
     });
     expect(screen.getAllByText("saved").length).toBeGreaterThan(0);
+    expect(screen.getByText("Updated summary")).toBeTruthy();
 
     // A second save uses the renewed updatedAt — no 409 loop.
     await user.type(notesTextarea(), " v3");
@@ -192,6 +210,63 @@ describe("ApplicationDetail", () => {
     await waitFor(() => expect(patchBodies.length).toBe(2));
     expect(patchBodies[1].expectedUpdatedAt).toBe("2026-07-02T00:00:00.000Z");
     expect(patchBodies[1].notes).toBe("Erste Notiz v2 v3");
+  });
+
+  it("copies the absolute canonical URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    const originalClipboard = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderDetail(fixtureApplication());
+
+    await user.click(screen.getByRole("button", { name: "copy_link" }));
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/applications/application-1/acme-engineer`);
+    if (originalClipboard) {
+      Object.defineProperty(window.navigator, "clipboard", originalClipboard);
+    } else {
+      Reflect.deleteProperty(window.navigator, "clipboard");
+    }
+  });
+
+  it("replaces the URL with the new canonical slug after a company or role rename", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ...fixtureApplication(),
+              ...body,
+              company: "Newco",
+              updatedAt: "2026-07-02T00:00:00.000Z",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+
+    const company = screen.getByDisplayValue("Acme");
+    await user.clear(company);
+    await user.type(company, "Newco");
+    await user.click(saveButtons()[0]);
+
+    await waitFor(() => {
+      expect(navigationMocks.replace).toHaveBeenCalledWith("/applications/application-1/newco-engineer");
+    });
   });
 
   it("shows a conflict banner on 409 and keeps the edits intact", async () => {
@@ -366,7 +441,7 @@ describe("ApplicationDetail", () => {
     expect(pushStateSpy).toHaveBeenCalledWith(
       null,
       "",
-      "/applications/application-1",
+      "/applications/application-1/acme-engineer",
     );
   });
 

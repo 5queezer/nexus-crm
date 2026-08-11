@@ -1,6 +1,6 @@
 import { deleteFile } from "@/lib/storage";
 import type { DatabaseAdapter } from "@/lib/db/adapter";
-import type { DocumentRecord } from "@/lib/db/types";
+import type { DocumentMutationOptions, DocumentRecord } from "@/lib/db/types";
 
 /**
  * Shared deletion path for REST and MCP. Database metadata is removed first so
@@ -11,8 +11,9 @@ export async function deleteDocumentWithContent(
   db: DatabaseAdapter,
   id: string,
   userId: string,
+  options?: DocumentMutationOptions,
 ): Promise<DocumentRecord | null> {
-  const document = await db.deleteDocument(id, userId);
+  const document = await db.deleteDocument(id, userId, options);
   if (!document) return null;
   await deleteFile(document.filename);
   return document;
