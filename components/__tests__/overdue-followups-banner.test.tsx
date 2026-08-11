@@ -8,7 +8,11 @@ import { OverdueFollowUpsBanner } from "../overdue-followups-banner";
 
 vi.mock("next-intl", () => ({
   useLocale: () => "en",
-  useTranslations: () => (key: string) => key,
+  useTranslations: () =>
+    ((key: string) => key) as (
+      key: string,
+      values?: Record<string, unknown>,
+    ) => string,
 }));
 
 function overdue(id: string, company: string): Application {

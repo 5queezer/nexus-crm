@@ -165,6 +165,29 @@ describe("Dashboard data states", () => {
     expect(dismissAll?.className).toContain("nexus-target");
   });
 
+  it("gives each expanded dismiss button an accessible 48px target", async () => {
+    await renderDashboardWith([
+      overdueApplication("overdue-1", "Bending Spoons"),
+      overdueApplication("overdue-2", "Quadrivia"),
+    ]);
+
+    const banner = container
+      .querySelector<HTMLButtonElement>('button[aria-label="dismiss_all_overdue"]')
+      ?.parentElement?.parentElement;
+    await act(async () =>
+      banner?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click(),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const dismissButtons = container.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="dismiss_overdue"]',
+    );
+    expect(dismissButtons.length).toBe(2);
+    dismissButtons.forEach((button) =>
+      expect(button.className).toContain("nexus-target"),
+    );
+  });
+
   it("renders one summary banner instead of one banner per follow-up", async () => {
     await renderDashboardWith([
       overdueApplication("overdue-1", "Bending Spoons"),
