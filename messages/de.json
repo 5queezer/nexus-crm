@@ -778,7 +778,12 @@
     "create_demo": "Demo-Workspace erstellen",
     "creating_demo": "Demo-Workspace wird erstellt…",
     "clear_filters": "Filter löschen",
-    "dismiss_overdue": "Überfällige Wiedervorlage für {company} ausblenden"
+    "dismiss_overdue": "Überfällige Wiedervorlage für {company} ausblenden",
+    "dismiss_all_overdue": "Alle überfälligen Wiedervorlagen ausblenden",
+    "overdue_summary": "{count} überfällige Follow-ups",
+    "overdue_summary_one": "1 überfälliges Follow-up",
+    "overdue_show": "Anzeigen",
+    "overdue_hide": "Ausblenden"
   },
   "demoWorkspace": {
     "badge": "Demo"

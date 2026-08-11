@@ -26,6 +26,7 @@ import { ActionMenu, ActionMenuItem } from "./action-menu";
 import { AiOperator } from "./ai-operator/ai-operator";
 import { WorkspaceToolbar, type WorkspaceViewMode } from "./workspace-toolbar";
 import { FocusQueue } from "./focus-queue";
+import { OverdueFollowUpsBanner } from "./overdue-followups-banner";
 import { OpportunityFilterControls } from "./opportunity-filter-controls";
 import {
   EMPTY_OPPORTUNITY_FILTERS,
@@ -522,11 +523,13 @@ export function Dashboard({
     return !dismissedOverdue.has(key);
   });
 
-  function dismissOverdue(app: Application) {
-    const key = `${app.id}:${app.followUpAt}`;
+  function dismissOverdueEntries(apps: Application[]) {
+    if (apps.length === 0) return;
     setDismissedOverdue((prev) => {
       const next = new Set(prev);
-      next.add(key);
+      for (const app of apps) {
+        next.add(`${app.id}:${app.followUpAt}`);
+      }
       localStorage.setItem("dismissed-overdue", JSON.stringify([...next]));
       return next;
     });
@@ -883,35 +886,13 @@ export function Dashboard({
             {t("demo_remove_error")}
           </p>
         )}
-        {/* Overdue follow-up banners */}
-        {overdueFollowUps.length > 0 && (
-          <div className="mb-6 space-y-2">
-            {overdueFollowUps.map((app) => (
-              <div
-                key={app.id}
-                className="flex items-center gap-3 rounded-2xl border border-red-200/80 bg-red-50/90 p-3 text-sm text-red-700 shadow-sm backdrop-blur dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
-              >
-                <span className="text-base">⚠</span>
-                <button
-                  onClick={() => handleEdit(app)}
-                  className="flex-1 text-left hover:underline font-medium"
-                >
-                  Overdue follow-up: {app.company}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    dismissOverdue(app);
-                  }}
-                  className="nexus-target ml-auto inline-flex shrink-0 items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-red-500 dark:text-red-400"
-                  aria-label={tf("dismiss_overdue", { company: app.company })}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Overdue follow-ups, collapsed into a single summary banner */}
+        <OverdueFollowUpsBanner
+          applications={overdueFollowUps}
+          onOpen={handleEdit}
+          onDismiss={(app) => dismissOverdueEntries([app])}
+          onDismissAll={dismissOverdueEntries}
+        />
 
         {/* Decision-oriented overview */}
         {!isTrueEmpty && !showArchived && (
