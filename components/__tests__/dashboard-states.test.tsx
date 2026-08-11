@@ -199,9 +199,13 @@ describe("Dashboard data states", () => {
       container.querySelectorAll('button[aria-label="dismiss_all_overdue"]')
         .length,
     ).toBe(1);
-    expect(
-      container.querySelectorAll('button[aria-label="dismiss_overdue"]').length,
-    ).toBe(0);
+    const detailsId = container
+      .querySelector<HTMLButtonElement>('button[aria-label="dismiss_all_overdue"]')
+      ?.parentElement?.parentElement
+      ?.querySelector<HTMLButtonElement>("button[aria-expanded]")
+      ?.getAttribute("aria-controls");
+    expect(detailsId).toBeTruthy();
+    expect(document.getElementById(detailsId!)?.hasAttribute("hidden")).toBe(true);
   });
 
   it("dismisses every overdue follow-up at once", async () => {

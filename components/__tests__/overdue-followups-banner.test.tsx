@@ -94,8 +94,8 @@ describe("OverdueFollowUpsBanner", () => {
     expect(container.textContent).toContain("overdue_summary");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(detailsId).toBeTruthy();
-    expect(document.getElementById(detailsId!)).toBeNull();
-    expect(container.textContent).not.toContain("Bending Spoons");
+    expect(document.getElementById(detailsId!)?.hasAttribute("hidden")).toBe(true);
+    expect(document.getElementById(detailsId!)?.textContent).toContain("Bending Spoons");
   });
 
   it("uses the singular summary for a single follow-up", async () => {

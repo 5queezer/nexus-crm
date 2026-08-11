@@ -58,37 +58,36 @@ export function OverdueFollowUpsBanner({
         </button>
       </div>
 
-      {expanded && (
-        <ul
-          id={detailsId}
-          className="flex flex-wrap gap-2 border-t border-red-200/70 px-3 py-3 dark:border-red-500/20"
-        >
-          {applications.map((application) => (
-            <li
-              key={application.id}
-              className="inline-flex items-center gap-1 rounded-full bg-red-100/80 pl-3 dark:bg-red-900/30"
+      <ul
+        id={detailsId}
+        hidden={!expanded}
+        className="flex flex-wrap gap-2 border-t border-red-200/70 px-3 py-3 dark:border-red-500/20"
+      >
+        {applications.map((application) => (
+          <li
+            key={application.id}
+            className="inline-flex items-center gap-1 rounded-full bg-red-100/80 pl-3 dark:bg-red-900/30"
+          >
+            <button
+              type="button"
+              onClick={() => onOpen(application)}
+              className="py-1.5 font-medium hover:underline"
             >
-              <button
-                type="button"
-                onClick={() => onOpen(application)}
-                className="py-1.5 font-medium hover:underline"
-              >
-                {application.company}
-              </button>
-              <button
-                type="button"
-                onClick={() => onDismiss(application)}
-                className="nexus-target inline-flex shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-200/80 dark:text-red-400 dark:hover:bg-red-900/60"
-                aria-label={tf("dismiss_overdue", {
-                  company: application.company,
-                })}
-              >
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+              {application.company}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDismiss(application)}
+              className="nexus-target inline-flex shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-200/80 dark:text-red-400 dark:hover:bg-red-900/60"
+              aria-label={tf("dismiss_overdue", {
+                company: application.company,
+              })}
+            >
+              ✕
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
