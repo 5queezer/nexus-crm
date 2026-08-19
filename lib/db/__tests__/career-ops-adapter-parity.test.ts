@@ -367,12 +367,23 @@ vi.mock("firebase-admin/firestore", () => ({
       }
     },
     batch: () => {
+      // Firestore rejects a batch of more than 500 writes. The adapter chunks
+      // at 450 precisely because of that, so the fake has to enforce it — an
+      // unbounded fake would accept writes the real backend refuses and the
+      // chunking could regress unnoticed.
+      const FIRESTORE_BATCH_LIMIT = 500;
       const writes: Array<() => void> = [];
+      const add = (write: () => void) => {
+        if (writes.length >= FIRESTORE_BATCH_LIMIT) {
+          throw new Error("firestore: maximum 500 writes allowed per request");
+        }
+        writes.push(write);
+      };
       return {
-        set: (ref: MockRef, data: Row) => writes.push(() => ref.__store.set(ref.id, data)),
+        set: (ref: MockRef, data: Row) => add(() => ref.__store.set(ref.id, data)),
         update: (ref: MockRef, data: Row) =>
-          writes.push(() => ref.__store.set(ref.id, { ...ref.__store.get(ref.id), ...data })),
-        delete: (ref: MockRef) => writes.push(() => ref.__store.delete(ref.id)),
+          add(() => ref.__store.set(ref.id, { ...ref.__store.get(ref.id), ...data })),
+        delete: (ref: MockRef) => add(() => ref.__store.delete(ref.id)),
         commit: async () => writes.forEach((write) => write()),
       };
     },
@@ -915,6 +926,36 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
       pendingApprovalChallengeId: null,
     });
+  });
+
+  it("deletes a conversation whose history exceeds one write batch", async () => {
+    // Firestore caps a batch at 500 writes. A long-lived conversation would be
+    // undeletable if the cleanup were not chunked, and the fake now rejects an
+    // oversized batch the way the real backend does.
+    const thread = await seedThread("user-a");
+    const runIds: string[] = [];
+    for (let i = 0; i < 620; i += 1) {
+      const { run } = await claimRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: `run_${i}`,
+        clientRequestId: `client-id-${i.toString().padStart(4, "0")}`,
+        status: "queued",
+      });
+      runIds.push(run.id);
+      await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    }
+
+    await expect(db.deleteCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
+      outcome: "deleted",
+    });
+    await expect(db.getCareerOpsThread(thread.id, "user-a")).resolves.toBeNull();
+
+    // The runs must be gone too. Asserting only that the thread disappeared
+    // would not detect lost chunking: an oversized batch throws, that failure
+    // is deliberately non-fatal so the caller can still delete the upstream
+    // session, and the orphaned run documents would go unnoticed.
+    await expect(db.getCareerOpsRun(runIds[0], "user-a")).resolves.toBeNull();
+    await expect(db.getCareerOpsRun(runIds[runIds.length - 1], "user-a")).resolves.toBeNull();
   });
 
   it("refuses to scope a conversation to an application that vanished", async () => {
