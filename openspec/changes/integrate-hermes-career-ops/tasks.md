@@ -49,12 +49,12 @@
 
 ## 6. Documentation and developer tooling
 
-- [ ] 6.1 Add the `HERMES_CAREER_OPS_*` entries to `.env.example` with safe defaults and no real credentials.
-- [ ] 6.2 Add `docs/architecture/hermes-career-ops.md` with the trust boundary and a request/stream sequence diagram.
-- [ ] 6.3 Add `docs/security/hermes-career-ops-threat-model.md` covering bearer-token disclosure, cross-user session access, malicious job descriptions and MCP output, prompt injection, forged run/session IDs, SSE disconnection/replay, approval spoofing, upstream Hermes compromise, and over-privileged profiles.
-- [ ] 6.4 Add `docs/operations/hermes-career-ops-setup.md`: Hermes `career-ops` profile creation, API server enablement, distinct API key, Nexus MCP wiring, loopback/private binding, and `/health` + `/v1/capabilities` verification.
-- [ ] 6.5 Add a mock Hermes server (`scripts/mock-hermes.mjs`) plus local-development and production-like smoke-test instructions.
-- [ ] 6.6 Document the Hetzner/systemd deployment steps and the rollback procedure.
+- [x] 6.1 Add the `HERMES_CAREER_OPS_*` entries to `.env.example` with safe defaults and no real credentials.
+- [x] 6.2 Add `docs/architecture/hermes-career-ops.md` with the trust boundary and a request/stream sequence diagram.
+- [x] 6.3 Add `docs/security/hermes-career-ops-threat-model.md` covering bearer-token disclosure, cross-user session access, malicious job descriptions and MCP output, prompt injection, forged run/session IDs, SSE disconnection/replay, approval spoofing, upstream Hermes compromise, and over-privileged profiles.
+- [x] 6.4 Add `docs/operations/hermes-career-ops-setup.md`: Hermes `career-ops` profile creation, API server enablement, distinct API key, Nexus MCP wiring, loopback/private binding, and `/health` + `/v1/capabilities` verification.
+- [x] 6.5 Add a mock Hermes server (`scripts/mock-hermes.mjs`) plus local-development and production-like smoke-test instructions.
+- [x] 6.6 Document the Hetzner/systemd deployment steps and the rollback procedure.
 
 ## 7. Verification gates
 
