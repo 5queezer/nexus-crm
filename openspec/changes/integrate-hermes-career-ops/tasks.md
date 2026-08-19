@@ -1,12 +1,12 @@
 ## 1. Configuration and Hermes client (RED → GREEN)
 
-- [ ] 1.1 Write failing tests for `lib/career-ops/config.ts`: disabled when unset, disabled on non-absolute/non-http base URL, trailing-slash normalization, bounded timeout parsing with defaults, and `careerOpsMemoryScope()` producing a stable non-PII scope that differs per user and stays within 256 chars with no CR/LF/NUL.
-- [ ] 1.2 Implement `lib/career-ops/config.ts` (server-only): `readCareerOpsConfig()`, URL validation, timeout bounds, HMAC-derived memory scope, and `redactUpstreamError()`.
-- [ ] 1.3 Write failing tests for `lib/career-ops/hermes-client.ts`: bearer header attached; secret absent from every thrown error and returned payload; `/health` and `/v1/capabilities` parsing including partial `features`; health unavailable and degraded; session create/get/delete; session messages; run create returning `run_id`; run status mapping; stop; approval choice mapping and `409` handling; connect/idle/total timeouts and aborted connections; upstream `401/403/404/409/429/5xx` mapped to typed `HermesError`s.
-- [ ] 1.4 Implement `lib/career-ops/hermes-client.ts` as a typed adapter over the verified contract, with a fixed operation allowlist, no caller-supplied paths/headers, and `AbortSignal`-based timeouts.
-- [ ] 1.5 Write failing tests for `lib/career-ops/sse.ts`: `data:`-only frame parsing, multi-line and chunk-split frames, `:` comment/keepalive frames, unknown `event` values ignored, malformed JSON discarded without terminating, and mapping of `message.delta`/`tool.started`/`tool.completed`/`approval.request`/`approval.responded`/`run.completed`/`run.failed`/`run.cancelled` to the normalized Nexus event shapes.
-- [ ] 1.6 Implement `lib/career-ops/sse.ts` (incremental parser + normalizer + serializer for the Nexus-facing stream).
-- [ ] 1.7 Run the focused client/config/SSE suites green.
+- [x] 1.1 Write failing tests for `lib/career-ops/config.ts`: disabled when unset, disabled on non-absolute/non-http base URL, trailing-slash normalization, bounded timeout parsing with defaults, and `careerOpsMemoryScope()` producing a stable non-PII scope that differs per user and stays within 256 chars with no CR/LF/NUL.
+- [x] 1.2 Implement `lib/career-ops/config.ts` (server-only): `readCareerOpsConfig()`, URL validation, timeout bounds, HMAC-derived memory scope, and `redactUpstreamError()`.
+- [x] 1.3 Write failing tests for `lib/career-ops/hermes-client.ts`: bearer header attached; secret absent from every thrown error and returned payload; `/health` and `/v1/capabilities` parsing including partial `features`; health unavailable and degraded; session create/get/delete; session messages; run create returning `run_id`; run status mapping; stop; approval choice mapping and `409` handling; connect/idle/total timeouts and aborted connections; upstream `401/403/404/409/429/5xx` mapped to typed `HermesError`s.
+- [x] 1.4 Implement `lib/career-ops/hermes-client.ts` as a typed adapter over the verified contract, with a fixed operation allowlist, no caller-supplied paths/headers, and `AbortSignal`-based timeouts.
+- [x] 1.5 Write failing tests for `lib/career-ops/sse.ts`: `data:`-only frame parsing, multi-line and chunk-split frames, `:` comment/keepalive frames, unknown `event` values ignored, malformed JSON discarded without terminating, and mapping of `message.delta`/`tool.started`/`tool.completed`/`approval.request`/`approval.responded`/`run.completed`/`run.failed`/`run.cancelled` to the normalized Nexus event shapes.
+- [x] 1.6 Implement `lib/career-ops/sse.ts` (incremental parser + normalizer + serializer for the Nexus-facing stream).
+- [x] 1.7 Run the focused client/config/SSE suites green.
 
 ## 2. Persistence and adapter parity (RED → GREEN)
 
