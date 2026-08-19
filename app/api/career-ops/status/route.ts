@@ -6,6 +6,6 @@ export async function GET() {
   const session = await requireCareerOpsSession();
   if (!session) return unauthorized();
 
-  const status = await getCareerOpsStatus();
+  const status = await getCareerOpsStatus(session);
   return NextResponse.json(status, { headers: { "Cache-Control": "no-store" } });
 }

@@ -82,6 +82,12 @@ export function CareerOps({
     runTimeoutMs: status?.runTimeoutMs,
   });
 
+  // Read the live run inside callbacks without making them depend on it.
+  const runRef = useRef(run);
+  useEffect(() => {
+    runRef.current = run;
+  }, [run]);
+
   useEffect(() => {
     let cancelled = false;
     careerOpsJson<CareerOpsStatus>("/api/career-ops/status")
@@ -152,7 +158,12 @@ export function CareerOps({
         const result = await careerOpsJson<{ activeRun: { id: string } | null }>(
           `/api/career-ops/threads/${threadId}`,
         );
-        if (result.activeRun) await resume(result.activeRun.id);
+        if (!result.activeRun) return;
+        // Already tracking this run — its stream is live and it may hold a
+        // detailed approval prompt. Resuming would abort the stream and
+        // downgrade that prompt to the denial-only recovered form.
+        if (runRef.current.runId === result.activeRun.id) return;
+        await resume(result.activeRun.id);
       } catch {
         // A thread that cannot be inspected simply stays idle.
       }

@@ -59,9 +59,13 @@ The system SHALL persist, per run, the owning user identifier, the owning thread
 - **THEN** the system responds `400` and creates no run
 
 #### Scenario: One active run per conversation
-- **WHEN** a run is submitted for a conversation that already has a run in a non-terminal state
+- **WHEN** a run is submitted for a conversation whose latest run is observably in a non-terminal state
 - **THEN** the system rejects it with a controlled conflict and starts no upstream run
-- **AND** two concurrent submissions with different client request identifiers cannot both run against the same conversation
+
+#### Scenario: A reservation nothing can settle does not block the conversation
+- **WHEN** a submission's outcome was ambiguous, so its reservation carries no upstream run identifier
+- **THEN** the reservation stops counting as an active run after a bounded period
+- **AND** the conversation accepts new submissions again without operator intervention
 
 #### Scenario: Deduplication is scoped to the owner
 - **WHEN** two different users submit the same client request identifier

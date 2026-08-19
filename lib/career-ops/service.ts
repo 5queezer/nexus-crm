@@ -161,8 +161,21 @@ async function hasRunStatusSupport(
   }
 }
 
-export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
+export async function getCareerOpsStatus(
+  session?: CareerOpsSession,
+): Promise<CareerOpsStatus> {
   const config = readCareerOpsConfig();
+  // A non-owner gets the same answer every other operation would give, and
+  // never causes a probe against the operator's Hermes instance.
+  if (config.enabled && session && session.userId !== config.ownerUserId) {
+    return {
+      enabled: false,
+      available: false,
+      reason: "not_owner",
+      capabilities: { ...UNSUPPORTED_CAPABILITIES },
+      runTimeoutMs: 0,
+    };
+  }
   if (!config.enabled) {
     return {
       enabled: false,
@@ -258,6 +271,27 @@ const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
 ];
 
 /**
+ * How long an unbound reservation may hold a conversation.
+ *
+ * A reservation kept after an ambiguous submission has no upstream id, so
+ * nothing can ever settle it. Without an expiry it would count as an active run
+ * forever and every later message would be refused — one network timeout would
+ * brick the conversation permanently. The window is generous enough that a real
+ * in-flight submission is never mistaken for a stale one.
+ */
+function unboundReservationTtlMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
+  return Math.max(60_000, config.connectTimeoutMs * 4);
+}
+
+function isStaleUnboundReservation(
+  run: CareerOpsRunRecord,
+  config: Extract<CareerOpsConfig, { enabled: true }>,
+): boolean {
+  if (run.hermesRunId !== "") return false;
+  return Date.now() - run.createdAt.getTime() > unboundReservationTtlMs(config);
+}
+
+/**
  * The thread's latest run when it has not reached a terminal state, so a client
  * that reloaded mid-run can rejoin it instead of showing an idle composer and
  * letting a second concurrent run start on the same session.
@@ -266,8 +300,11 @@ export async function getActiveCareerOpsRun(
   session: CareerOpsSession,
   threadId: string,
 ): Promise<CareerOpsRunRecord | null> {
+  const config = enabledConfig(session);
   const run = await getDb().getLatestCareerOpsRun(threadId, session.userId);
   if (!run || !ACTIVE_RUN_STATUSES.includes(run.status)) return null;
+  // A reservation nothing can settle stops counting as active once it expires.
+  if (isStaleUnboundReservation(run, config)) return null;
   return run;
 }
 
@@ -468,8 +505,9 @@ export async function startCareerOpsRun(
     // Releasing the claim is only safe when the request provably never reached
     // Hermes. A timeout or a mid-flight transport error is ambiguous: the run
     // may already be executing, and releasing would let a retry with the same
-    // client request id start a second privileged run. The client mints a fresh
-    // id per submission, so holding an ambiguous claim blocks nothing.
+    // client request id start a second privileged run. The retained reservation
+    // has no upstream id, so nothing can settle it — it expires instead (see
+    // unboundReservationTtlMs) rather than blocking the conversation forever.
     if (definitivelyNotSubmitted(reason)) {
       await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
     }
@@ -591,8 +629,15 @@ export async function resolveCareerOpsApproval(
     throw toServiceError(reason);
   }
   // Attribution only: which owner decided what, and when. The command and its
-  // arguments are never written to Nexus.
-  await getDb()
-    .recordCareerOpsApprovalDecision(run.id, session.userId, choice)
-    .catch(() => undefined);
+  // arguments are never written to Nexus. The spec requires this record, so a
+  // failure is reported rather than swallowed — the decision did reach Hermes,
+  // which the controlled error says explicitly.
+  try {
+    await getDb().recordCareerOpsApprovalDecision(run.id, session.userId, choice);
+  } catch {
+    throw new CareerOpsServiceError(
+      "upstream_error",
+      "The decision was sent but could not be recorded",
+    );
+  }
 }

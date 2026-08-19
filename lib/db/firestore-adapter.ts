@@ -2663,10 +2663,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
       .where("applicationId", "==", applicationId)
       .get();
     if (snapshot.empty) return;
-    const batch = this.db.batch();
-    snapshot.docs.forEach((document) =>
-      batch.update(document.ref, { applicationId: null, updatedAt: Timestamp.now() }),
-    );
-    await batch.commit();
+    // Same 500-write batch cap as the thread cascade: an application linked to
+    // many conversations would otherwise become undeletable.
+    for (let offset = 0; offset < snapshot.docs.length; offset += 450) {
+      const batch = this.db.batch();
+      for (const document of snapshot.docs.slice(offset, offset + 450)) {
+        batch.update(document.ref, { applicationId: null, updatedAt: Timestamp.now() });
+      }
+      await batch.commit();
+    }
   }
 }

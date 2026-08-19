@@ -118,6 +118,16 @@ describe("getCareerOpsStatus", () => {
     expect(mocks.client.health).not.toHaveBeenCalled();
   });
 
+  it("tells a non-owner the feature is unavailable without probing Hermes", async () => {
+    await expect(getCareerOpsStatus({ userId: "user-b", user: { isAdmin: true } })).resolves.toMatchObject({
+      enabled: false,
+      available: false,
+      reason: "not_owner",
+    });
+    expect(mocks.client.health).not.toHaveBeenCalled();
+    expect(mocks.client.capabilities).not.toHaveBeenCalled();
+  });
+
   it("reports the configured run lifetime so the client can size its polling", async () => {
     const status = await getCareerOpsStatus();
     expect(status.runTimeoutMs).toBeGreaterThan(0);
@@ -662,6 +672,41 @@ describe("startCareerOpsRun", () => {
     expect(args.instructions).not.toContain("application id 42");
   });
 
+  it("lets the conversation recover after an ambiguous submission expires", async () => {
+    // Regression: an unbound reservation counted as an active run forever, so a
+    // single timeout permanently refused every later message on the thread.
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "",
+      status: "queued",
+      createdAt: new Date(Date.now() - 60 * 60_000),
+    });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-after-expiry",
+      }),
+    ).resolves.toBeTruthy();
+    expect(mocks.client.createRun).toHaveBeenCalled();
+  });
+
+  it("still refuses while an ambiguous submission is recent", async () => {
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "",
+      status: "queued",
+      createdAt: new Date(),
+    });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-too-soon",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
   it("refuses a second concurrent run on the same thread", async () => {
     mocks.db.getLatestCareerOpsRun.mockResolvedValue({
       ...RESERVATION,
@@ -736,6 +781,15 @@ describe("run controls", () => {
     mocks.client.resolveApproval.mockRejectedValue(new HermesError("conflict", "not pending"));
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once")).rejects.toBeTruthy();
     expect(mocks.db.recordCareerOpsApprovalDecision).not.toHaveBeenCalled();
+  });
+
+  it("reports a failure to record the decision rather than claiming success", async () => {
+    mocks.db.recordCareerOpsApprovalDecision.mockRejectedValue(new Error("db down"));
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
+      code: "upstream_error",
+    });
+    // The decision did reach Hermes; only the audit record failed.
+    expect(mocks.client.resolveApproval).toHaveBeenCalled();
   });
 
   it("rejects an unsupported approval decision", async () => {

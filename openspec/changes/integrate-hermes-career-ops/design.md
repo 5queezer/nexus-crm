@@ -102,6 +102,14 @@ CSP is untouched: the browser only ever connects to its own origin.
 
 `401/403` upstream → `503 { error: "career_ops_unavailable" }` (a Nexus misconfiguration must not read as the *user's* auth failure); `404` upstream → `404`; `409` upstream → `409`; `429` → `429` with `Retry-After`; `5xx`/network/timeout → `502`. Bodies are always Nexus-authored; upstream text is passed through `redactUpstreamError()` and never returned verbatim.
 
+### D10. One active run per conversation, enforced by observation not by lock
+
+A conversation refuses a new run while its latest run is observably non-terminal. This is a check-then-create sequence, not an atomic claim: the database's only uniqueness is `(threadId, clientRequestId)`, so two genuinely simultaneous submissions carrying different client request identifiers can both observe an idle conversation and both proceed.
+
+The window is small — the check immediately precedes the insert — and the UI cannot produce it, because the composer locks while a run is in flight. It is reachable from two tabs or a direct API caller.
+
+Closing it properly needs a database-level invariant: a partial unique index on `threadId` over non-terminal statuses in PostgreSQL, and a deterministic per-thread "active slot" document in Firestore. That is a schema and adapter change on both backends and is deliberately **not** in this change; the spec states the guarantee that is actually implemented rather than the one that is wanted.
+
 ## Risks / Trade-offs
 
 - **Bearer-token disclosure** → the token is read only in `lib/career-ops/config.ts` (server module, never imported by a client component), never serialized into props, responses, or logs; a unit test asserts no response or thrown error contains it; a repository secret scan runs in verification.
