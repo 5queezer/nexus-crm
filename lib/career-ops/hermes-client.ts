@@ -205,6 +205,29 @@ export function createHermesClient(config: EnabledConfig) {
     return typeof value === "string" ? value.slice(0, maximum) : "";
   }
 
+  async function fetchRun(runId: string): Promise<HermesRun> {
+    const body = await json(
+      await request(`/v1/runs/${encodeURIComponent(runId)}`, { method: "GET" }),
+    );
+    const raw = text(body.status, 64) as HermesRunStatus;
+    if (!RUN_STATUSES.includes(raw)) {
+      // Mapping an unrecognized status to `failed` would be a guess with
+      // consequences: the caller persists it, which settles the run, frees
+      // the conversation's single active-run slot, and lets a second
+      // privileged run start while the first may still be executing. An
+      // unknown status is an upstream problem, not a finished run.
+      throw new HermesError("upstream_error", "Hermes reported an unrecognized run status");
+    }
+    return {
+      runId: text(body.run_id, 256) || runId,
+      status: raw,
+      output: text(body.output, 200_000),
+      error: body.error === undefined || body.error === null
+        ? null
+        : redactUpstreamError(text(body.error, 400)),
+    };
+  }
+
   return {
     async health(): Promise<HermesHealth> {
       const body = await json(await request("/health", { method: "GET" }));
@@ -322,36 +345,22 @@ export function createHermesClient(config: EnabledConfig) {
       return { runId };
     },
 
-    async getRun(runId: string): Promise<HermesRun> {
-      const body = await json(
-        await request(`/v1/runs/${encodeURIComponent(runId)}`, { method: "GET" }),
-      );
-      const raw = text(body.status, 64) as HermesRunStatus;
-      if (!RUN_STATUSES.includes(raw)) {
-        // Mapping an unrecognized status to `failed` would be a guess with
-        // consequences: the caller persists it, which settles the run, frees
-        // the conversation's single active-run slot, and lets a second
-        // privileged run start while the first may still be executing. An
-        // unknown status is an upstream problem, not a finished run.
-        throw new HermesError("upstream_error", "Hermes reported an unrecognized run status");
-      }
-      return {
-        runId: text(body.run_id, 256) || runId,
-        status: raw,
-        output: text(body.output, 200_000),
-        error: body.error === undefined || body.error === null
-          ? null
-          : redactUpstreamError(text(body.error, 400)),
-      };
-    },
+    getRun: fetchRun,
+
 
     async openRunEvents(runId: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
       let response: Response;
+      // The route's idle and total timers only start once this resolves, so
+      // without a bound here a Hermes that accepts the connection and never
+      // sends response headers would hold the Nexus request open for as long
+      // as the browser stayed connected.
+      const connect = AbortSignal.timeout(config.connectTimeoutMs);
+      const combined = AbortSignal.any([signal, connect]);
       try {
         response = await fetch(url(`/v1/runs/${encodeURIComponent(runId)}/events`), {
           method: "GET",
           headers: headers({ Accept: "text/event-stream" }),
-          signal,
+          signal: combined,
           cache: "no-store",
           redirect: "error",
         });
@@ -370,9 +379,30 @@ export function createHermesClient(config: EnabledConfig) {
         method: "POST",
         body: {},
       });
-      // A run that already reached a terminal state is no longer stoppable, and
-      // that is the caller's desired end state — not an error.
-      if (response.status === 404) return;
+      if (response.status === 404) {
+        // A 404 has two meanings here: the run is gone, or Hermes no longer
+        // serves the stop endpoint at all. Assuming the first would report a
+        // still-executing privileged run as stopped, so ask whether the run
+        // still exists before deciding.
+        let stillExists = false;
+        try {
+          await fetchRun(runId);
+          stillExists = true;
+        } catch (reason) {
+          if (!(reason instanceof HermesError) || reason.kind !== "not_found") {
+            // Could not tell; do not claim the run was stopped.
+            throw new HermesError("upstream_error", "Hermes did not accept the stop request");
+          }
+        }
+        if (stillExists) {
+          throw new HermesError(
+            "upstream_error",
+            "Hermes does not support stopping this run",
+          );
+        }
+        // The run really is gone, which is the caller's desired end state.
+        return;
+      }
       await json(response);
     },
 

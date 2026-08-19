@@ -986,6 +986,17 @@ describe("run controls", () => {
     expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
   });
 
+  it("refuses to stop a run that was never bound upstream", async () => {
+    // Ambiguous submission: Hermes may be executing it, but Nexus has no id to
+    // stop it with. Returning quietly would report "stopping" to the user when
+    // nothing was sent anywhere.
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, hermesRunId: "" });
+    await expect(stopCareerOpsRun(SESSION_A, "run-1")).rejects.toMatchObject({
+      code: "conflict",
+    });
+    expect(mocks.client.stopRun).not.toHaveBeenCalled();
+  });
+
   it("refuses to stop a foreign run", async () => {
     mocks.db.getCareerOpsRun.mockResolvedValue(null);
     await expect(stopCareerOpsRun(SESSION_A, "run-1")).rejects.toMatchObject({

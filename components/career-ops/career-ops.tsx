@@ -345,6 +345,10 @@ export function CareerOps({
     setHistoryOpen(false);
     setThreadApplication(null);
     setTranscriptFailed(false);
+    // Drop the previous conversation's transcript before its successor loads.
+    // Keeping it on a failed load would show one conversation's history under
+    // another's identity, while submissions went to the new one.
+    setMessages([]);
     reset();
     await loadMessages(threadId, generation);
     await rejoinActiveRun(threadId, generation);

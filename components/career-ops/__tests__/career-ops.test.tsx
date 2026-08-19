@@ -402,6 +402,31 @@ describe("application context", () => {
     ).toHaveLength(0);
   });
 
+  it("never shows one conversation's transcript under another's identity", async () => {
+    const user = userEvent.setup();
+    const first = { ...THREAD, id: "thread-first", title: "First thread" };
+    const second = { ...THREAD, id: "thread-second", title: "Second thread" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [first, second] }));
+    route("GET", /\/threads\/thread-first\/messages$/, () =>
+      json({ messages: [{ id: "m1", role: "assistant", content: "FIRST HISTORY" }] }),
+    );
+    route("GET", /\/threads\/thread-second\/messages$/, () => json({ error: "upstream" }, 503));
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await waitFor(() => expect(within(dialog).getByText("FIRST HISTORY")).toBeTruthy());
+
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Second thread" }));
+
+    // The second thread's history failed to load; showing the first thread's
+    // messages here would misattribute them while submissions go to the second.
+    await waitFor(() =>
+      expect(within(dialog).getByText(/history could not be loaded/i)).toBeTruthy(),
+    );
+    expect(within(dialog).queryByText("FIRST HISTORY")).toBeNull();
+  });
+
   it("links the history disclosure to the panel it controls", async () => {
     const user = userEvent.setup();
     renderCareerOps();

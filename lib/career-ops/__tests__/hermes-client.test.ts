@@ -438,3 +438,28 @@ describe("upstream response size bounds", () => {
     await expect(createHermesClient(config).health()).rejects.toBeInstanceOf(HermesError);
   });
 });
+
+describe("stopping a run", () => {
+  it("does not report success when the stop endpoint itself is gone", async () => {
+    // A 404 from /stop means either the run is gone or Hermes withdrew the
+    // endpoint. If the run still exists it is the latter, and claiming the run
+    // was stopped would hide a live privileged agent.
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const target = String(input);
+      if (target.endsWith("/stop")) return new Response("not found", { status: 404 });
+      return jsonResponse({ run_id: "run_7", status: "running" });
+    }) as unknown as typeof fetch;
+
+    await expect(createHermesClient(enabledConfig()).stopRun("run_7")).rejects.toMatchObject({
+      kind: "upstream_error",
+    });
+  });
+
+  it("treats a stop for a genuinely absent run as the desired end state", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response("not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+
+    await expect(createHermesClient(enabledConfig()).stopRun("run_7")).resolves.toBeUndefined();
+  });
+});

@@ -811,7 +811,17 @@ export async function stopCareerOpsRun(
 ): Promise<void> {
   const config = enabledConfig(session);
   const { run } = await requireOwnedRun(session, runId);
-  if (isUnbound(run)) return;
+  if (isUnbound(run)) {
+    // An ambiguous submission: Hermes may have accepted the run and only the
+    // response was lost, so a privileged run can be executing with no id to
+    // address it. Returning quietly would let the route answer `stopping:
+    // true` and tell the user the agent is being stopped when nothing was
+    // sent anywhere.
+    throw new CareerOpsServiceError(
+      "conflict",
+      "This run cannot be stopped yet; it may still be starting",
+    );
+  }
   try {
     await client(config).stopRun(run.hermesRunId);
   } catch (reason) {
