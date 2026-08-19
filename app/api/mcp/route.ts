@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod/v3";
 import { getDb } from "@/lib/db";
 import { hashApiToken } from "@/lib/token";
@@ -121,6 +122,38 @@ function controlledErrorCode(error: unknown, allowed: Set<string>, fallback: str
   return allowed.has(error.message) ? error.message : fallback;
 }
 
+function jsonToolResult(value: unknown, isError = false): CallToolResult {
+  const content = [{
+    type: "text" as const,
+    text: JSON.stringify(value, null, 2) ?? "null",
+  }];
+  const structuredContent = value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+
+  return {
+    content,
+    ...(structuredContent && { structuredContent }),
+    ...(isError && { isError: true }),
+  };
+}
+
+function addStructuredContent(result: CallToolResult): CallToolResult {
+  if (result.structuredContent || result.content.length !== 1) return result;
+  const item = result.content[0];
+  if (item.type !== "text") return result;
+
+  try {
+    const value: unknown = JSON.parse(item.text);
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      return { ...result, structuredContent: value as Record<string, unknown> };
+    }
+  } catch {
+    // Preserve non-JSON human-readable responses.
+  }
+  return result;
+}
+
 // ── Auth helper ──────────────────────────────────────────────────────────────
 // Tries MCP OAuth access token first, then falls back to CRM API token.
 
@@ -183,10 +216,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   const canAccessSubmissions =
     auth.authType !== "mcp_oauth" || auth.scopes?.includes("mcp:submissions") === true;
-  const submissionScopeError = () => ({
-    content: [{ type: "text" as const, text: JSON.stringify({ error: { code: "insufficient_scope", required: "mcp:submissions" } }) }],
-    isError: true,
-  });
+  const submissionScopeError = () => jsonToolResult(
+    { error: { code: "insufficient_scope", required: "mcp:submissions" } },
+    true,
+  );
   const getRealApplication = (id: string, userId: string | null = auth.userId) =>
     getDb().getApplication(id, userId, MACHINE_DEMO_READ);
   const requireRealApplication = async (id: string, userId: string | null = auth.userId) => {
@@ -227,9 +260,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     {},
     async () => {
       const apps = await getDb().listApplications(auth.readScopeUserId, MACHINE_DEMO_READ);
-      return {
-        content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
-      };
+      return jsonToolResult(apps);
     }
   );
 
@@ -245,9 +276,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           isError: true,
         };
       }
-      return {
-        content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
-      };
+      return jsonToolResult(app);
     }
   );
 
@@ -301,9 +330,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         resumeId: args.resumeId ?? null,
         ...metadata,
       });
-      return {
-        content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
-      };
+      return jsonToolResult(app);
     }
   );
 
@@ -338,10 +365,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       const lifecycleFields = ["status", "appliedAt", "lastContact", "followUpAt", "currentStage"]
         .filter((field) => (data as Record<string, unknown>)[field] !== undefined);
       if (lifecycleFields.length) {
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: { code: "lifecycle_event_required", fields: lifecycleFields } }) }],
-          isError: true,
-        };
+        return jsonToolResult(
+          { error: { code: "lifecycle_event_required", fields: lifecycleFields } },
+          true,
+        );
       }
       try {
         const current = await requireRealApplication(id);
@@ -380,27 +407,20 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           ) throw new Error("conflict");
           const previewUpdate = { ...update };
           delete previewUpdate.expectedUpdatedAt;
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({ dryRun: true, application: { ...current, ...previewUpdate } }, null, 2),
-            }],
-          };
+          return jsonToolResult({
+            dryRun: true,
+            application: { ...current, ...previewUpdate },
+          });
         }
         const app = await getDb().updateApplication(id, auth.userId, update);
-        return {
-          content: [{ type: "text", text: JSON.stringify(app, null, 2) }],
-        };
+        return jsonToolResult(app);
       } catch (error) {
         const code = controlledErrorCode(
           error,
           APPLICATION_UPDATE_ERROR_CODES,
           "application_update_failed",
         );
-        return {
-          content: [{ type: "text", text: JSON.stringify({ error: { code } }) }],
-          isError: true,
-        };
+        return jsonToolResult({ error: { code } }, true);
       }
     }
   );
@@ -490,10 +510,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           actor: auth.user.email,
         });
         const sanitized = await filterSubmissionDocuments(result);
-        return { content: [{ type: "text", text: JSON.stringify(sanitized, null, 2) }] };
+        return jsonToolResult(sanitized);
       } catch (error) {
         const code = controlledErrorCode(error, SUBMISSION_ERROR_CODES, "submission_failed");
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        return jsonToolResult({ error: { code } }, true);
       }
     },
   );
@@ -508,7 +528,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         await requireRealApplication(applicationId);
         const submissions = await getDb().listApplicationSubmissions(applicationId, auth.userId, false);
         const sanitized = await Promise.all(submissions.map(filterSubmissionDocuments));
-        return { content: [{ type: "text", text: JSON.stringify(sanitized, null, 2) }] };
+        return jsonToolResult(sanitized);
       } catch {
         return { content: [{ type: "text", text: "Application not found or access denied" }], isError: true };
       }
@@ -527,7 +547,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         return { content: [{ type: "text", text: "Submission not found" }], isError: true };
       }
       const sanitized = await filterSubmissionDocuments(submission);
-      return { content: [{ type: "text", text: JSON.stringify(sanitized, null, 2) }] };
+      return jsonToolResult(sanitized);
     },
   );
 
@@ -558,10 +578,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           auth.userId,
           command,
         );
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        return jsonToolResult(result);
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "append_failed");
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        return jsonToolResult({ error: { code } }, true);
       }
     },
   );
@@ -590,10 +610,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           metadata: args.metadata,
         });
         const result = await getDb().recordApplicationEvent(args.applicationId, auth.userId, command);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        return jsonToolResult(result);
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_failed");
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        return jsonToolResult({ error: { code } }, true);
       }
     },
   );
@@ -614,10 +634,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         if (!application) throw new Error("not_found");
         const filter = parseEventQuery({ applicationId, cursor, order, limit });
         const page = await db.listApplicationEventsFiltered(auth.userId, filter, MACHINE_DEMO_READ);
-        return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
+        return jsonToolResult(page);
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_query_failed");
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        return jsonToolResult({ error: { code } }, true);
       }
     },
   );
@@ -643,10 +663,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       try {
         const filter = parseEventQuery(args);
         const page = await getDb().listApplicationEventsFiltered(auth.userId, filter, MACHINE_DEMO_READ);
-        return { content: [{ type: "text", text: JSON.stringify(page, null, 2) }] };
+        return jsonToolResult(page);
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_query_failed");
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        return jsonToolResult({ error: { code } }, true);
       }
     },
   );
@@ -669,12 +689,12 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         Promise.all(submissions.map(filterSubmissionDocuments)),
         filterRealDocuments(documents),
       ]);
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({ application, submissions: sanitizedSubmissions, events, documents: sanitizedDocuments }, null, 2),
-        }],
-      };
+      return jsonToolResult({
+        application,
+        submissions: sanitizedSubmissions,
+        events,
+        documents: sanitizedDocuments,
+      });
     },
   );
 
@@ -686,7 +706,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       const canonicalJobUrl = canonicalizeJobUrl(jobUrl);
       if (!canonicalJobUrl) return { content: [{ type: "text", text: "Invalid URL" }], isError: true };
       const application = await getDb().findApplicationByCanonicalJobUrl(auth.userId, canonicalJobUrl, MACHINE_DEMO_READ);
-      return { content: [{ type: "text", text: JSON.stringify({ canonicalJobUrl, application }, null, 2) }] };
+      return jsonToolResult({ canonicalJobUrl, application });
     },
   );
 
@@ -749,21 +769,16 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         };
         if (args.dryRun) {
           if (existing) assertNoLifecycleUpdate(existing);
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                dryRun: true,
-                operation: existing ? "update" : "create",
-                canonicalJobUrl,
-                existingId: existing?.id ?? null,
-              }, null, 2),
-            }],
-          };
+          return jsonToolResult({
+            dryRun: true,
+            operation: existing ? "update" : "create",
+            canonicalJobUrl,
+            existingId: existing?.id ?? null,
+          });
         }
         if (existing) {
           const application = await updateExisting(existing);
-          return { content: [{ type: "text", text: JSON.stringify({ operation: "updated", application }, null, 2) }] };
+          return jsonToolResult({ operation: "updated", application });
         }
         const status = args.status ?? "inbound";
         let operation = "created";
@@ -796,10 +811,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           application = await updateExisting(concurrent);
           operation = "updated";
         }
-        return { content: [{ type: "text", text: JSON.stringify({ operation, application }, null, 2) }] };
+        return jsonToolResult({ operation, application });
       } catch (error) {
         const code = error instanceof Error ? error.message : "upsert_failed";
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        return jsonToolResult({ error: { code } }, true);
       }
     },
   );
@@ -835,12 +850,11 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
               .filter((applicationId) => realApplicationIds.has(applicationId)) ?? [],
           })),
       });
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({ healthy: findings.length === 0, findingCount: findings.length, findings }, null, 2),
-        }],
-      };
+      return jsonToolResult({
+        healthy: findings.length === 0,
+        findingCount: findings.length,
+        findings,
+      });
     },
   );
 
@@ -908,9 +922,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         }));
 
         const result = await getDb().batchUpsertApplications(auth.userId, sanitized);
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
+        return jsonToolResult(result);
       } catch {
         return {
           content: [{ type: "text", text: "Batch upsert failed" }],
@@ -935,9 +947,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       try {
         await Promise.all(ids.map((id) => requireRealApplication(id)));
         const result = await getDb().batchDeleteApplications(ids, auth.userId);
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
+        return jsonToolResult(result);
       } catch {
         return {
           content: [{ type: "text", text: "Batch delete failed" }],
@@ -985,9 +995,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           limit: args.limit,
           includeContacts: args.include_contacts,
         }, MACHINE_DEMO_READ);
-        return {
-          content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
-        };
+        return jsonToolResult(apps);
       } catch {
         return {
           content: [{ type: "text", text: "Failed to list applications" }],
@@ -1025,9 +1033,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         role: data.role?.slice(0, 100) ?? null,
         linkedIn: data.linkedIn?.slice(0, 500) ?? null,
       });
-      return {
-        content: [{ type: "text", text: JSON.stringify(contact, null, 2) }],
-      };
+      return jsonToolResult(contact);
     }
   );
 
@@ -1061,9 +1067,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
                 : undefined,
           }
         );
-        return {
-          content: [{ type: "text", text: JSON.stringify(contact, null, 2) }],
-        };
+        return jsonToolResult(contact);
       } catch {
         return {
           content: [{ type: "text", text: "Contact not found or access denied" }],
@@ -1147,19 +1151,13 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         scanPage += 1;
       }
       if (visibleDocs.length < logicalPageEnd && !sourceExhausted) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              error: {
-                code: "document_scan_limit_exceeded",
-                maxScannedDocuments:
-                  DOCUMENT_LIST_SCAN_PAGE_SIZE * DOCUMENT_LIST_MAX_SCAN_PAGES,
-              },
-            }),
-          }],
-          isError: true,
-        };
+        return jsonToolResult({
+          error: {
+            code: "document_scan_limit_exceeded",
+            maxScannedDocuments:
+              DOCUMENT_LIST_SCAN_PAGE_SIZE * DOCUMENT_LIST_MAX_SCAN_PAGES,
+          },
+        }, true);
       }
       const logicalDocs = visibleDocs.slice(
         (requestedPage - 1) * requestedPageSize,
@@ -1174,9 +1172,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
             return selected;
           })
         : logicalDocs;
-      return {
-        content: [{ type: "text", text: JSON.stringify(selectedDocs, null, 2) }],
-      };
+      return jsonToolResult(selectedDocs);
     },
   );
 
@@ -1194,9 +1190,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         };
       }
       if (!canAccessSubmissions && isSubmissionDocument(doc)) return submissionScopeError();
-      return {
-        content: [{ type: "text", text: JSON.stringify(doc, null, 2) }],
-      };
+      return jsonToolResult(doc);
     }
   );
 
@@ -1216,11 +1210,12 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         await Promise.all(
           (args.applicationIds ?? []).map((applicationId) => requireRealApplication(applicationId)),
         );
-        return await uploadDocumentContent(
+        const result = await uploadDocumentContent(
           args,
           auth.userId,
           (document) => filterRealDocumentApplications(document, auth.userId),
         );
+        return addStructuredContent(result);
       } catch {
         return {
           content: [{ type: "text", text: "Application not found or access denied" }],
@@ -1241,7 +1236,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         return { content: [{ type: "text", text: "Document not found" }], isError: true };
       }
       if (!canAccessSubmissions && isSubmissionDocument(document)) return submissionScopeError();
-      return downloadDocumentContent(id, auth.readScopeUserId);
+      return addStructuredContent(await downloadDocumentContent(id, auth.readScopeUserId));
     },
   );
 
@@ -1268,9 +1263,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         if (!canAccessSubmissions && isSubmissionDocument(doc)) return submissionScopeError();
         const visible = await filterRealDocumentApplications(doc, auth.userId);
         if (!visible) throw new Error("not_found");
-        return {
-          content: [{ type: "text", text: JSON.stringify(visible, null, 2) }],
-        };
+        return jsonToolResult(visible);
       } catch {
         return {
           content: [{ type: "text", text: "Document not found or access denied" }],
@@ -1319,7 +1312,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         if (!canAccessSubmissions && isSubmissionDocument(document)) return submissionScopeError();
         const visible = await filterRealDocumentApplications(document, auth.userId);
         if (!visible) throw new Error("not_found");
-        return { content: [{ type: "text", text: JSON.stringify(visible, null, 2) }] };
+        return jsonToolResult(visible);
       } catch {
         return {
           content: [{ type: "text", text: "Document not found or access denied" }],
@@ -1371,9 +1364,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           content: [{ type: "text", text: "No CV profile found. Use upsert_cv_profile to create one." }],
         };
       }
-      return {
-        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
-      };
+      return jsonToolResult(profile);
     }
   );
 
@@ -1429,9 +1420,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           education: data.education,
         };
         const profile = await getDb().upsertCvProfile(auth.userId, input);
-        return {
-          content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
-        };
+        return jsonToolResult(profile);
       } catch {
         return {
           content: [{ type: "text", text: "Failed to upsert CV profile" }],
@@ -1506,9 +1495,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           result.warnings = warnings;
         }
 
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
+        return jsonToolResult(result);
       } catch (err) {
         return {
           content: [{ type: "text", text: `Failed to generate CV: ${err instanceof Error ? err.message : "unknown error"}` }],

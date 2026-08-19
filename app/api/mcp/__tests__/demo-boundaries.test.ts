@@ -97,6 +97,26 @@ describe("MCP demo application boundaries", () => {
     await server.close();
   });
 
+  it("returns structured tool data with one JSON document as the text fallback", async () => {
+    const application = { id: "app-1", company: "Acme" };
+    mocks.findApplicationByCanonicalJobUrl.mockResolvedValue(application);
+
+    const result = await call("find_application_by_job_url", {
+      jobUrl: "https://example.com/jobs/1",
+    });
+    const expected = {
+      canonicalJobUrl: "https://example.com/jobs/1",
+      application,
+    };
+
+    expect(result.structuredContent).toEqual(expected);
+    expect(result.content).toEqual([{
+      type: "text",
+      text: JSON.stringify(expected, null, 2),
+    }]);
+    expect(JSON.parse(textValue(result))).toEqual(expected);
+  });
+
   it("excludes demos from application list, detail, filtered, and canonical URL reads", async () => {
     await call("list_applications");
     const detail = await call("get_application", { id: "demo-app" });
