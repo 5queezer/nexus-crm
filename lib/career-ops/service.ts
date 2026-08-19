@@ -120,6 +120,42 @@ function toServiceError(reason: unknown): CareerOpsServiceError {
   return new CareerOpsServiceError("upstream_error", "Career Ops could not be reached");
 }
 
+/**
+ * True only when the upstream rejected or never received the request, so no run
+ * can be executing. Anything ambiguous returns false and the claim is kept.
+ */
+function definitivelyNotSubmitted(reason: unknown): boolean {
+  if (!(reason instanceof HermesError)) return false;
+  return reason.kind === "unauthorized" || reason.kind === "rate_limited";
+}
+
+/**
+ * Capability probe for the mutation path, cached briefly so starting a run does
+ * not add an upstream round-trip per message while still noticing a redeploy.
+ */
+const CAPABILITY_CACHE_TTL_MS = 60_000;
+let capabilityCache: { at: number; runStatus: boolean } | null = null;
+
+export function resetCareerOpsCapabilityCacheForTests(): void {
+  capabilityCache = null;
+}
+
+async function hasRunStatusSupport(
+  config: Extract<CareerOpsConfig, { enabled: true }>,
+): Promise<boolean> {
+  if (capabilityCache && Date.now() - capabilityCache.at < CAPABILITY_CACHE_TTL_MS) {
+    return capabilityCache.runStatus;
+  }
+  try {
+    const capabilities = await client(config).capabilities();
+    capabilityCache = { at: Date.now(), runStatus: capabilities.runStatus };
+    return capabilities.runStatus;
+  } catch {
+    // An unreachable Hermes fails the run anyway; do not cache that verdict.
+    return false;
+  }
+}
+
 export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
   const config = readCareerOpsConfig();
   if (!config.enabled) {
@@ -293,8 +329,21 @@ export async function deleteCareerOpsThread(
   const config = enabledConfig();
   const thread = await requireOwnedThread(session, threadId);
 
-  // Remove the Nexus mapping first and unconditionally: leaving a mapping
-  // behind because Hermes failed would keep a reachable pointer alive, which is
+  // Deleting a Hermes session does not stop its runs — the upstream handler
+  // only drops the session row. Removing the mappings first would leave a
+  // privileged run executing with nothing left to observe or stop it, so stop
+  // it while it is still addressable.
+  const active = await getActiveCareerOpsRun(session, threadId);
+  if (active && active.hermesRunId) {
+    try {
+      await client(config).stopRun(active.hermesRunId);
+    } catch (reason) {
+      console.warn("career-ops: stop before delete failed", redactUpstreamError(reason));
+    }
+  }
+
+  // Then remove the Nexus mapping unconditionally: leaving a mapping behind
+  // because Hermes failed would keep a reachable pointer alive, which is
   // strictly worse than an orphaned upstream session that nothing can address.
   await getDb().deleteCareerOpsThread(threadId, session.userId);
   try {
@@ -354,6 +403,13 @@ export async function startCareerOpsRun(
   }
 
   const thread = await requireOwnedThread(session, threadId);
+
+  // The status endpoint gates the UI, but a stale tab or a direct authenticated
+  // request must not be able to start a run whose only recovery path is absent.
+  if (!(await hasRunStatusSupport(config))) {
+    throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
+  }
+
   const db = getDb();
 
   // Claim (threadId, clientRequestId) BEFORE any upstream work. Starting the
@@ -379,9 +435,14 @@ export async function startCareerOpsRun(
       memoryScope: careerOpsMemoryScope(config, session.userId),
     }));
   } catch (reason) {
-    // Release the claim, otherwise this client request id would be permanently
-    // bound to a run that never started.
-    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    // Releasing the claim is only safe when the request provably never reached
+    // Hermes. A timeout or a mid-flight transport error is ambiguous: the run
+    // may already be executing, and releasing would let a retry with the same
+    // client request id start a second privileged run. The client mints a fresh
+    // id per submission, so holding an ambiguous claim blocks nothing.
+    if (definitivelyNotSubmitted(reason)) {
+      await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    }
     throw toServiceError(reason);
   }
 

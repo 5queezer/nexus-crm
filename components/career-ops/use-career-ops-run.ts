@@ -153,9 +153,16 @@ export function useCareerOpsRun(
         let snapshot: RunSnapshot;
         try {
           snapshot = await careerOpsJson<RunSnapshot>(`/api/career-ops/runs/${runId}`);
-        } catch {
-          settle("failed", "error_generic");
-          return;
+        } catch (reason) {
+          // One failed poll says nothing about the run: it may still be
+          // executing tools. Treating it as terminal would re-enable
+          // submission and allow a concurrent run. Only a 404 is conclusive.
+          if (reason instanceof CareerOpsRequestError && reason.status === 404) {
+            settle("failed", "error_generic");
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          continue;
         }
         if (snapshot.status === "completed") {
           setState((current) => ({
@@ -315,6 +322,7 @@ export function useCareerOpsRun(
     async (choice: "once" | "deny") => {
       const runId = state.runId;
       if (!runId) return;
+      const pending = state.approval;
       setState((current) => ({ ...current, approval: null, phase: "streaming" }));
       try {
         await careerOpsJson(`/api/career-ops/runs/${runId}/approval`, {
@@ -324,10 +332,20 @@ export function useCareerOpsRun(
         });
       } catch (reason) {
         const code = reason instanceof CareerOpsRequestError ? reason.code : "error_generic";
-        setState((current) => ({ ...current, errorCode: code }));
+        // A decision that never reached Hermes leaves the run waiting. Dropping
+        // the prompt would strand it with no way forward but a reload, so put
+        // it back unless the run has since moved on.
+        const stillPending = !(reason instanceof CareerOpsRequestError && reason.code === "conflict");
+        setState((current) => ({
+          ...current,
+          errorCode: code,
+          ...(stillPending && pending
+            ? { approval: pending, phase: "waiting_approval" as const }
+            : {}),
+        }));
       }
     },
-    [state.runId],
+    [state.approval, state.runId],
   );
 
   return { state, start, resume, stop, decideApproval, reset };

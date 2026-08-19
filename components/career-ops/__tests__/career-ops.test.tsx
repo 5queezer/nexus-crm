@@ -532,6 +532,54 @@ describe("rejoining a run that awaits a decision", () => {
   }, 15_000);
 });
 
+describe("recovery is resilient to transient failures", () => {
+  it("keeps reconnecting through a failed status poll instead of declaring failure", async () => {
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({ thread: THREAD, activeRun: { id: "run-live", status: "running" } }),
+    );
+    let polls = 0;
+    route("GET", /\/runs\/[^/]+$/, () => {
+      polls += 1;
+      if (polls <= 2) return json({ error: "upstream_error" }, 502);
+      return json({ status: "completed", output: "survived the blip", error: null });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    // A single transient poll error used to mark the run failed and re-enable
+    // submission while the agent was still working.
+    await waitFor(() => expect(within(dialog).getByText("survived the blip")).toBeTruthy(), {
+      timeout: 10000,
+    });
+  }, 20_000);
+
+  it("restores the approval prompt when the decision could not be delivered", async () => {
+    const user = userEvent.setup();
+    const stream = openSse([
+      'data: {"type":"approval_required","operation":"shell:rm","summary":"Delete a temporary folder","details":"rm -rf /tmp/x","choices":["once","deny"]}\n\n',
+    ]);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("POST", /\/runs\/[^/]+\/approval$/, () => json({ error: "upstream_error" }, 502));
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "clean up");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await within(dialog).findByText(/needs your approval/i);
+
+    await user.click(within(dialog).getByRole("button", { name: /approve once/i }));
+
+    // Hermes is still waiting, so the run must remain decidable.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: /approve once/i })).toBeTruthy(),
+    );
+    expect(within(dialog).getByRole("alert")).toBeTruthy();
+    stream.close();
+  }, 15_000);
+});
+
 describe("stop control", () => {
   it("offers stop while running and routes it through Nexus", async () => {
     const user = userEvent.setup();
