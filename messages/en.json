@@ -848,6 +848,7 @@
     "delete_thread": "Delete conversation",
     "context_global": "Global context",
     "context_application": "Application context",
+    "context_application_other": "another opportunity",
     "context_switch_global": "Switch to global context",
     "empty_title": "Ask Career Ops",
     "empty_body": "Career Ops works your Nexus pipeline through the Nexus tools. It reads live data — it never works from a copy.",

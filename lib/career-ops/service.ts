@@ -140,7 +140,10 @@ export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
         capabilities: { ...UNSUPPORTED_CAPABILITIES },
       };
     }
-    if (!capabilities.runs || !capabilities.sessions) {
+    // Run status is not optional: it is the only recovery path once the
+    // single-consumer event stream disconnects. Without it a started run is
+    // unobservable, so the honest answer is unavailable, not degraded.
+    if (!capabilities.runs || !capabilities.sessions || !capabilities.runStatus) {
       return {
         enabled: true,
         available: false,
@@ -197,6 +200,27 @@ export async function requireOwnedRun(
   const thread = await getDb().getCareerOpsThread(run.threadId, session.userId);
   if (!thread) throw new CareerOpsServiceError("not_found", "Not found");
   return { run, thread };
+}
+
+const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
+  "queued",
+  "running",
+  "waiting_for_approval",
+  "stopping",
+];
+
+/**
+ * The thread's latest run when it has not reached a terminal state, so a client
+ * that reloaded mid-run can rejoin it instead of showing an idle composer and
+ * letting a second concurrent run start on the same session.
+ */
+export async function getActiveCareerOpsRun(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<CareerOpsRunRecord | null> {
+  const run = await getDb().getLatestCareerOpsRun(threadId, session.userId);
+  if (!run || !ACTIVE_RUN_STATUSES.includes(run.status)) return null;
+  return run;
 }
 
 export async function listCareerOpsThreads(
@@ -323,36 +347,48 @@ export async function startCareerOpsRun(
   }
 
   const thread = await requireOwnedThread(session, threadId);
+  const db = getDb();
+
+  // Claim (threadId, clientRequestId) BEFORE any upstream work. Starting the
+  // Hermes run first and deduplicating afterwards would let a retry launch a
+  // second privileged agent run that can execute tools and mutate CRM data in
+  // the window before a best-effort stop lands — and that stop can fail.
+  const { run: reservation, created } = await db.createCareerOpsRun(session.userId, {
+    threadId,
+    hermesRunId: "",
+    clientRequestId: input.clientRequestId,
+    status: "queued",
+  });
+  if (!created) return reservation;
+
   const instructions = await threadInstructions(session, thread);
-  const hermes = client(config);
 
   let runId: string;
   try {
-    ({ runId } = await hermes.createRun({
+    ({ runId } = await client(config).createRun({
       input: message,
       sessionId: thread.hermesSessionId,
       instructions,
       memoryScope: careerOpsMemoryScope(config, session.userId),
     }));
   } catch (reason) {
+    // Release the claim, otherwise this client request id would be permanently
+    // bound to a run that never started.
+    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
     throw toServiceError(reason);
   }
 
-  const { run, created } = await getDb().createCareerOpsRun(session.userId, {
-    threadId,
-    hermesRunId: runId,
-    clientRequestId: input.clientRequestId,
-    status: "queued",
-  });
+  const bound = await db.bindCareerOpsRunHermesId(reservation.id, session.userId, runId);
+  return bound ?? { ...reservation, hermesRunId: runId };
+}
 
-  if (!created && run.hermesRunId !== runId) {
-    // A concurrent duplicate won the uniqueness race. The run we just started
-    // has no mapping, so nothing can ever address it — stop it best-effort so
-    // it does not consume the upstream concurrency budget.
-    void hermes.stopRun(runId).catch(() => undefined);
-  }
-
-  return run;
+/**
+ * A reservation exists but its upstream run has not been created yet, so there
+ * is nothing addressable upstream. Callers report it as still queued rather
+ * than sending an empty id to Hermes.
+ */
+function isUnbound(run: CareerOpsRunRecord): boolean {
+  return run.hermesRunId === "";
 }
 
 export async function getCareerOpsRunStatus(
@@ -361,6 +397,7 @@ export async function getCareerOpsRunStatus(
 ): Promise<HermesRun> {
   const config = enabledConfig();
   const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) return { runId: run.id, status: "queued", output: "", error: null };
   try {
     const upstream = await client(config).getRun(run.hermesRunId);
     await getDb().updateCareerOpsRunStatus(run.id, session.userId, upstream.status);
@@ -382,12 +419,25 @@ export async function openCareerOpsRunEvents(
   session: CareerOpsSession,
   runId: string,
   signal: AbortSignal,
-): Promise<{ upstream: ReadableStream<Uint8Array>; run: CareerOpsRunRecord }> {
+): Promise<{
+  upstream: ReadableStream<Uint8Array>;
+  run: CareerOpsRunRecord;
+  idleTimeoutMs: number;
+  totalTimeoutMs: number;
+}> {
   const config = enabledConfig();
   const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) {
+    throw new CareerOpsServiceError("conflict", "The run has not started yet");
+  }
   try {
     const upstream = await client(config).openRunEvents(run.hermesRunId, signal);
-    return { upstream, run };
+    return {
+      upstream,
+      run,
+      idleTimeoutMs: config.streamIdleTimeoutMs,
+      totalTimeoutMs: config.runTimeoutMs,
+    };
   } catch (reason) {
     throw toServiceError(reason);
   }
@@ -399,6 +449,7 @@ export async function stopCareerOpsRun(
 ): Promise<void> {
   const config = enabledConfig();
   const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) return;
   try {
     await client(config).stopRun(run.hermesRunId);
   } catch (reason) {
@@ -416,6 +467,9 @@ export async function resolveCareerOpsApproval(
     throw new CareerOpsServiceError("invalid_request", "Invalid approval decision");
   }
   const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) {
+    throw new CareerOpsServiceError("conflict", "The run has not started yet");
+  }
   try {
     await client(config).resolveApproval(run.hermesRunId, choice);
   } catch (reason) {

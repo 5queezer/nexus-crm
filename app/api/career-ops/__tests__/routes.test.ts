@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     getCareerOpsRun: vi.fn(),
     createCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
+    bindCareerOpsRunHermesId: vi.fn(),
+    deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -123,6 +125,9 @@ beforeEach(() => {
   mocks.db.getCareerOpsThread.mockResolvedValue(null);
   mocks.db.getCareerOpsRun.mockResolvedValue(null);
   mocks.db.listCareerOpsThreads.mockResolvedValue([]);
+  mocks.db.deleteCareerOpsRun.mockResolvedValue(undefined);
+  mocks.db.updateCareerOpsRunStatus.mockResolvedValue(undefined);
+  mocks.db.bindCareerOpsRunHermesId.mockResolvedValue({ ...RUN });
 });
 
 describe("authentication", () => {
@@ -305,7 +310,7 @@ describe("run creation", () => {
     expect(mocks.client.createRun).not.toHaveBeenCalled();
   });
 
-  it("does not create a second run for a duplicate client request id", async () => {
+  it("does not start a second upstream run for a duplicate client request id", async () => {
     mocks.db.createCareerOpsRun.mockResolvedValue({
       created: false,
       run: { ...RUN, hermesRunId: "run_first", status: "running" },
@@ -316,7 +321,7 @@ describe("run creation", () => {
     );
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toMatchObject({ run: { id: "run-1" } });
-    expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
   });
 
   it("returns 404 for a foreign thread", async () => {
@@ -490,6 +495,19 @@ describe("run event stream", () => {
       "waiting_for_approval",
     );
   });
+
+  it("bounds a stream that goes quiet without closing", async () => {
+    process.env.HERMES_CAREER_OPS_STREAM_IDLE_TIMEOUT_MS = "1000";
+    // A stream that never emits and never closes.
+    mocks.client.openRunEvents.mockResolvedValue(
+      new ReadableStream<Uint8Array>({ start() {} }),
+    );
+    const response = await runEvents(new Request("http://test"), runContext);
+    const body = await response.text();
+    expect(body).toContain('"type":"error"');
+    expect(body).toContain("stream_timeout");
+    delete process.env.HERMES_CAREER_OPS_STREAM_IDLE_TIMEOUT_MS;
+  }, 15_000);
 
   it("maps an upstream stream failure to a controlled status", async () => {
     mocks.client.openRunEvents.mockRejectedValue(

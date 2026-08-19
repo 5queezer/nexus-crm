@@ -255,6 +255,21 @@ export function useCareerOpsRun(options: { onSettled?: (phase: RunPhase) => void
     [consume, settle],
   );
 
+  /**
+   * Rejoin a run that was already in flight — after a reload, or after the user
+   * navigated away and came back. The upstream event stream is single-consumer
+   * and already gone, so recovery is status polling, not a re-subscribe.
+   */
+  const resume = useCallback(
+    async (runId: string) => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setState({ ...INITIAL, runId, phase: "reconnecting" });
+      await settleFromStatus(runId);
+    },
+    [settleFromStatus],
+  );
+
   const stop = useCallback(async () => {
     const runId = state.runId;
     if (!runId) return;
@@ -284,5 +299,5 @@ export function useCareerOpsRun(options: { onSettled?: (phase: RunPhase) => void
     [state.runId],
   );
 
-  return { state, start, stop, decideApproval, reset };
+  return { state, start, resume, stop, decideApproval, reset };
 }

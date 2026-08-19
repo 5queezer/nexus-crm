@@ -151,4 +151,13 @@ export interface DatabaseAdapter {
   createCareerOpsRun(userId: string, data: CreateCareerOpsRunInput): Promise<CreateCareerOpsRunResult>;
   /** Record the last-known Hermes run state. No-op when the run is not the user's. */
   updateCareerOpsRunStatus(id: string, userId: string, status: CareerOpsRunStatus): Promise<void>;
+  /**
+   * Attach the upstream run id to a reservation created with an empty one.
+   * Returns null when the run is not the user's.
+   */
+  bindCareerOpsRunHermesId(id: string, userId: string, hermesRunId: string): Promise<CareerOpsRunRecord | null>;
+  /** Release a reservation whose upstream run could not be started. */
+  deleteCareerOpsRun(id: string, userId: string): Promise<void>;
+  /** Most recent run on a thread, so a reloaded client can rejoin it. */
+  getLatestCareerOpsRun(threadId: string, userId: string): Promise<CareerOpsRunRecord | null>;
 }

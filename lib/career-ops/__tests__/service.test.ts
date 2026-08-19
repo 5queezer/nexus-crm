@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
     getCareerOpsRun: vi.fn(),
     createCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
+    bindCareerOpsRunHermesId: vi.fn(),
+    deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -89,6 +91,8 @@ beforeEach(() => {
   mocks.client.stopRun.mockResolvedValue(undefined);
   mocks.client.resolveApproval.mockResolvedValue(undefined);
   mocks.client.deleteSession.mockResolvedValue(undefined);
+  mocks.db.deleteCareerOpsRun.mockResolvedValue(undefined);
+  mocks.db.updateCareerOpsRunStatus.mockResolvedValue(undefined);
   mocks.db.getCareerOpsThread.mockResolvedValue(null);
   mocks.db.getCareerOpsRun.mockResolvedValue(null);
 });
@@ -148,6 +152,22 @@ describe("getCareerOpsStatus", () => {
     await expect(getCareerOpsStatus()).resolves.toMatchObject({
       available: true,
       capabilities: { stop: false, approvals: false, streaming: true },
+    });
+  });
+
+  it("reports unavailable when run status polling is unsupported", async () => {
+    // Status polling is the only recovery path after the event stream drops.
+    mocks.client.capabilities.mockResolvedValue({
+      runs: true,
+      runStatus: false,
+      runEvents: true,
+      stop: true,
+      approvals: true,
+      sessions: true,
+    });
+    await expect(getCareerOpsStatus()).resolves.toMatchObject({
+      available: false,
+      reason: "unsupported",
     });
   });
 
@@ -312,23 +332,23 @@ describe("thread lifecycle", () => {
   });
 });
 
+const RESERVATION = {
+  id: "run-1",
+  userId: "user-a",
+  threadId: "thread-1",
+  hermesRunId: "run_1",
+  clientRequestId: "client-id-1",
+  status: "queued" as const,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+};
+
 describe("startCareerOpsRun", () => {
   beforeEach(() => {
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
     mocks.client.createRun.mockResolvedValue({ runId: "run_1" });
-    mocks.db.createCareerOpsRun.mockResolvedValue({
-      created: true,
-      run: {
-        id: "run-1",
-        userId: "user-a",
-        threadId: "thread-1",
-        hermesRunId: "run_1",
-        clientRequestId: "client-id-1",
-        status: "queued",
-        createdAt: new Date(0),
-        updatedAt: new Date(0),
-      },
-    });
+    mocks.db.createCareerOpsRun.mockResolvedValue({ created: true, run: { ...RESERVATION } });
+    mocks.db.bindCareerOpsRunHermesId.mockResolvedValue({ ...RESERVATION });
   });
 
   it("starts a run for an owned thread", async () => {
@@ -342,29 +362,62 @@ describe("startCareerOpsRun", () => {
     expect(args.input).toBe("hello");
   });
 
-  it("returns the existing run for a repeated client request id without a second upstream call", async () => {
-    mocks.db.getCareerOpsRun.mockResolvedValue(null);
+  it("claims the client request id before starting anything upstream", async () => {
+    const order: string[] = [];
+    mocks.db.createCareerOpsRun.mockImplementation(async () => {
+      order.push("reserve");
+      return {
+        created: true,
+        run: { ...RESERVATION, hermesRunId: "" },
+      };
+    });
+    mocks.client.createRun.mockImplementation(async () => {
+      order.push("createRun");
+      return { runId: "run_1" };
+    });
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-1",
+    });
+
+    expect(order).toEqual(["reserve", "createRun"]);
+    expect(mocks.db.bindCareerOpsRunHermesId).toHaveBeenCalledWith("run-1", "user-a", "run_1");
+  });
+
+  it("starts no upstream run at all for a repeated client request id", async () => {
     mocks.db.createCareerOpsRun.mockResolvedValue({
       created: false,
-      run: {
-        id: "run-1",
-        userId: "user-a",
-        threadId: "thread-1",
-        hermesRunId: "run_first",
-        clientRequestId: "client-id-1",
-        status: "running",
-        createdAt: new Date(0),
-        updatedAt: new Date(0),
-      },
+      run: { ...RESERVATION, hermesRunId: "run_first", status: "running" },
     });
 
     const run = await startCareerOpsRun(SESSION_A, "thread-1", {
       message: "hello",
       clientRequestId: "client-id-1",
     });
+
     expect(run.hermesRunId).toBe("run_first");
-    // The losing upstream run is abandoned, and stopped best-effort.
-    expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
+    // The whole point of reserving first: no duplicate agent run is ever
+    // started, so there is nothing to stop after the fact.
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    expect(mocks.client.stopRun).not.toHaveBeenCalled();
+  });
+
+  it("releases the claim when the upstream run cannot be started", async () => {
+    mocks.db.createCareerOpsRun.mockResolvedValue({
+      created: true,
+      run: { ...RESERVATION, hermesRunId: "" },
+    });
+    mocks.client.createRun.mockRejectedValue(new HermesError("upstream_error", "boom"));
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toMatchObject({ code: "upstream_error" });
+
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
   it("rejects an empty message", async () => {

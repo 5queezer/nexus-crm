@@ -35,15 +35,40 @@ export async function GET(request: Request, context: Context) {
 
   let upstream: ReadableStream<Uint8Array>;
   let runId: string;
+  let idleTimeoutMs: number;
+  let totalTimeoutMs: number;
   try {
     const { id } = await context.params;
     const opened = await openCareerOpsRunEvents(session, id, abort.signal);
     upstream = opened.upstream;
     runId = opened.run.id;
+    idleTimeoutMs = opened.idleTimeoutMs;
+    totalTimeoutMs = opened.totalTimeoutMs;
   } catch (reason) {
     abort.abort();
     return careerOpsErrorResponse(reason);
   }
+
+  // A Hermes that accepts the request and then goes quiet without closing would
+  // otherwise hold this connection open indefinitely. Bounding both the idle
+  // gap and the total run lets the client fall back to status recovery.
+  const deadline = Date.now() + totalTimeoutMs;
+  const readWithTimeout = async (
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): Promise<ReadableStreamReadResult<Uint8Array> | "timeout"> => {
+    const budget = Math.min(idleTimeoutMs, Math.max(0, deadline - Date.now()));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        reader.read(),
+        new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), budget);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -73,7 +98,12 @@ export async function GET(request: Request, context: Context) {
 
       try {
         for (;;) {
-          const { done, value } = await reader.read();
+          const result = await readWithTimeout(reader);
+          if (result === "timeout") {
+            emit(serializeCareerOpsEvent({ type: "error", message: "stream_timeout" }));
+            break;
+          }
+          const { done, value } = result;
           if (done) break;
           const text = decoder.decode(value, { stream: true });
           // Forward upstream keepalives so intermediaries do not time the

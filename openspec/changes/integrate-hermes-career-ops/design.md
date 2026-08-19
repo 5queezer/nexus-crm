@@ -59,11 +59,14 @@ Nexus therefore: creates a Hermes session with `POST /api/sessions` (so a durabl
 
 Because `/v1/runs` has no idempotency key, retry safety must live in Nexus. `POST /api/career-ops/threads/{id}/runs` requires a `clientRequestId` (bounded: 8–64 chars, `[A-Za-z0-9_-]`). The `CareerOpsRun` table carries `@@unique([threadId, clientRequestId])`. The handler:
 
-1. looks up an existing run for `(userId, threadId, clientRequestId)` and returns it if present;
-2. otherwise starts the Hermes run and inserts the mapping;
-3. on a unique-constraint violation from a concurrent duplicate, re-reads and returns the winner.
+1. **claims the mapping first**, inserting a reservation with an empty `hermesRunId`;
+2. returns the existing run immediately if the claim was already taken — no upstream call at all;
+3. only the winner of the claim starts the Hermes run, then binds the returned `run_id` onto its reservation;
+4. releases the reservation if the upstream call fails, so a genuine retry is not permanently blocked.
 
-A duplicate that loses the race can leave one orphaned Hermes run; it is stopped best-effort and never becomes reachable, because no mapping points at it. Deduplication is keyed by `threadId`, which is itself owner-scoped, so two users cannot collide on the same client identifier.
+Claiming before submitting is the point: starting the run first and deduplicating afterwards would let a retry launch a second **privileged agent run** that can execute tools and mutate CRM data in the window before a best-effort stop lands — and that stop can itself fail. With the claim first, a duplicate never reaches Hermes.
+
+A reservation that is not yet bound has nothing addressable upstream, so status reports it as `queued`, stop is a no-op, and events/approval return a controlled conflict rather than sending an empty id to Hermes. Deduplication is keyed by `threadId`, which is itself owner-scoped, so two users cannot collide on the same client identifier.
 
 *Alternative considered:* hashing the message text. Rejected — a user legitimately re-asking the same question would be silently deduplicated.
 

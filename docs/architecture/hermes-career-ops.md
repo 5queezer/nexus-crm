@@ -114,7 +114,11 @@ The cost is that **the Hermes run event stream is single-consumer**: its handler
 
 ## Idempotency
 
-`POST /v1/runs` has no `Idempotency-Key` support (only the chat-completions and responses endpoints do), so retry safety lives in Nexus. Every run submission carries a bounded `clientRequestId` (`[A-Za-z0-9_-]{8,64}`), and `CareerOpsRun` holds a unique constraint on `(threadId, clientRequestId)`. A duplicate resolves to the run that already exists; the losing upstream run is stopped best-effort and, having no mapping, is unreachable.
+`POST /v1/runs` has no `Idempotency-Key` support (only the chat-completions and responses endpoints do), so retry safety lives in Nexus. Every run submission carries a bounded `clientRequestId` (`[A-Za-z0-9_-]{8,64}`), and `CareerOpsRun` holds a unique constraint on `(threadId, clientRequestId)`.
+
+The order matters. Nexus **claims that pair before it contacts Hermes**, inserting a reservation with an empty upstream id; only the winner of the claim submits the run and then binds the returned `run_id` onto it. A duplicate therefore never reaches Hermes at all. Submitting first and deduplicating afterwards would let a retry start a second privileged agent run that could execute tools and mutate CRM data before a best-effort stop landed — and that stop can itself fail. If the upstream call errors, the reservation is released so a genuine retry still works.
+
+A reservation that is not yet bound has nothing addressable upstream: status reports it as `queued`, stop is a no-op, and events and approval return a controlled conflict rather than sending an empty id to Hermes.
 
 Firestore has no unique index, so the same guarantee is expressed as a deterministic document id derived from the pair — `create()` fails when the document exists. The adapter contract suite asserts both backends behave identically.
 

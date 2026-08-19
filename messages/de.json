@@ -848,6 +848,7 @@
     "delete_thread": "Unterhaltung löschen",
     "context_global": "Globaler Kontext",
     "context_application": "Bewerbungskontext",
+    "context_application_other": "eine andere Gelegenheit",
     "context_switch_global": "Zum globalen Kontext wechseln",
     "empty_title": "Career Ops fragen",
     "empty_body": "Career Ops arbeitet über die Nexus-Werkzeuge an deiner Pipeline. Es liest die aktuellen Daten – nie eine Kopie.",

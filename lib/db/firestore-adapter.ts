@@ -2594,6 +2594,45 @@ export class FirestoreAdapter implements DatabaseAdapter {
     await ref.update({ status, updatedAt: Timestamp.now() });
   }
 
+  async bindCareerOpsRunHermesId(
+    id: string,
+    userId: string,
+    hermesRunId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const ref = this.careerOpsRuns.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
+    await ref.update({ hermesRunId, updatedAt: Timestamp.now() });
+    return this.getCareerOpsRun(id, userId);
+  }
+
+  async deleteCareerOpsRun(id: string, userId: string): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+    await ref.delete();
+  }
+
+  async getLatestCareerOpsRun(
+    threadId: string,
+    userId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const snapshot = await this.careerOpsRuns
+      .where("threadId", "==", threadId)
+      .where("userId", "==", userId)
+      .get();
+    const runs = snapshot.docs.map((document) =>
+      this.mapCareerOpsRun(document.id, document.data()),
+    );
+    if (runs.length === 0) return null;
+    runs.sort((left, right) => {
+      const byCreated = right.createdAt.getTime() - left.createdAt.getTime();
+      if (byCreated !== 0) return byCreated;
+      return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
+    });
+    return runs[0];
+  }
+
   /**
    * Detach Career Ops conversations from an application that is going away.
    * The conversation survives as a global thread; the link is advisory context,

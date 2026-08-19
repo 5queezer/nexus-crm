@@ -112,6 +112,9 @@ beforeEach(() => {
   route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD] }));
   route("POST", /\/api\/career-ops\/threads$/, () => json({ thread: THREAD }, 201));
   route("GET", /\/threads\/[^/]+\/messages$/, () => json({ messages: [] }));
+  route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+    json({ thread: THREAD, activeRun: null }),
+  );
   route("DELETE", /\/api\/career-ops\/threads\/[^/]+$/, () => json({ deleted: true }));
   route("POST", /\/threads\/[^/]+\/runs$/, () => json({ run: { id: "run-1" } }, 202));
   route("POST", /\/runs\/[^/]+\/stop$/, () => json({ stopping: true }));
@@ -275,6 +278,25 @@ describe("application context", () => {
     await waitFor(() => expect(within(dialog).getByText(/global context/i)).toBeTruthy());
   });
 
+  it("never labels a differently-scoped thread with the displayed opportunity", async () => {
+    const user = userEvent.setup();
+    const mine = { ...THREAD, id: "thread-mine", applicationId: "42", title: "Acme — Engineer" };
+    const other = { ...THREAD, id: "thread-other", applicationId: "99", title: "Other opportunity" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [mine, other] }));
+    renderCareerOps({ application });
+
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Other opportunity" }));
+
+    // The service sends thread-other's own application id upstream, so the
+    // badge must not claim this conversation is about Acme.
+    await waitFor(() =>
+      expect(within(dialog).getByText(/another opportunity/i)).toBeTruthy(),
+    );
+    expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
+  });
+
   it("creates an application-scoped conversation when none exists", async () => {
     const user = userEvent.setup();
     route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [] }));
@@ -293,6 +315,39 @@ describe("application context", () => {
     renderCareerOps();
     const dialog = await openDrawer(user);
     expect(within(dialog).getByText(/global context/i)).toBeTruthy();
+  });
+});
+
+describe("rejoining a run in flight", () => {
+  it("reattaches to an active run after a reload instead of showing an idle composer", async () => {
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({ thread: THREAD, activeRun: { id: "run-live", status: "running" } }),
+    );
+    let polls = 0;
+    route("GET", /\/runs\/[^/]+$/, () => {
+      polls += 1;
+      return polls === 1
+        ? json({ status: "running", output: "", error: null })
+        : json({ status: "completed", output: "finished while away", error: null });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    // The single-consumer event stream is gone, so recovery is status polling.
+    await waitFor(() => expect(calls.some((call) => call.url.includes("/runs/run-live"))).toBe(true));
+    await waitFor(() => expect(within(dialog).getByText("finished while away")).toBeTruthy(), {
+      timeout: 6000,
+    });
+  }, 15_000);
+
+  it("stays idle when the thread has no run in flight", async () => {
+    const user = userEvent.setup();
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await waitFor(() => expect(within(dialog).getByText(/ready/i)).toBeTruthy());
+    expect(calls.some((call) => /\/runs\/[^/]+$/.test(call.url))).toBe(false);
   });
 });
 

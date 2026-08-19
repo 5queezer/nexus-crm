@@ -486,6 +486,82 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
   });
 
+  it("binds an upstream run id onto a reservation", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "client-id-reserve",
+      status: "queued",
+    });
+    expect(run.hermesRunId).toBe("");
+
+    const bound = await db.bindCareerOpsRunHermesId(run.id, "user-a", "run_bound");
+    expect(bound?.hermesRunId).toBe("run_bound");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      hermesRunId: "run_bound",
+    });
+  });
+
+  it("refuses to bind or delete another user's run", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "client-id-foreign",
+      status: "queued",
+    });
+
+    await expect(db.bindCareerOpsRunHermesId(run.id, "user-b", "run_x")).resolves.toBeNull();
+    await db.deleteCareerOpsRun(run.id, "user-b");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.not.toBeNull();
+  });
+
+  it("releases a reservation so the same client request id can be retried", async () => {
+    const thread = await seedThread("user-a");
+    const first = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "client-id-release",
+      status: "queued",
+    });
+    await db.deleteCareerOpsRun(first.run.id, "user-a");
+    await expect(db.getCareerOpsRun(first.run.id, "user-a")).resolves.toBeNull();
+
+    const second = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_retry",
+      clientRequestId: "client-id-release",
+      status: "queued",
+    });
+    expect(second.created).toBe(true);
+    expect(second.run.hermesRunId).toBe("run_retry");
+  });
+
+  it("returns the most recent run on a thread, scoped to its owner", async () => {
+    const thread = await seedThread("user-a");
+    await expect(db.getLatestCareerOpsRun(thread.id, "user-a")).resolves.toBeNull();
+
+    await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_old",
+      clientRequestId: "client-id-old",
+      status: "completed",
+    });
+    const newer = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_new",
+      clientRequestId: "client-id-new",
+      status: "running",
+    });
+
+    await expect(db.getLatestCareerOpsRun(thread.id, "user-a")).resolves.toMatchObject({
+      id: newer.run.id,
+      hermesRunId: "run_new",
+    });
+    await expect(db.getLatestCareerOpsRun(thread.id, "user-b")).resolves.toBeNull();
+  });
+
   it("deletes a thread together with its runs", async () => {
     const thread = await seedThread("user-a");
     const { run } = await db.createCareerOpsRun("user-a", {

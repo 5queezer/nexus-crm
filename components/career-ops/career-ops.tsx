@@ -77,7 +77,8 @@ export function CareerOps({
     [queryClient],
   );
 
-  const { state: run, start, stop, decideApproval, reset } = useCareerOpsRun({ onSettled });
+  const { state: run, start, resume, stop, decideApproval, reset } =
+    useCareerOpsRun({ onSettled });
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +117,16 @@ export function CareerOps({
     [threads, activeThreadId],
   );
 
+  // Three distinct states. A thread scoped to a *different* application must
+  // never borrow the displayed application's name: the service sends the
+  // thread's own id upstream, so a mismatched label would let the user approve
+  // work believing it targets the opportunity on screen.
+  const contextScope: "global" | "named" | "other" = !activeThread?.applicationId
+    ? "global"
+    : application && activeThread.applicationId === application.id
+      ? "named"
+      : "other";
+
   const loadMessages = useCallback(async (threadId: string) => {
     try {
       const result = await careerOpsJson<{ messages: CareerOpsMessage[] }>(
@@ -126,6 +137,25 @@ export function CareerOps({
       setMessages([]);
     }
   }, []);
+
+  /**
+   * Rejoin a run still in flight on this thread. Without this, a reload during
+   * a run leaves an idle composer while the agent is still working — the user
+   * cannot observe, stop or approve it, and could start a second one.
+   */
+  const rejoinActiveRun = useCallback(
+    async (threadId: string) => {
+      try {
+        const result = await careerOpsJson<{ activeRun: { id: string } | null }>(
+          `/api/career-ops/threads/${threadId}`,
+        );
+        if (result.activeRun) await resume(result.activeRun.id);
+      } catch {
+        // A thread that cannot be inspected simply stays idle.
+      }
+    },
+    [resume],
+  );
 
   const createThread = useCallback(
     async (withApplication: boolean) => {
@@ -158,6 +188,7 @@ export function CareerOps({
       if (preferred) {
         setActiveThreadId(preferred.id);
         await loadMessages(preferred.id);
+        await rejoinActiveRun(preferred.id);
       } else {
         const created = await createThread(Boolean(application));
         setActiveThreadId(created.id);
@@ -167,7 +198,7 @@ export function CareerOps({
     } finally {
       setLoading(false);
     }
-  }, [application, createThread, loadMessages]);
+  }, [application, createThread, loadMessages, rejoinActiveRun]);
 
   useEffect(() => {
     if (!open || !status?.available) return;
@@ -233,6 +264,7 @@ export function CareerOps({
     setHistoryOpen(false);
     reset();
     await loadMessages(threadId);
+    await rejoinActiveRun(threadId);
   }
 
   async function removeThread(threadId: string) {
@@ -371,11 +403,14 @@ export function CareerOps({
             </header>
 
             <div className="flex items-center gap-2 border-b border-slate-200/80 px-4 py-2 text-xs dark:border-white/8">
-              {activeThread?.applicationId && application ? (
+              {contextScope !== "global" ? (
                 <>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                     <Briefcase className="h-3 w-3" aria-hidden="true" />
-                    {t("context_application")}: {application.company} — {application.role}
+                    {t("context_application")}:{" "}
+                    {contextScope === "named" && application
+                      ? `${application.company} — ${application.role}`
+                      : t("context_application_other")}
                   </span>
                   <button
                     type="button"
@@ -480,7 +515,7 @@ export function CareerOps({
                         {t("empty_title")}
                       </p>
                       <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                        {application && activeThread?.applicationId
+                        {contextScope === "named" && application
                           ? t("empty_application_body", {
                               company: application.company,
                               role: application.role,

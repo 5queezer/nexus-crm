@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   deleteCareerOpsThread,
+  getActiveCareerOpsRun,
   requireOwnedThread,
 } from "@/lib/career-ops/service";
 import {
@@ -8,7 +9,7 @@ import {
   requireCareerOpsSession,
   unauthorized,
 } from "@/lib/career-ops/http";
-import { serializeThread } from "@/lib/career-ops/serialize";
+import { serializeRun, serializeThread } from "@/lib/career-ops/serialize";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -18,8 +19,12 @@ export async function GET(_request: Request, context: Context) {
   try {
     const { id } = await context.params;
     const thread = await requireOwnedThread(session, id);
+    const activeRun = await getActiveCareerOpsRun(session, thread.id);
     return NextResponse.json(
-      { thread: serializeThread(thread) },
+      {
+        thread: serializeThread(thread),
+        activeRun: activeRun ? serializeRun(activeRun) : null,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (reason) {

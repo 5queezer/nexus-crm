@@ -2222,6 +2222,35 @@ export class PrismaAdapter implements DatabaseAdapter {
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({ where: { id, userId }, data: { status } });
   }
+
+  async bindCareerOpsRunHermesId(
+    id: string,
+    userId: string,
+    hermesRunId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const updated = await prisma.careerOpsRun.updateMany({
+      where: { id, userId },
+      data: { hermesRunId },
+    });
+    if (updated.count === 0) return null;
+    return this.getCareerOpsRun(id, userId);
+  }
+
+  async deleteCareerOpsRun(id: string, userId: string): Promise<void> {
+    await prisma.careerOpsRun.deleteMany({ where: { id, userId } });
+  }
+
+  async getLatestCareerOpsRun(
+    threadId: string,
+    userId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const rows = await prisma.careerOpsRun.findMany({
+      where: { threadId, userId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 1,
+    });
+    return rows[0] ? mapCareerOpsRun(rows[0]) : null;
+  }
 }
 
 function mapCareerOpsThread(row: {
