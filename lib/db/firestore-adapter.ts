@@ -1599,13 +1599,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
     }
     if (filter.search) {
       const term = filter.search.toLowerCase();
-      apps = apps.filter(
-        (a) =>
-          a.company.toLowerCase().includes(term) ||
-          a.role.toLowerCase().includes(term) ||
-          (a.notes?.toLowerCase().includes(term) ?? false) ||
-          (a.jobDescription?.toLowerCase().includes(term) ?? false)
-      );
+      const searchFields = filter.searchFields ?? ["company", "role", "notes", "jobDescription"];
+      apps = apps.filter((app) => searchFields.some((field) =>
+        app[field]?.toLowerCase().includes(term) ?? false
+      ));
     }
 
     // Sort
@@ -1628,6 +1625,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
           return desc ? -cmp : cmp;
         });
       }
+    }
+
+    if (filter.cursor) {
+      const cursorIndex = apps.findIndex((app) => app.id === filter.cursor);
+      if (cursorIndex >= 0) apps = apps.slice(cursorIndex + 1);
     }
 
     // Limit

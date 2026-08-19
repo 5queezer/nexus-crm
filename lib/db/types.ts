@@ -509,10 +509,12 @@ export interface ListApplicationsFilter {
   ratingGte?: number;
   triageQualityGte?: number;
   search?: string;
+  searchFields?: Array<"company" | "role" | "notes" | "jobDescription">;
   remote?: boolean;
   sort?: string;
   fields?: string[];
   limit?: number;
+  cursor?: string;
   includeContacts?: boolean;
   page?: number;
   pageSize?: number;

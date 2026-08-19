@@ -1445,12 +1445,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     }
     if (filter.search) {
       const term = filter.search;
-      where.OR = [
-        { company: { contains: term, mode: "insensitive" } },
-        { role: { contains: term, mode: "insensitive" } },
-        { notes: { contains: term, mode: "insensitive" } },
-        { jobDescription: { contains: term, mode: "insensitive" } },
-      ];
+      const searchFields = filter.searchFields ?? ["company", "role", "notes", "jobDescription"];
+      where.OR = searchFields.map((field) => ({
+        [field]: { contains: term, mode: "insensitive" },
+      }));
     }
 
     // Sort
@@ -1475,6 +1473,8 @@ export class PrismaAdapter implements DatabaseAdapter {
         where,
         orderBy,
         take: filter.limit ?? undefined,
+        cursor: filter.cursor ? { id: nid(filter.cursor) } : undefined,
+        skip: filter.cursor ? 1 : undefined,
         include: { contacts: true },
       });
       return pickFields(rows.map(mapApp), filter.fields);
@@ -1484,6 +1484,8 @@ export class PrismaAdapter implements DatabaseAdapter {
       where,
       orderBy,
       take: filter.limit ?? undefined,
+      cursor: filter.cursor ? { id: nid(filter.cursor) } : undefined,
+      skip: filter.cursor ? 1 : undefined,
     });
     // Map without contacts — give mapApp an empty contacts array to satisfy the type
     const mapped = rows.map((row) => mapApp({ ...row, contacts: [] }));

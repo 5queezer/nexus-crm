@@ -223,10 +223,21 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "list_applications",
-    "List all job applications for the authenticated user",
-    {},
-    async () => {
-      const apps = await getDb().listApplications(auth.readScopeUserId, MACHINE_DEMO_READ);
+    "List a compact, paginated application index. Heavy fields are available only when requested with fields.",
+    {
+      fields: z.array(z.string()).optional().describe("Fields to include. id is always included; heavy fields are opt-in."),
+      limit: z.number().int().min(1).max(200).default(50).describe("Max results to return (default: 50)"),
+      cursor: z.string().optional().describe("Application ID after which to continue"),
+      q: z.string().optional().describe("Case-insensitive substring match on company and role"),
+    },
+    async ({ fields, limit, cursor, q }) => {
+      const apps = await getDb().listApplicationsFiltered(auth.readScopeUserId, {
+        search: q,
+        searchFields: ["company", "role"],
+        fields: fields ?? ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+        limit,
+        cursor,
+      }, MACHINE_DEMO_READ);
       return {
         content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
       };
@@ -949,7 +960,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "list_applications_filtered",
-    "List applications with filters, sorting, and field selection. Use 'fields' to exclude large fields like jobDescription and reduce token usage. Defaults to all fields, no contacts.",
+    "Run an advanced application query with status, rating, remote, sorting, contact, and field controls. Defaults to all fields, no contacts; use list_applications for a compact index.",
     {
       status: z
         .array(z.enum(["inbound", "applied", "interview", "offer", "rejected"]))
