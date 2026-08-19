@@ -139,20 +139,34 @@ const SECRET_PATTERNS: RegExp[] = [
  * Applied to everything derived from a Hermes response before it can reach a
  * log line, an error message, or an API response body.
  */
-export function redactUpstreamError(input: unknown): string {
+/**
+ * Strip credential-like content without bounding the length.
+ *
+ * Assistant output and streamed deltas need the same stripping as error text
+ * but must not be truncated to an error-sized excerpt, so the two concerns are
+ * separated here.
+ */
+export function redactSecrets(input: unknown): string {
   if (input === undefined || input === null) return "";
-  const raw = input instanceof Error ? input.message : String(input);
-  let text = raw;
+  let text = input instanceof Error ? input.message : String(input);
   for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, "[redacted]");
 
-  const configuredKey = process.env.HERMES_CAREER_OPS_API_KEY?.trim();
-  if (configuredKey && configuredKey.length >= 4) {
-    text = text.split(configuredKey).join("[redacted]");
+  for (const secret of configuredSecrets()) {
+    text = text.split(secret).join("[redacted]");
   }
-  const scopeSecret = process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim();
-  if (scopeSecret && scopeSecret.length >= 4) {
-    text = text.split(scopeSecret).join("[redacted]");
-  }
+  return text;
+}
 
-  return text.slice(0, REDACTED_ERROR_LIMIT);
+/** The exact secrets this deployment holds, longest first. */
+export function configuredSecrets(): string[] {
+  return [
+    process.env.HERMES_CAREER_OPS_API_KEY?.trim(),
+    process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim(),
+  ]
+    .filter((value): value is string => !!value && value.length >= 4)
+    .sort((a, b) => b.length - a.length);
+}
+
+export function redactUpstreamError(input: unknown): string {
+  return redactSecrets(input).slice(0, REDACTED_ERROR_LIMIT);
 }

@@ -1,4 +1,4 @@
-import { redactUpstreamError } from "./config";
+import { configuredSecrets, redactSecrets, redactUpstreamError } from "./config";
 
 /**
  * Hermes `/v1/runs/{id}/events` framing.
@@ -52,6 +52,46 @@ export class SseStreamTooLargeError extends Error {
   constructor(readonly bound: "frame" | "stream") {
     super(`career_ops_sse_${bound}_limit_exceeded`);
     this.name = "SseStreamTooLargeError";
+  }
+}
+
+/**
+ * Strips secrets from a stream of text where a secret may straddle two chunks.
+ *
+ * Redacting each delta in isolation cannot see a key whose first half arrived in
+ * one frame and whose second half arrives in the next, so a short tail is held
+ * back until enough following text exists to match across the seam. The tail is
+ * sized to the longest configured secret, so nothing is withheld when none is
+ * configured and the delay is otherwise a few dozen characters.
+ */
+export class SecretBoundaryRedactor {
+  private carry = "";
+  private readonly window: number;
+
+  constructor(window = Math.max(0, (configuredSecrets()[0]?.length ?? 1) - 1)) {
+    this.window = Math.min(window, 512);
+  }
+
+  push(text: string): string {
+    const combined = redactSecrets(this.carry + text);
+    if (this.window === 0) {
+      this.carry = "";
+      return combined;
+    }
+    if (combined.length <= this.window) {
+      this.carry = combined;
+      return "";
+    }
+    const emitted = combined.slice(0, combined.length - this.window);
+    this.carry = combined.slice(combined.length - this.window);
+    return emitted;
+  }
+
+  /** Emit whatever is still held back, once no more text can arrive. */
+  flush(): string {
+    const rest = redactSecrets(this.carry);
+    this.carry = "";
+    return rest;
   }
 }
 
@@ -138,7 +178,11 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
 
   switch (name) {
     case "message.delta": {
-      const text = asString(event.delta, 16_000);
+      // Assistant output is upstream-derived text like any other, so it gets
+      // the same credential stripping — a broken or compromised Hermes echoing
+      // the bearer key would otherwise forward it straight to the browser.
+      // Splits across delta boundaries are handled by SecretBoundaryRedactor.
+      const text = redactSecrets(asString(event.delta, 16_000));
       return text ? { type: "delta", text } : null;
     }
     case "tool.started": {
@@ -192,7 +236,7 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       return choice ? { type: "approval_resolved", choice } : null;
     }
     case "run.completed":
-      return { type: "completed", output: asString(event.output, 200_000) };
+      return { type: "completed", output: redactSecrets(asString(event.output, 200_000)) };
     case "run.failed":
       return {
         type: "failed",

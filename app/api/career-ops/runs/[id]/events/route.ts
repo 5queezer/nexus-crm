@@ -4,6 +4,7 @@ import {
   recordCareerOpsRunStatus,
 } from "@/lib/career-ops/service";
 import {
+  SecretBoundaryRedactor,
   SseFrameParser,
   SseStreamTooLargeError,
   normalizeHermesEvent,
@@ -102,6 +103,7 @@ export async function GET(request: Request, context: Context) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const parser = new SseFrameParser();
+  const deltaRedactor = new SecretBoundaryRedactor();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -118,6 +120,14 @@ export async function GET(request: Request, context: Context) {
         // disclosed, and bind it to what this stream is about to show. The
         // approval endpoint accepts nothing else, so a decision cannot be
         // submitted for an action the browser never received.
+        if (event.type === "delta") {
+          // Hold back a short tail so a secret split across two deltas is still
+          // caught; the remainder is flushed when the stream ends.
+          const safe = deltaRedactor.push(event.text);
+          if (safe) emit(serializeCareerOpsEvent({ type: "delta", text: safe }));
+          return;
+        }
+
         let outgoing = event;
         if (event.type === "approval_required") {
           const challenge = await careerOpsApprovalChallengeFor(session, runId, event).catch(
@@ -129,16 +139,22 @@ export async function GET(request: Request, context: Context) {
             ? { ...event, challenge }
             : { ...event, choices: ["deny"] as typeof event.choices, truncated: true };
         }
-        emit(serializeCareerOpsEvent(outgoing));
         const terminal = TERMINAL_STATUS[event.type];
         if (terminal) {
-          // This is the only place the terminal status arrives on the live
-          // path. Swallowing a failed write would tell the browser the run
-          // finished while its row stayed active, and every later submission
-          // would then conflict with a run that is over. Retry briefly before
-          // giving up.
+          // Flush any held-back text before the run is declared finished.
+          const tail = deltaRedactor.flush();
+          if (tail) emit(serializeCareerOpsEvent({ type: "delta", text: tail }));
+          // Persist before emitting. The terminal event re-enables the composer
+          // in the browser, so a next submission arriving before the row settles
+          // would be refused by the one-active-run invariant. Retrying matters
+          // for the same reason: this is the status's only chance to land while
+          // the stream is open.
           await persistWithRetry(() => recordCareerOpsRunStatus(session, runId, terminal));
-        } else if (event.type === "approval_required") {
+          emit(serializeCareerOpsEvent(outgoing));
+          return;
+        }
+        emit(serializeCareerOpsEvent(outgoing));
+        if (event.type === "approval_required") {
           await recordCareerOpsRunStatus(session, runId, "waiting_for_approval").catch(
             () => undefined,
           );

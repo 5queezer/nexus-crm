@@ -820,6 +820,10 @@ export async function stopCareerOpsRun(
 ): Promise<void> {
   const config = enabledConfig(session);
   const { run } = await requireOwnedRun(session, runId);
+  // Already finished as far as Nexus knows: the caller's desired end state is
+  // reached, and asking Hermes again invites a rejection for a run that no
+  // longer exists, turning a satisfied request into an error.
+  if (TERMINAL_RUN_STATUSES.includes(run.status)) return;
   if (isUnbound(run)) {
     // An ambiguous submission: Hermes may have accepted the run and only the
     // response was lost, so a privileged run can be executing with no id to

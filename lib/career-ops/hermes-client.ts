@@ -1,4 +1,4 @@
-import { redactUpstreamError, type CareerOpsConfig } from "./config";
+import { redactSecrets, redactUpstreamError, type CareerOpsConfig } from "./config";
 import type { CareerOpsApprovalChoice } from "./sse";
 
 /**
@@ -221,7 +221,9 @@ export function createHermesClient(config: EnabledConfig) {
     return {
       runId: text(body.run_id, 256) || runId,
       status: raw,
-      output: text(body.output, 200_000),
+      // Same stripping as the streaming path: status recovery must not become
+      // the way an upstream-echoed credential reaches the browser.
+      output: redactSecrets(text(body.output, 200_000)),
       error: body.error === undefined || body.error === null
         ? null
         : redactUpstreamError(text(body.error, 400)),

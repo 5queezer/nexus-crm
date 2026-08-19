@@ -108,6 +108,7 @@ This is a property of the deployment shape, not something the Nexus BFF can fix:
 - Bodies are capped at 32 KB and messages at 8 000 characters, checked before any upstream request.
 - Run creation, stop, and approval are rate limited per authenticated user (not per source address, so a shared proxy address cannot be used to exhaust one bucket).
 - Connect, idle, and total-run timeouts are bounded and configurable, enforced with `AbortSignal`; upstream `429` is surfaced with `Retry-After`.
+- Assistant output is stripped of credential-like content on both the streaming and status-recovery paths, with a boundary-aware redactor so a secret split across two stream frames is still caught. Without it a broken or compromised Hermes echoing the configured key would forward it verbatim to the browser.
 - Response bodies are read through a byte bound and cancelled at the limit rather than buffered whole, on both success and error paths, so an upstream that returns an unbounded reply cannot exhaust the process.
 - The SSE reader caps a single unterminated frame (256 KB) and the total payload of one run stream (8 MB), and aborts the stream when either is exceeded. Without the frame cap an upstream that never sends a blank-line delimiter would grow the buffer without end.
 

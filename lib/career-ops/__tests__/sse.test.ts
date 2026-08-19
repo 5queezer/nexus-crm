@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  SecretBoundaryRedactor,
   SseFrameParser,
   SseStreamTooLargeError,
   normalizeHermesEvent,
@@ -232,5 +233,51 @@ describe("stream size bounds", () => {
     const parser = new SseFrameParser();
     const frames = parser.push('data: {"event":"message.delta","delta":"hi"}\n\n');
     expect(frames).toHaveLength(1);
+  });
+});
+
+describe("credential stripping in assistant output", () => {
+  const KEY = "hermes-secret-key-0123456789";
+
+  beforeEach(() => {
+    process.env.HERMES_CAREER_OPS_API_KEY = KEY;
+  });
+  afterEach(() => {
+    delete process.env.HERMES_CAREER_OPS_API_KEY;
+  });
+
+  it("strips the configured key from a streamed delta", () => {
+    const event = normalizeHermesEvent(
+      JSON.stringify({ event: "message.delta", delta: `here it is: ${KEY} ok` }),
+    );
+    expect(event).toMatchObject({ type: "delta" });
+    expect(JSON.stringify(event)).not.toContain(KEY);
+  });
+
+  it("strips the configured key from completed output", () => {
+    const event = normalizeHermesEvent(
+      JSON.stringify({ event: "run.completed", output: `done, key=${KEY}` }),
+    );
+    expect(JSON.stringify(event)).not.toContain(KEY);
+  });
+
+  it("catches a secret split across two deltas", () => {
+    // Redacting each delta alone cannot see this; the boundary redactor holds
+    // back a tail until enough following text exists to match across the seam.
+    const redactor = new SecretBoundaryRedactor();
+    const half = Math.floor(KEY.length / 2);
+    let out = redactor.push(`start ${KEY.slice(0, half)}`);
+    out += redactor.push(`${KEY.slice(half)} end`);
+    out += redactor.flush();
+
+    expect(out).not.toContain(KEY);
+    expect(out).toContain("start");
+    expect(out).toContain("end");
+  });
+
+  it("passes ordinary text through unchanged once flushed", () => {
+    const redactor = new SecretBoundaryRedactor();
+    const out = redactor.push("the quick brown fox") + redactor.flush();
+    expect(out).toBe("the quick brown fox");
   });
 });

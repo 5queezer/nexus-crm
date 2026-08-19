@@ -1010,6 +1010,14 @@ describe("run controls", () => {
     expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
   });
 
+  it("treats stopping an already-finished run as satisfied", async () => {
+    // A delayed stop for a run that already settled must not become an error
+    // just because Hermes no longer has it.
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "completed" });
+    await expect(stopCareerOpsRun(SESSION_A, "run-1")).resolves.toBeUndefined();
+    expect(mocks.client.stopRun).not.toHaveBeenCalled();
+  });
+
   it("refuses to stop a run that was never bound upstream", async () => {
     // Ambiguous submission: Hermes may be executing it, but Nexus has no id to
     // stop it with. Returning quietly would report "stopping" to the user when
