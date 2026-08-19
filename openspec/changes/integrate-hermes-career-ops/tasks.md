@@ -1,0 +1,68 @@
+## 1. Configuration and Hermes client (RED → GREEN)
+
+- [ ] 1.1 Write failing tests for `lib/career-ops/config.ts`: disabled when unset, disabled on non-absolute/non-http base URL, trailing-slash normalization, bounded timeout parsing with defaults, and `careerOpsMemoryScope()` producing a stable non-PII scope that differs per user and stays within 256 chars with no CR/LF/NUL.
+- [ ] 1.2 Implement `lib/career-ops/config.ts` (server-only): `readCareerOpsConfig()`, URL validation, timeout bounds, HMAC-derived memory scope, and `redactUpstreamError()`.
+- [ ] 1.3 Write failing tests for `lib/career-ops/hermes-client.ts`: bearer header attached; secret absent from every thrown error and returned payload; `/health` and `/v1/capabilities` parsing including partial `features`; health unavailable and degraded; session create/get/delete; session messages; run create returning `run_id`; run status mapping; stop; approval choice mapping and `409` handling; connect/idle/total timeouts and aborted connections; upstream `401/403/404/409/429/5xx` mapped to typed `HermesError`s.
+- [ ] 1.4 Implement `lib/career-ops/hermes-client.ts` as a typed adapter over the verified contract, with a fixed operation allowlist, no caller-supplied paths/headers, and `AbortSignal`-based timeouts.
+- [ ] 1.5 Write failing tests for `lib/career-ops/sse.ts`: `data:`-only frame parsing, multi-line and chunk-split frames, `:` comment/keepalive frames, unknown `event` values ignored, malformed JSON discarded without terminating, and mapping of `message.delta`/`tool.started`/`tool.completed`/`approval.request`/`approval.responded`/`run.completed`/`run.failed`/`run.cancelled` to the normalized Nexus event shapes.
+- [ ] 1.6 Implement `lib/career-ops/sse.ts` (incremental parser + normalizer + serializer for the Nexus-facing stream).
+- [ ] 1.7 Run the focused client/config/SSE suites green.
+
+## 2. Persistence and adapter parity (RED → GREEN)
+
+- [ ] 2.1 Add `CareerOpsThreadRecord` / `CareerOpsRunRecord` types and the Career Ops methods to `lib/db/types.ts` and `lib/db/adapter.ts`.
+- [ ] 2.2 Write failing adapter contract tests: create/list/get/delete thread; owner scoping on every read; deterministic `updatedAt desc, id` ordering; `(threadId, clientRequestId)` uniqueness; run status update; foreign-ID rejection; application-link cleanup; user-deletion cleanup.
+- [ ] 2.3 Add `CareerOpsThread` and `CareerOpsRun` to `prisma/schema.prisma` with owner indexes, the composite unique constraint, `onDelete: Cascade` from `User`, and `onDelete: SetNull` from `Application`; run `prisma format` and `prisma validate`.
+- [ ] 2.4 Write the additive migration `prisma/migrations/<ts>_add_career_ops_session_bridge/migration.sql` and confirm it contains no destructive statement.
+- [ ] 2.5 Implement the Career Ops methods in `lib/db/prisma-adapter.ts`.
+- [ ] 2.6 Implement the Career Ops methods in `lib/db/firestore-adapter.ts` using deterministic run document IDs for uniqueness, and extend the existing application-delete and user-cleanup paths to clear/remove Career Ops references.
+- [ ] 2.7 Add the Career Ops composite indexes to `firestore.indexes.json`.
+- [ ] 2.8 Run the adapter contract tests green on both backends.
+
+## 3. Career Ops service layer (RED → GREEN)
+
+- [ ] 3.1 Write failing tests for `lib/career-ops/service.ts`: ownership resolution returns `null` for foreign and unknown IDs; administrators are not exempt; `readScopeUserId` is ignored; thread creation verifies application ownership; run creation deduplicates on `(threadId, clientRequestId)` including the concurrent unique-violation path; thread deletion succeeds even when the upstream session delete fails.
+- [ ] 3.2 Implement `lib/career-ops/service.ts` as the single choke point between routes and the Hermes client.
+- [ ] 3.3 Implement `lib/career-ops/instructions.ts` building the bounded application-context instruction (verified ID + truncated company/role + Nexus-MCP directive), with tests asserting the full job description is never included.
+- [ ] 3.4 Run the focused service suites green.
+
+## 4. API routes (RED → GREEN)
+
+- [ ] 4.1 Write failing route tests for `GET /api/career-ops/status`: `401` unauthenticated; disabled response when unconfigured; unavailable response when Hermes health fails; capability flags reflected; no upstream authorization value in the body.
+- [ ] 4.2 Implement `app/api/career-ops/status/route.ts`.
+- [ ] 4.3 Write failing route tests for threads: `GET`/`POST /api/career-ops/threads`, `GET`/`DELETE /api/career-ops/threads/[id]`, `GET /api/career-ops/threads/[id]/messages` — `401`, invalid JSON `400`, oversized body `413`, foreign thread `404`, foreign application `404`, cross-user list isolation, disabled-integration response.
+- [ ] 4.4 Implement the thread routes.
+- [ ] 4.5 Write failing route tests for runs: `POST /api/career-ops/threads/[id]/runs` (bounded message, empty message `400`, invalid/missing `clientRequestId` `400`, duplicate `clientRequestId` yields one run), `GET /api/career-ops/runs/[id]`, `GET /api/career-ops/runs/[id]/events`, `POST /api/career-ops/runs/[id]/stop`, `POST /api/career-ops/runs/[id]/approval` — including foreign-run `404` on every one, invalid approval choice `400`, and unsupported-capability handling for stop/approval.
+- [ ] 4.6 Implement the run routes, including the normalized SSE re-emitter and the upstream→Nexus status mapping from design D9.
+- [ ] 4.7 Add rate limiting consistent with the existing middleware helper to the run-creating routes, with a test for the limited response.
+- [ ] 4.8 Run the focused route suites green.
+
+## 5. Career Ops UI (RED → GREEN)
+
+- [ ] 5.1 Add the English and German `career_ops` message catalogs and a test asserting key parity.
+- [ ] 5.2 Write failing component tests for `components/career-ops/career-ops-drawer.tsx`: open/close, focus trap and restoration, Escape behavior, mobile sheet state, thread create/switch/delete, send and stream, tool progress rendering, stop, approval approve/reject, disabled/unconfigured state, connection failure and retry, ARIA labelling, and non-color status encoding.
+- [ ] 5.3 Implement `components/career-ops/types.ts` and the streaming client hook (`use-career-ops-run.ts`) with duplicate-submit locking, client request ID generation, and poll-based reconnection.
+- [ ] 5.4 Implement the drawer, thread list, message list, composer, tool/run progress, stop control, and approval prompt using the existing Tailwind/Lucide design language.
+- [ ] 5.5 Write a failing test asserting application queries are invalidated after an approved run completes; implement the invalidation.
+- [ ] 5.6 Mount the global trigger in `components/dashboard.tsx` and the application-scoped trigger in `components/application-detail.tsx`, gated on the status endpoint; add tests for global vs application context and for returning to global context.
+- [ ] 5.7 Run the focused UI suites green.
+
+## 6. Documentation and developer tooling
+
+- [ ] 6.1 Add the `HERMES_CAREER_OPS_*` entries to `.env.example` with safe defaults and no real credentials.
+- [ ] 6.2 Add `docs/architecture/hermes-career-ops.md` with the trust boundary and a request/stream sequence diagram.
+- [ ] 6.3 Add `docs/security/hermes-career-ops-threat-model.md` covering bearer-token disclosure, cross-user session access, malicious job descriptions and MCP output, prompt injection, forged run/session IDs, SSE disconnection/replay, approval spoofing, upstream Hermes compromise, and over-privileged profiles.
+- [ ] 6.4 Add `docs/operations/hermes-career-ops-setup.md`: Hermes `career-ops` profile creation, API server enablement, distinct API key, Nexus MCP wiring, loopback/private binding, and `/health` + `/v1/capabilities` verification.
+- [ ] 6.5 Add a mock Hermes server (`scripts/mock-hermes.mjs`) plus local-development and production-like smoke-test instructions.
+- [ ] 6.6 Document the Hetzner/systemd deployment steps and the rollback procedure.
+
+## 7. Verification gates
+
+- [ ] 7.1 `npx -y @fission-ai/openspec@latest validate integrate-hermes-career-ops --strict`
+- [ ] 7.2 Targeted new test suites pass.
+- [ ] 7.3 `npm test` (full suite) passes.
+- [ ] 7.4 `npm run lint` passes.
+- [ ] 7.5 `npm run build` passes.
+- [ ] 7.6 `npx prisma generate` and migration validation pass.
+- [ ] 7.7 Secret scan over the diff, `git diff --check`, and `git status --short` are clean.
+- [ ] 7.8 Production-like smoke test against the mock Hermes server, with desktop and mobile browser verification and screenshots.
