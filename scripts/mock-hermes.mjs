@@ -86,11 +86,18 @@ function startRun(runId, input) {
   };
   runs.set(runId, run);
 
-  const push = (event) => {
-    const payload = { run_id: runId, timestamp: Date.now() / 1000, ...event };
-    run.queue.push(payload);
+  const wake = () => {
     const waiter = run.waiters.shift();
     if (waiter) waiter();
+  };
+  const push = (event) => {
+    run.queue.push({ run_id: runId, timestamp: Date.now() / 1000, ...event });
+    wake();
+  };
+  /** Enqueue the end-of-stream sentinel itself, not an object spread of it. */
+  const close = () => {
+    run.queue.push(null);
+    wake();
   };
 
   void (async () => {
@@ -99,7 +106,7 @@ function startRun(runId, input) {
       run.status = "failed";
       run.error = "mock failure";
       push({ event: "run.failed", error: "mock failure" });
-      push(null);
+      close();
       return;
     }
     if (run.scenario === "tool") {
@@ -122,7 +129,12 @@ function startRun(runId, input) {
       await new Promise((resolve) => {
         run.approval = resolve;
       });
-      if (run.stopped) return;
+      if (run.stopped) {
+        run.status = "cancelled";
+        push({ event: "run.cancelled" });
+        close();
+        return;
+      }
       run.status = "running";
     }
 
@@ -140,7 +152,7 @@ function startRun(runId, input) {
       run.status = "completed";
       push({ event: "run.completed", output: run.output, usage: { total_tokens: 42 } });
     }
-    push(null);
+    close();
   })();
 }
 
