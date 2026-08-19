@@ -2470,6 +2470,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
         typeof data.approvalState === "string"
           ? (data.approvalState as CareerOpsApprovalState)
           : null,
+      pendingApprovalChallengeId:
+        typeof data.pendingApprovalChallengeId === "string"
+          ? data.pendingApprovalChallengeId
+          : null,
       createdAt: toDate(data.createdAt) ?? new Date(0),
       updatedAt: toDate(data.updatedAt) ?? new Date(0),
     };
@@ -2543,6 +2547,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (applicationId) {
         const application = await tx.get(this.apps.doc(applicationId));
         if (!application.exists || application.data()!.userId !== userId) {
+          throw new Error("career_ops_application_not_found");
+        }
+        // Deletion marks the application before it clears Career Ops links, so
+        // a thread written after that sweep but before the final delete would
+        // keep a dangling id and fail context lookup forever. The other
+        // Firestore application mutations reject the marker for the same
+        // reason.
+        if (application.data()!.deletionState === "in_progress") {
           throw new Error("career_ops_application_not_found");
         }
       }
@@ -2713,6 +2725,17 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const snapshot = await ref.get();
     if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
     await ref.delete();
+  }
+
+  async setCareerOpsPendingApprovalChallenge(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+  ): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+    await ref.update({ pendingApprovalChallengeId: challengeId });
   }
 
   async recordCareerOpsApprovalDecision(

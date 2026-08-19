@@ -182,6 +182,16 @@ export interface DatabaseAdapter {
    * Record who decided an approval and when. Deliberately stores no command
    * payload or arguments. No-op when the run is not the user's.
    */
+  /**
+   * Record (or clear) the approval challenge outstanding for a run. Called when
+   * a prompt is disclosed and when a decision consumes it.
+   */
+  setCareerOpsPendingApprovalChallenge(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+  ): Promise<void>;
+
   recordCareerOpsApprovalDecision(
     id: string,
     userId: string,

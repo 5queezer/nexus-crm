@@ -18,6 +18,26 @@ import {
 
 type Context = { params: Promise<{ id: string }> };
 
+/**
+ * Retry a short, idempotent persistence step a few times before giving up.
+ * Used for status writes on the live event path, where the update has no later
+ * chance to land until the user reopens the conversation.
+ */
+async function persistWithRetry(write: () => Promise<unknown>): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await write();
+      return;
+    } catch {
+      if (attempt === 2) {
+        console.warn("career-ops: run status could not be persisted");
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+    }
+  }
+}
+
 const TERMINAL_STATUS: Record<string, CareerOpsRunStatus> = {
   completed: "completed",
   failed: "failed",
@@ -100,12 +120,17 @@ export async function GET(request: Request, context: Context) {
         // submitted for an action the browser never received.
         const outgoing =
           event.type === "approval_required"
-            ? { ...event, challenge: careerOpsApprovalChallengeFor(session, runId, event) }
+            ? { ...event, challenge: await careerOpsApprovalChallengeFor(session, runId, event) }
             : event;
         emit(serializeCareerOpsEvent(outgoing));
         const terminal = TERMINAL_STATUS[event.type];
         if (terminal) {
-          await recordCareerOpsRunStatus(session, runId, terminal).catch(() => undefined);
+          // This is the only place the terminal status arrives on the live
+          // path. Swallowing a failed write would tell the browser the run
+          // finished while its row stayed active, and every later submission
+          // would then conflict with a run that is over. Retry briefly before
+          // giving up.
+          await persistWithRetry(() => recordCareerOpsRunStatus(session, runId, terminal));
         } else if (event.type === "approval_required") {
           await recordCareerOpsRunStatus(session, runId, "waiting_for_approval").catch(
             () => undefined,

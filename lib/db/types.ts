@@ -740,6 +740,13 @@ export interface CareerOpsRunRecord {
   approvalChallengeId: string | null;
   /** Lifecycle of that decision; see CareerOpsApprovalState. */
   approvalState: CareerOpsApprovalState | null;
+  /**
+   * The challenge currently outstanding for this run: set when a prompt is
+   * disclosed, cleared when a decision consumes it. Only this challenge may be
+   * answered, so a token minted for an earlier gate on the same run cannot
+   * authorize a later one.
+   */
+  pendingApprovalChallengeId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

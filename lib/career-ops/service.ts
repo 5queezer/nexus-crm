@@ -24,6 +24,7 @@ import type { CareerOpsApprovalChoice } from "./sse";
 import type { CareerOpsApplicationView } from "./serialize";
 import {
   approvalActionHash,
+  approvalChallengeId,
   issueApprovalChallenge,
   verifyApprovalChallenge,
 } from "./approval-challenge";
@@ -823,18 +824,28 @@ export async function stopCareerOpsRun(
  * Called only from the event route, at the moment the sanitized prompt is put
  * on the wire, so the token describes exactly what the human will see.
  */
-export function careerOpsApprovalChallengeFor(
+export async function careerOpsApprovalChallengeFor(
   session: CareerOpsSession,
   runId: string,
   event: { operation: string; summary: string; details: string; choices: CareerOpsApprovalChoice[] },
-): string {
+): Promise<string> {
   const config = enabledConfig(session);
-  return issueApprovalChallenge(config, {
+  const token = issueApprovalChallenge(config, {
     runId,
     userId: session.userId,
     actionHash: approvalActionHash(event),
     choices: event.choices,
   });
+  // Record it as the run's outstanding challenge. Only this one may be
+  // answered, which is what stops a token minted for an earlier gate on the
+  // same run from authorizing a later, different action.
+  const jti = approvalChallengeId(token);
+  if (jti) {
+    await getDb()
+      .setCareerOpsPendingApprovalChallenge(runId, session.userId, jti)
+      .catch(() => undefined);
+  }
+  return token;
 }
 
 export async function resolveCareerOpsApproval(
@@ -878,9 +889,19 @@ export async function resolveCareerOpsApproval(
           : "That decision does not match the approval that was shown",
       );
     }
-    // Single use: the same disclosure cannot be replayed to re-authorize.
-    if (run.approvalChallengeId && run.approvalChallengeId === verified.payload.jti) {
-      throw new CareerOpsServiceError("conflict", "That decision was already recorded");
+    // Single use, and only for the gate currently awaiting a decision. A run
+    // can reach several gates inside one challenge lifetime, so "not the one
+    // already consumed" is not enough: an earlier gate's token would still
+    // verify against run, owner and choice, and could authorize whatever action
+    // is pending now. Matching the outstanding challenge closes both.
+    if (!run.pendingApprovalChallengeId) {
+      throw new CareerOpsServiceError("conflict", "There is no approval awaiting a decision");
+    }
+    if (run.pendingApprovalChallengeId !== verified.payload.jti) {
+      throw new CareerOpsServiceError(
+        "conflict",
+        "That decision answers a different approval than the one awaiting you",
+      );
     }
     consumedChallengeId = verified.payload.jti;
   }
@@ -923,6 +944,10 @@ export async function resolveCareerOpsApproval(
       consumedChallengeId,
       "effect_completed",
     );
+    // Consumed: the gate is answered, so nothing is outstanding any more.
+    await getDb()
+      .setCareerOpsPendingApprovalChallenge(run.id, session.userId, null)
+      .catch(() => undefined);
   } catch {
     throw new CareerOpsServiceError(
       "upstream_error",

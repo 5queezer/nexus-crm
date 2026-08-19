@@ -601,27 +601,32 @@ model CareerOpsThread {
 /// (threadId, clientRequestId) pair is what makes run creation idempotent:
 /// the Hermes runs API has no request-level idempotency of its own.
 model CareerOpsRun {
-  id                  String          @id @default(cuid())
-  userId              String
-  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  threadId            String
-  thread              CareerOpsThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  hermesRunId         String
-  clientRequestId     String
-  status              String          @default("queued")
+  id                         String          @id @default(cuid())
+  userId                     String
+  user                       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId                   String
+  thread                     CareerOpsThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  hermesRunId                String
+  clientRequestId            String
+  status                     String          @default("queued")
   /// Attribution for the last human approval decision. The command payload and
   /// arguments are deliberately never stored.
-  approvalChoice      String?
-  approvalAt          DateTime?
+  approvalChoice             String?
+  approvalAt                 DateTime?
   /// Single-use marker of the approval challenge this decision consumed, so the
   /// same disclosed prompt cannot be replayed. Never the command or arguments.
-  approvalChallengeId String?
+  approvalChallengeId        String?
+  /// The approval challenge currently outstanding for this run, set when the
+  /// prompt is disclosed and cleared when a decision consumes it. Only this
+  /// challenge may be answered, so a token minted for an earlier gate cannot
+  /// authorize a later one.
+  pendingApprovalChallengeId String?
   /// Lifecycle of the last decision: `pending` once Nexus commits to sending it,
   /// `effect_completed` once Hermes accepted it, `outcome_unknown` when the
   /// upstream call left it undecided. Never the command or its arguments.
-  approvalState       String?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  approvalState              String?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
 
   @@unique([threadId, clientRequestId])
   @@index([userId, createdAt])

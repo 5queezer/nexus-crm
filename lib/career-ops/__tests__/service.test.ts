@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     getLatestCareerOpsRun: vi.fn(),
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
+    setCareerOpsPendingApprovalChallenge: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
@@ -113,6 +114,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
+  mocks.db.setCareerOpsPendingApprovalChallenge.mockResolvedValue(undefined);
 });
 
 describe("getCareerOpsStatus", () => {
@@ -933,14 +935,21 @@ describe("startCareerOpsRun", () => {
   });
 });
 
-/** Mint a real challenge the way the event route does. */
-function challengeFor(runId: string, choices: Array<"once" | "session" | "always" | "deny">) {
-  return careerOpsApprovalChallengeFor(SESSION_A, runId, {
+/**
+ * Mint a real challenge the way the event route does, and reflect the run state
+ * that disclosure produces: the challenge becomes the run's outstanding one.
+ */
+async function challengeFor(
+  runId: string,
+  choices: Array<"once" | "session" | "always" | "deny">,
+) {
+  const token = await careerOpsApprovalChallengeFor(SESSION_A, runId, {
     operation: "shell",
     summary: "Update the application",
     details: "nexus update 42",
     choices,
   });
+  return token;
 }
 
 describe("run controls", () => {
@@ -955,8 +964,20 @@ describe("run controls", () => {
     updatedAt: new Date(0),
   };
 
+  /** Mirrors the run's outstanding-approval slot the way the adapters do. */
+  let outstandingChallenge: string | null = null;
+
   beforeEach(() => {
-    mocks.db.getCareerOpsRun.mockResolvedValue(RUN);
+    outstandingChallenge = null;
+    mocks.db.setCareerOpsPendingApprovalChallenge.mockImplementation(
+      async (_id: string, _userId: string, challengeId: string | null) => {
+        outstandingChallenge = challengeId;
+      },
+    );
+    mocks.db.getCareerOpsRun.mockImplementation(async () => ({
+      ...RUN,
+      pendingApprovalChallengeId: outstandingChallenge,
+    }));
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
   });
 
@@ -1002,7 +1023,7 @@ describe("run controls", () => {
   it("records a stated upstream refusal as a known non-effect", async () => {
     mocks.client.resolveApproval.mockRejectedValue(new HermesError("conflict", "not pending"));
     await expect(
-      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"])),
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", await challengeFor("run-1", ["once", "deny"])),
     ).rejects.toBeTruthy();
     // Hermes said no, so nothing happened — and the audit says exactly that
     // rather than leaving the decision looking still in flight.
@@ -1033,7 +1054,7 @@ describe("run controls", () => {
 
   it("refuses an approval decision for a foreign run", async () => {
     mocks.db.getCareerOpsRun.mockResolvedValue(null);
-    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"]))).rejects.toMatchObject({
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once", await challengeFor("run-1", ["once", "deny"]))).rejects.toMatchObject({
       code: "not_found",
     });
     expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
@@ -1043,7 +1064,7 @@ describe("run controls", () => {
     mocks.client.resolveApproval.mockRejectedValue(
       new HermesError("conflict", "no pending approval", `Bearer ${SECRET}`),
     );
-    const error = await resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"])).catch((r) => r);
+    const error = await resolveCareerOpsApproval(SESSION_A, "run-1", "once", await challengeFor("run-1", ["once", "deny"])).catch((r) => r);
     expect(error).toBeInstanceOf(CareerOpsServiceError);
     expect(error.code).toBe("conflict");
     expect(JSON.stringify({ message: error.message })).not.toContain(SECRET);
@@ -1104,7 +1125,7 @@ describe("run controls", () => {
         SESSION_A,
         "run-1",
         "always",
-        challengeFor("run-1", ["once", "deny"]),
+        await challengeFor("run-1", ["once", "deny"]),
       ),
     ).rejects.toMatchObject({ code: "invalid_request" });
     expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
@@ -1112,13 +1133,13 @@ describe("run controls", () => {
 
   it("refuses a challenge minted for a different run", async () => {
     await expect(
-      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-other", ["once"])),
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", await challengeFor("run-other", ["once"])),
     ).rejects.toMatchObject({ code: "invalid_request" });
     expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
   });
 
   it("refuses to replay a challenge that was already consumed", async () => {
-    const challenge = challengeFor("run-1", ["once", "deny"]);
+    const challenge = await challengeFor("run-1", ["once", "deny"]);
     await resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge);
     const consumedId = mocks.db.recordCareerOpsApprovalDecision.mock.calls.at(-1)?.[3] as string;
     expect(consumedId).toBeTruthy();
@@ -1127,6 +1148,33 @@ describe("run controls", () => {
     await expect(
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
     ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("refuses a token minted for an earlier gate on the same run", async () => {
+    // The bypass this closes: one run can reach several gates inside a
+    // challenge lifetime. Checking only "not the one already consumed" left
+    // gate A's token verifying against run, owner and choice — and it could
+    // then authorize whatever action is pending now.
+    const gateA = await challengeFor("run-1", ["once", "deny"]);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await challengeFor("run-1", ["once", "deny"]); // gate B is now outstanding
+
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", gateA),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses any decision when no approval is outstanding", async () => {
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", await challengeFor("run-1", ["once"])),
+    ).resolves.toBeUndefined();
+    // Consumed, so the same token cannot be presented again.
+    expect(mocks.db.setCareerOpsPendingApprovalChallenge).toHaveBeenLastCalledWith(
+      "run-1",
+      "user-a",
+      null,
+    );
   });
 
   it("always lets the owner deny, even with no recoverable prompt", async () => {

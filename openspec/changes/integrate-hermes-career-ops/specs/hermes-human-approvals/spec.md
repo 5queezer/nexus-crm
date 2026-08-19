@@ -50,6 +50,14 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** a decision that was already recorded for a disclosed prompt is submitted again
 - **THEN** the system refuses it rather than re-authorizing the action
 
+#### Scenario: Proof from an earlier gate on the same run
+- **WHEN** a run reaches several approval gates and proof issued for an earlier gate is presented while a later one awaits a decision
+- **THEN** the system refuses it, because only the approval currently awaiting a decision may be answered
+
+#### Scenario: No approval awaiting a decision
+- **WHEN** a granting decision arrives for a run with no outstanding approval
+- **THEN** the system refuses it and forwards nothing upstream
+
 #### Scenario: Decision for a different run or user
 - **WHEN** proof of disclosure issued for one run or one user is presented for another
 - **THEN** the system refuses the decision

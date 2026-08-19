@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     getLatestCareerOpsRun: vi.fn(),
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
+    setCareerOpsPendingApprovalChallenge: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -136,6 +137,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
+  mocks.db.setCareerOpsPendingApprovalChallenge.mockResolvedValue(undefined);
 });
 
 describe("authentication", () => {

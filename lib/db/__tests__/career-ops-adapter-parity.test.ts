@@ -864,6 +864,34 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(listed[0]?.id).toBe(older.id);
   });
 
+  it("tracks only the outstanding approval challenge for a run", async () => {
+    // One run can reach several gates. Only the challenge currently awaiting a
+    // decision may be answered, so an earlier gate's token cannot authorize a
+    // later action.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gates",
+      status: "running",
+    });
+
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: "gate-a",
+    });
+
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-b");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: "gate-b",
+    });
+
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", null);
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: null,
+    });
+  });
+
   it("refuses to scope a conversation to an application that vanished", async () => {
     // The application is verified before Hermes is asked for a session, and can
     // be deleted during that round-trip; writing the thread anyway would point
