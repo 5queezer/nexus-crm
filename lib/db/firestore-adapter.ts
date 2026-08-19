@@ -37,6 +37,7 @@ import type {
   PaginatedResult,
   BatchUpsertItem,
   BatchUpsertResult,
+  BatchCreateContactsResult,
   BatchDeleteResult,
   CvProfileRecord,
   UpsertCvProfileInput,
@@ -1599,13 +1600,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
     }
     if (filter.search) {
       const term = filter.search.toLowerCase();
-      apps = apps.filter(
-        (a) =>
-          a.company.toLowerCase().includes(term) ||
-          a.role.toLowerCase().includes(term) ||
-          (a.notes?.toLowerCase().includes(term) ?? false) ||
-          (a.jobDescription?.toLowerCase().includes(term) ?? false)
-      );
+      const searchFields = filter.searchFields ?? ["company", "role", "notes", "jobDescription"];
+      apps = apps.filter((app) => searchFields.some((field) =>
+        app[field]?.toLowerCase().includes(term) ?? false
+      ));
     }
 
     // Sort
@@ -1628,6 +1626,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
           return desc ? -cmp : cmp;
         });
       }
+    }
+
+    if (filter.cursor) {
+      const cursorIndex = apps.findIndex((app) => app.id === filter.cursor);
+      if (cursorIndex < 0) throw new Error("application_cursor_invalid");
+      apps = apps.slice(cursorIndex + 1);
     }
 
     // Limit
@@ -1775,6 +1779,32 @@ export class FirestoreAdapter implements DatabaseAdapter {
       transaction.create(reference, payload);
     });
     return mapContact(reference.id, payload);
+  }
+
+  async batchCreateContacts(
+    applicationId: string,
+    userId: string,
+    contacts: CreateContactInput[],
+  ): Promise<BatchCreateContactsResult> {
+    const results: BatchCreateContactsResult["results"] = [];
+    let succeeded = 0;
+
+    for (let index = 0; index < contacts.length; index += 1) {
+      try {
+        const contact = await this.createContact(applicationId, userId, contacts[index]);
+        results.push({ index, id: contact.id, operation: "created" });
+        succeeded += 1;
+      } catch {
+        results.push({
+          index,
+          id: "",
+          operation: "created",
+          error: "contact_create_failed",
+        });
+      }
+    }
+
+    return { total: contacts.length, succeeded, failed: contacts.length - succeeded, results };
   }
 
   async updateContact(id: string, applicationId: string, userId: string, data: UpdateContactInput): Promise<ContactRecord> {

@@ -144,6 +144,8 @@ npm run seed      # seed development data
 
 The built-in MCP server lets external clients operate against Nexus through OAuth. AI operator **remote connectors** are the inverse boundary: Nexus connects server-side to a user's configured remote MCP endpoint. The two surfaces have separate credentials and policies.
 
+Contact imports can use `batch_create_contacts(applicationId, contacts[])` with 1–50 contacts. Each contact accepts `name` plus optional `email`, `phone`, `role`, and `linkedIn`. The tool preserves partial success and returns `{ total, succeeded, failed, results: [{ index, id, operation: "created", error? }] }`.
+
 ## Deployment
 
 Apply Prisma migrations before starting the new build, inject secrets at runtime, terminate TLS at the application or a trusted reverse proxy, and keep PostgreSQL plus the encryption key in separately protected backups. Docker and standalone Next.js output are supported by the repository configuration.

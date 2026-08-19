@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   recordApplicationEvent: vi.fn(),
   recordApplicationSubmission: vi.fn(),
   createContact: vi.fn(),
+  batchCreateContacts: vi.fn(),
   updateDocumentLinks: vi.fn(),
   updateDocumentMetadata: vi.fn(),
   getDocument: vi.fn(),
@@ -123,10 +124,15 @@ describe("MCP demo application boundaries", () => {
     await call("list_applications_filtered", { search: "demo" });
     const canonical = await call("find_application_by_job_url", { jobUrl: "https://example.com/jobs/demo" });
 
-    expect(mocks.listApplications).toHaveBeenCalledWith("owner-1", DEMO_EXCLUDE);
+    expect(mocks.listApplicationsFiltered).toHaveBeenNthCalledWith(
+      1,
+      "owner-1",
+      expect.objectContaining({ limit: 50 }),
+      DEMO_EXCLUDE,
+    );
     expect(mocks.getApplication).toHaveBeenCalledWith("demo-app", "owner-1", DEMO_EXCLUDE);
     expect(detail.isError).toBe(true);
-    expect(mocks.listApplicationsFiltered).toHaveBeenCalledWith("owner-1", expect.any(Object), DEMO_EXCLUDE);
+    expect(mocks.listApplicationsFiltered).toHaveBeenNthCalledWith(2, "owner-1", expect.any(Object), DEMO_EXCLUDE);
     expect(json(canonical)).toMatchObject({ application: null });
     expect(mocks.findApplicationByCanonicalJobUrl).toHaveBeenCalledWith(
       "owner-1",
@@ -323,6 +329,7 @@ describe("MCP demo application boundaries", () => {
     { name: "event", tool: "record_application_event", args: { applicationId: "demo-app", type: "note_added", metadata: { note: "x" } }, mutation: "recordApplicationEvent" },
     { name: "note", tool: "append_application_note", args: { applicationId: "demo-app", note: "x", occurredAt: "2026-08-10T10:00:00.000Z", idempotencyKey: "demo-note" }, mutation: "recordApplicationEvent" },
     { name: "contact", tool: "create_contact", args: { applicationId: "demo-app", name: "Recruiter" }, mutation: "createContact" },
+    { name: "batch contact", tool: "batch_create_contacts", args: { applicationId: "demo-app", contacts: [{ name: "Recruiter" }] }, mutation: "batchCreateContacts" },
     { name: "submission", tool: "record_application_submission", args: { applicationId: "demo-app", submittedAt: "2026-08-10T10:00:00.000Z", idempotencyKey: "demo-submission", answers: [], documentIds: [] }, mutation: "recordApplicationSubmission" },
     { name: "document link", tool: "update_document_links", args: { id: "doc-1", applicationIds: ["demo-app"] }, mutation: "updateDocumentLinks" },
     { name: "document metadata", tool: "update_document_metadata", args: { id: "demo-document", documentType: "resume" }, mutation: "updateDocumentMetadata" },

@@ -1962,6 +1962,27 @@ describe("FirestoreAdapter — CV patch isolation", () => {
   });
 });
 
+describe("FirestoreAdapter — application cursors", () => {
+  beforeEach(() => {
+    stores.applications.clear();
+    stores.applications.set("app-1", {
+      userId: "owner-1",
+      company: "Acme",
+      role: "Engineer",
+      status: "applied",
+      createdAt: mockTimestamp,
+      updatedAt: mockTimestamp,
+    });
+  });
+
+  it("rejects a cursor that is absent from the filtered result set", async () => {
+    const adapter = new FirestoreAdapter();
+
+    await expect(adapter.listApplicationsFiltered("owner-1", { cursor: "deleted-app" }))
+      .rejects.toThrow("application_cursor_invalid");
+  });
+});
+
 describe("FirestoreAdapter — explicit owner scopes", () => {
   beforeEach(() => {
     stores.applications.clear();

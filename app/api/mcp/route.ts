@@ -16,6 +16,7 @@ import {
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 import {
   APPLICATION_EVENT_TYPES,
+  EventMetadataValidationError,
   parseApplicationEventCommand,
   parseEventQuery,
 } from "@/lib/applications/events";
@@ -256,11 +257,31 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "list_applications",
-    "List all job applications for the authenticated user",
-    {},
-    async () => {
-      const apps = await getDb().listApplications(auth.readScopeUserId, MACHINE_DEMO_READ);
-      return jsonToolResult(apps);
+    "List a compact, paginated application index. Heavy fields are available only when requested with fields.",
+    {
+      fields: z.array(z.string()).optional().describe("Fields to include. id is always included; heavy fields are opt-in."),
+      limit: z.number().int().min(1).max(200).default(50).describe("Max results to return (default: 50)"),
+      cursor: z.string().optional().describe("Application ID after which to continue"),
+      q: z.string().optional().describe("Case-insensitive substring match on company and role"),
+    },
+    async ({ fields, limit, cursor, q }) => {
+      try {
+        const apps = await getDb().listApplicationsFiltered(auth.readScopeUserId, {
+          search: q,
+          searchFields: ["company", "role"],
+          fields: fields?.length
+            ? fields
+            : ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+          limit,
+          cursor,
+        }, MACHINE_DEMO_READ);
+        return jsonToolResult(apps);
+      } catch (error) {
+        if (error instanceof Error && error.message === "application_cursor_invalid") {
+          return jsonToolResult({ error: { code: "application_cursor_invalid" } }, true);
+        }
+        throw error;
+      }
     }
   );
 
@@ -588,7 +609,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "record_application_event",
-    "Atomically append a canonical immutable application event and update the current-state projection when the event changes lifecycle state.",
+    "Atomically append a canonical immutable application event and update the current-state projection when the event changes lifecycle state. Metadata is a JSON object with event-specific keys: opportunity_discovered {channel?, nextAction?}; recruiter_contacted {contactId?, outcome?, nextAction?, channel?, followUpAt?, toStage?}; stage_changed {toStage: string, fromStage?, toStatus?}; interview_invited {contactId?, outcome?, nextAction?, interviewType?, scheduledAt?, durationMinutes?, followUpAt?, toStage?}; interview_scheduled {interviewType: string, scheduledAt: ISO 8601 date-time, contactId?, outcome?, nextAction?, durationMinutes?: integer 1..1440, toStage?}; interview_completed {contactId?, outcome?, nextAction?, interviewType?, followUpAt?, toStage?}; feedback_received {contactId?, outcome?, nextAction?, followUpAt?, toStage?}; follow_up_scheduled {followUpAt: ISO 8601 date-time, contactId?, nextAction?}; offer_received {contactId?, outcome?, nextAction?, followUpAt?}; application_rejected {contactId?, outcome?, reason?, fromStage?}; document_attached {documentId: string, documentType?}; note_added {note: string}. Unknown keys are rejected.",
     {
       applicationId: z.string().min(1),
       type: z.enum(APPLICATION_EVENT_TYPES),
@@ -613,7 +634,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         return jsonToolResult(result);
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_failed");
-        return jsonToolResult({ error: { code } }, true);
+        const details = error instanceof EventMetadataValidationError
+          ? { path: error.path, expected: error.expected, reason: error.reason }
+          : {};
+        return jsonToolResult({ error: { code, ...details } }, true);
       }
     },
   );
@@ -959,7 +983,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "list_applications_filtered",
-    "List applications with filters, sorting, and field selection. Use 'fields' to exclude large fields like jobDescription and reduce token usage. Defaults to all fields, no contacts.",
+    "Run an advanced application query with status, rating, remote, sorting, contact, and field controls. Defaults to all fields, no contacts; use list_applications for a compact index.",
     {
       status: z
         .array(z.enum(["inbound", "applied", "interview", "offer", "rejected"]))
@@ -1035,6 +1059,46 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       });
       return jsonToolResult(contact);
     }
+  );
+
+  server.tool(
+    "batch_create_contacts",
+    "Add multiple contacts to one application. Each contact is created independently, so valid contacts remain created if another item fails. Returns total, succeeded, failed, and one indexed result per contact. Max 50 contacts per call.",
+    {
+      applicationId: z.string().describe("Application ID"),
+      contacts: z.array(z.object({
+        name: z.string().describe("Contact name"),
+        email: z.string().optional().describe("Contact email"),
+        phone: z.string().optional().describe("Phone number"),
+        role: z.string().optional().describe("Contact's role (e.g. Recruiter)"),
+        linkedIn: z.string().optional().describe("LinkedIn profile URL"),
+      })).min(1).max(50).describe("Contacts to create (max 50)"),
+    },
+    async ({ applicationId, contacts }) => {
+      try {
+        const application = await getRealApplication(applicationId);
+        if (!application) {
+          return {
+            content: [{ type: "text", text: "Application not found or access denied" }],
+            isError: true,
+          };
+        }
+        const sanitized = contacts.map((contact) => ({
+          name: contact.name.slice(0, 255),
+          email: contact.email?.slice(0, 255) ?? null,
+          phone: contact.phone?.slice(0, 50) ?? null,
+          role: contact.role?.slice(0, 100) ?? null,
+          linkedIn: contact.linkedIn?.slice(0, 500) ?? null,
+        }));
+        const result = await getDb().batchCreateContacts(applicationId, auth.userId, sanitized);
+        return jsonToolResult(result);
+      } catch {
+        return {
+          content: [{ type: "text", text: "Batch contact creation failed" }],
+          isError: true,
+        };
+      }
+    },
   );
 
   server.tool(

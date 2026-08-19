@@ -18,6 +18,7 @@ import type {
   PaginatedResult,
   BatchUpsertItem,
   BatchUpsertResult,
+  BatchCreateContactsResult,
   BatchDeleteResult,
   CvProfileRecord,
   UpsertCvProfileInput,
@@ -81,6 +82,8 @@ export interface DatabaseAdapter {
   /** Verify an application exists and belongs to userId. */
   verifyApplicationOwner(id: string, userId: string): Promise<boolean>;
   createContact(applicationId: string, userId: string, data: CreateContactInput): Promise<ContactRecord>;
+  /** Create contacts independently, preserving successful writes when another item fails. */
+  batchCreateContacts(applicationId: string, userId: string, contacts: CreateContactInput[]): Promise<BatchCreateContactsResult>;
   updateContact(id: string, applicationId: string, userId: string, data: UpdateContactInput): Promise<ContactRecord>;
   deleteContact(id: string, applicationId: string, userId: string): Promise<void>;
 
