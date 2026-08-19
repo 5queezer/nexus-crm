@@ -1032,6 +1032,48 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
   );
 
   server.tool(
+    "batch_create_contacts",
+    "Add multiple contacts to one application. Each contact is created independently, so valid contacts remain created if another item fails. Returns total, succeeded, failed, and one indexed result per contact. Max 50 contacts per call.",
+    {
+      applicationId: z.string().describe("Application ID"),
+      contacts: z.array(z.object({
+        name: z.string().describe("Contact name"),
+        email: z.string().optional().describe("Contact email"),
+        phone: z.string().optional().describe("Phone number"),
+        role: z.string().optional().describe("Contact's role (e.g. Recruiter)"),
+        linkedIn: z.string().optional().describe("LinkedIn profile URL"),
+      })).min(1).max(50).describe("Contacts to create (max 50)"),
+    },
+    async ({ applicationId, contacts }) => {
+      const application = await getRealApplication(applicationId);
+      if (!application) {
+        return {
+          content: [{ type: "text", text: "Application not found or access denied" }],
+          isError: true,
+        };
+      }
+      const sanitized = contacts.map((contact) => ({
+        name: contact.name.slice(0, 255),
+        email: contact.email?.slice(0, 255) ?? null,
+        phone: contact.phone?.slice(0, 50) ?? null,
+        role: contact.role?.slice(0, 100) ?? null,
+        linkedIn: contact.linkedIn?.slice(0, 500) ?? null,
+      }));
+      try {
+        const result = await getDb().batchCreateContacts(applicationId, auth.userId, sanitized);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch {
+        return {
+          content: [{ type: "text", text: "Batch contact creation failed" }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
     "update_contact",
     "Update a contact on an application",
     {

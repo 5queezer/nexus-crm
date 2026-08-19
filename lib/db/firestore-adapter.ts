@@ -37,6 +37,7 @@ import type {
   PaginatedResult,
   BatchUpsertItem,
   BatchUpsertResult,
+  BatchCreateContactsResult,
   BatchDeleteResult,
   CvProfileRecord,
   UpsertCvProfileInput,
@@ -1775,6 +1776,32 @@ export class FirestoreAdapter implements DatabaseAdapter {
       transaction.create(reference, payload);
     });
     return mapContact(reference.id, payload);
+  }
+
+  async batchCreateContacts(
+    applicationId: string,
+    userId: string,
+    contacts: CreateContactInput[],
+  ): Promise<BatchCreateContactsResult> {
+    const results: BatchCreateContactsResult["results"] = [];
+    let succeeded = 0;
+
+    for (let index = 0; index < contacts.length; index += 1) {
+      try {
+        const contact = await this.createContact(applicationId, userId, contacts[index]);
+        results.push({ index, id: contact.id, operation: "created" });
+        succeeded += 1;
+      } catch (error) {
+        results.push({
+          index,
+          id: "",
+          operation: "created",
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+
+    return { total: contacts.length, succeeded, failed: contacts.length - succeeded, results };
   }
 
   async updateContact(id: string, applicationId: string, userId: string, data: UpdateContactInput): Promise<ContactRecord> {
