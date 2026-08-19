@@ -20,7 +20,7 @@ The system SHALL let an authenticated user open Career Ops globally from the wor
 - **THEN** the user is placed in a conversation with no application link, and the application-scoped conversation is left unchanged
 
 ### Requirement: Owner-verified application linkage
-The system SHALL verify that a requested application belongs to the authenticated user before linking it to a Career Ops conversation, and SHALL persist only the application relationship.
+The system SHALL verify that a requested application belongs to the authenticated user AND is readable through the same machine-read policy the Nexus MCP server applies, before linking it to a Career Ops conversation, and SHALL persist only the application relationship.
 
 #### Scenario: Foreign application
 - **WHEN** a user requests an application-scoped conversation for an application owned by another user
@@ -29,6 +29,15 @@ The system SHALL verify that a requested application belongs to the authenticate
 #### Scenario: Unknown application
 - **WHEN** a user requests an application-scoped conversation for an application that does not exist
 - **THEN** the system responds `404` and creates no conversation
+
+#### Scenario: Application the agent cannot read
+- **WHEN** a user requests an application-scoped conversation for an application that the machine-read policy excludes, such as a demo record
+- **THEN** the system responds `404` and creates no conversation
+- **AND** no conversation is left whose stated context the agent could never retrieve
+
+#### Scenario: Linked application stops being agent-readable
+- **WHEN** a run starts on a conversation whose linked application is no longer readable under the machine-read policy
+- **THEN** the run proceeds with global context instead of naming an application the agent cannot retrieve
 
 #### Scenario: Only the relationship is stored
 - **WHEN** an application-scoped conversation is created

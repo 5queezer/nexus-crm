@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
     getCareerOpsRun: vi.fn(),
     createCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
-    verifyApplicationOwner: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -228,14 +227,24 @@ describe("threads", () => {
   });
 
   it("returns 404 when the requested application belongs to someone else", async () => {
-    mocks.db.verifyApplicationOwner.mockResolvedValue(false);
+    // The owner-scoped read is the check; a foreign id simply resolves to null.
+    mocks.db.getApplication.mockResolvedValue(null);
     const response = await createThread(post({ applicationId: "42" }));
     expect(response.status).toBe(404);
     expect(mocks.client.createSession).not.toHaveBeenCalled();
   });
 
+  it("returns 404 for a demo application the agent could not read via MCP", async () => {
+    mocks.db.getApplication.mockResolvedValue(null);
+    const response = await createThread(post({ applicationId: "42" }));
+    expect(response.status).toBe(404);
+    expect(mocks.db.getApplication).toHaveBeenCalledWith("42", "user-a", {
+      demoVisibility: "exclude",
+    });
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
+  });
+
   it("creates an owned application-scoped thread", async () => {
-    mocks.db.verifyApplicationOwner.mockResolvedValue(true);
     mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
     mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
     mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });

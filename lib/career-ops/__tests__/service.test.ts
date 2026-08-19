@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
     getCareerOpsRun: vi.fn(),
     createCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
-    verifyApplicationOwner: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -234,7 +233,7 @@ describe("thread lifecycle", () => {
   });
 
   it("verifies application ownership before linking", async () => {
-    mocks.db.verifyApplicationOwner.mockResolvedValue(false);
+    mocks.db.getApplication.mockResolvedValue(null);
     await expect(
       createCareerOpsThread(SESSION_A, { applicationId: "42" }),
     ).rejects.toMatchObject({ code: "not_found" });
@@ -242,7 +241,6 @@ describe("thread lifecycle", () => {
   });
 
   it("links an owned application and names the thread after it", async () => {
-    mocks.db.verifyApplicationOwner.mockResolvedValue(true);
     mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
     mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
     mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
@@ -253,6 +251,30 @@ describe("thread lifecycle", () => {
       "user-a",
       expect.objectContaining({ applicationId: "42", title: expect.stringContaining("Acme") }),
     );
+  });
+
+  it("resolves the application with an agent-visible, demo-excluding read", async () => {
+    mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
+    mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
+    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+
+    await createCareerOpsThread(SESSION_A, { applicationId: "42" });
+
+    expect(mocks.db.getApplication).toHaveBeenCalledWith("42", "user-a", {
+      demoVisibility: "exclude",
+    });
+  });
+
+  it("refuses a demo application, which the agent could never read through Nexus MCP", async () => {
+    // The demo-excluding read is what the MCP server itself uses, so an
+    // application it cannot see must not become a conversation's context.
+    mocks.db.getApplication.mockResolvedValue(null);
+
+    await expect(
+      createCareerOpsThread(SESSION_A, { applicationId: "42" }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
+    expect(mocks.db.createCareerOpsThread).not.toHaveBeenCalled();
   });
 
   it("lists only the caller's threads", async () => {
@@ -389,6 +411,22 @@ describe("startCareerOpsRun", () => {
     expect(args.instructions).toContain("42");
     expect(args.instructions).toContain("Acme");
     expect(args.instructions).not.toContain("TOP SECRET JOB TEXT");
+    expect(mocks.db.getApplication).toHaveBeenCalledWith("42", "user-a", {
+      demoVisibility: "exclude",
+    });
+  });
+
+  it("falls back to global instructions when the linked application is not agent-visible", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getApplication.mockResolvedValue(null);
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-1",
+    });
+
+    const [args] = mocks.client.createRun.mock.calls[0];
+    expect(args.instructions).not.toContain("application id 42");
   });
 
   it("refuses to start a run on a foreign thread", async () => {

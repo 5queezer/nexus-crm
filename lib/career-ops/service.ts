@@ -62,6 +62,15 @@ export type CareerOpsStatus = {
 };
 
 const UNSUPPORTED_CAPABILITIES = { stop: false, approvals: false, streaming: false };
+
+/**
+ * Career Ops resolves applications exactly the way the Nexus MCP server does.
+ *
+ * MCP reads exclude demo records, so an application it cannot see must not
+ * become a conversation's context: the thread would look correctly scoped while
+ * every tool call for that id came back not-found.
+ */
+const AGENT_VISIBLE_READ = { demoVisibility: "exclude" } as const;
 const APPROVAL_CHOICES: readonly CareerOpsApprovalChoice[] = ["once", "session", "always", "deny"];
 
 function enabledConfig(): Extract<CareerOpsConfig, { enabled: true }> {
@@ -213,14 +222,18 @@ export async function createCareerOpsThread(
   let title = (input.title ?? "").trim().slice(0, CAREER_OPS_MAX_TITLE_LENGTH);
 
   if (input.applicationId) {
-    const owned = await db.verifyApplicationOwner(input.applicationId, session.userId);
-    if (!owned) throw new CareerOpsServiceError("not_found", "Not found");
+    // One read both proves ownership and enforces agent visibility.
+    const application = await db.getApplication(
+      input.applicationId,
+      session.userId,
+      AGENT_VISIBLE_READ,
+    );
+    if (!application) throw new CareerOpsServiceError("not_found", "Not found");
     applicationId = input.applicationId;
     if (!title) {
-      const application = await db.getApplication(applicationId, session.userId);
       title = defaultTitle(
-        typeof application?.company === "string" ? application.company : "",
-        typeof application?.role === "string" ? application.role : "",
+        typeof application.company === "string" ? application.company : "",
+        typeof application.role === "string" ? application.role : "",
       );
     }
   }
@@ -278,7 +291,14 @@ async function threadInstructions(
   thread: CareerOpsThreadRecord,
 ): Promise<string> {
   if (!thread.applicationId) return buildGlobalInstructions();
-  const application = await getDb().getApplication(thread.applicationId, session.userId);
+  // The link can outlive the agent's ability to read it (deleted, or turned
+  // into demo data), so re-check visibility on every run rather than trusting
+  // the stored id.
+  const application = await getDb().getApplication(
+    thread.applicationId,
+    session.userId,
+    AGENT_VISIBLE_READ,
+  );
   if (!application) return buildGlobalInstructions();
   return buildApplicationContextInstructions({
     id: thread.applicationId,
