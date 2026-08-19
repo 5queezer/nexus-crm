@@ -293,6 +293,17 @@ describe("drawer behavior", () => {
     const dialog = await openDrawer(user);
     expect(dialog.getAttribute("aria-modal")).toBe("true");
   });
+
+  it("does not mark the panel as modal at desktop widths", async () => {
+    // The other half of the pair. It went unasserted for the whole PR, and the
+    // matchMedia leak meant a test written for it would have run as mobile
+    // anyway — which is how the focus trap came to contradict this semantics
+    // without anything failing.
+    const user = userEvent.setup();
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    expect(dialog.getAttribute("aria-modal")).toBeNull();
+  });
 });
 
 describe("threads", () => {
