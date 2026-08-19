@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
     renameCareerOpsThread: vi.fn(),
     deleteCareerOpsThread: vi.fn(),
     getCareerOpsRun: vi.fn(),
-    createCareerOpsRun: vi.fn(),
+    claimCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
@@ -306,7 +306,7 @@ describe("run creation", () => {
   beforeEach(() => {
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
     mocks.client.createRun.mockResolvedValue({ runId: "run_1" });
-    mocks.db.createCareerOpsRun.mockResolvedValue({ created: true, run: RUN });
+    mocks.db.claimCareerOpsRun.mockResolvedValue({ outcome: "claimed", run: RUN });
   });
 
   it("starts a run and returns 202", async () => {
@@ -344,8 +344,8 @@ describe("run creation", () => {
   });
 
   it("does not start a second upstream run for a duplicate client request id", async () => {
-    mocks.db.createCareerOpsRun.mockResolvedValue({
-      created: false,
+    mocks.db.claimCareerOpsRun.mockResolvedValue({
+      outcome: "existing",
       run: { ...RUN, hermesRunId: "run_first", status: "running" },
     });
     const response = await startRun(

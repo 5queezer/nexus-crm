@@ -667,6 +667,29 @@ export type CareerOpsRunStatus =
   | "failed"
   | "cancelled";
 
+/**
+ * Statuses in which a run may still be executing upstream.
+ *
+ * Single source of truth: the Postgres partial unique index in
+ * 20260819170000_career_ops_active_run_invariant lists exactly these values,
+ * and the Firestore claim transaction queries on them. Changing this list
+ * without changing that index would silently drop the one-active-run
+ * invariant on Postgres.
+ */
+/** Statuses from which a run can no longer change. */
+export const CAREER_OPS_TERMINAL_RUN_STATUSES = [
+  "completed",
+  "failed",
+  "cancelled",
+] as const satisfies readonly CareerOpsRunStatus[];
+
+export const CAREER_OPS_ACTIVE_RUN_STATUSES = [
+  "queued",
+  "running",
+  "waiting_for_approval",
+  "stopping",
+] as const satisfies readonly CareerOpsRunStatus[];
+
 export interface CareerOpsThreadRecord {
   id: string;
   userId: string;
@@ -706,8 +729,19 @@ export interface CreateCareerOpsRunInput {
   status: CareerOpsRunStatus;
 }
 
-export interface CreateCareerOpsRunResult {
-  run: CareerOpsRunRecord;
-  /** False when an existing run for (threadId, clientRequestId) was returned. */
-  created: boolean;
-}
+/**
+ * Outcome of an atomic attempt to claim the conversation's single active-run
+ * slot. The decision belongs to the database, not the caller: two concurrent
+ * submissions both pass any read-then-write guard, so the backends express the
+ * invariant natively (a partial unique index on Postgres, a transaction on
+ * Firestore) and report which of these happened.
+ */
+export type CareerOpsRunClaim =
+  /** This caller won the slot and created the reservation. */
+  | { outcome: "claimed"; run: CareerOpsRunRecord }
+  /** The same (threadId, clientRequestId) was already claimed — an idempotent retry. */
+  | { outcome: "existing"; run: CareerOpsRunRecord }
+  /** A different run already holds the conversation's active slot. */
+  | { outcome: "active_run_exists" }
+  /** The conversation no longer exists, or is not owned by this user. */
+  | { outcome: "thread_gone" };

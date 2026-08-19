@@ -42,19 +42,59 @@ class PrismaUniqueError extends Error {
   }
 }
 
-function matches(row: Row, where: Row): boolean {
-  return Object.entries(where).every(([key, value]) => row[key] === value);
+class PrismaForeignKeyError extends Error {
+  code = "P2003";
+  constructor() {
+    super("Foreign key constraint failed");
+  }
 }
 
-function makeTable(name: keyof typeof prismaTables, uniqueBy: string[]) {
+/**
+ * Mirrors the partial unique index created by
+ * 20260819170000_career_ops_active_run_invariant. Without it the fake would
+ * accept two live runs on one conversation and the parity suite would pass
+ * while real Postgres rejected the same write.
+ */
+const ACTIVE_STATUSES = ["queued", "running", "waiting_for_approval", "stopping"];
+
+function matches(row: Row, where: Row): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    // The monotonic status guard filters with `notIn`, so the fake has to model
+    // it or the guard would look effective here while doing nothing.
+    if (value && typeof value === "object" && "notIn" in (value as Row)) {
+      const excluded = (value as { notIn: unknown[] }).notIn;
+      return !excluded.includes(row[key]);
+    }
+    return row[key] === value;
+  });
+}
+
+function makeTable(
+  name: keyof typeof prismaTables,
+  uniqueBy: string[],
+  options: { activeRunIndex?: boolean; parent?: keyof typeof prismaTables } = {},
+) {
   const store = prismaTables[name];
   let sequence = 0;
   return {
     async create({ data }: { data: Row }) {
+      if (options.parent && !prismaTables[options.parent].has(data.threadId as string)) {
+        throw new PrismaForeignKeyError();
+      }
       const duplicate = Array.from(store.values()).some((row) =>
         uniqueBy.every((key) => row[key] === data[key]),
       );
       if (duplicate) throw new PrismaUniqueError();
+      if (
+        options.activeRunIndex &&
+        ACTIVE_STATUSES.includes(data.status as string) &&
+        Array.from(store.values()).some(
+          (row) =>
+            row.threadId === data.threadId && ACTIVE_STATUSES.includes(row.status as string),
+        )
+      ) {
+        throw new PrismaUniqueError();
+      }
       sequence += 1;
       const now = new Date(Date.now() + sequence);
       const row: Row = { id: `${name}-${sequence}`, createdAt: now, updatedAt: now, ...data };
@@ -106,7 +146,10 @@ function makeTable(name: keyof typeof prismaTables, uniqueBy: string[]) {
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     careerOpsThread: makeTable("careerOpsThread", ["userId", "hermesSessionId"]),
-    careerOpsRun: makeTable("careerOpsRun", ["threadId", "clientRequestId"]),
+    careerOpsRun: makeTable("careerOpsRun", ["threadId", "clientRequestId"], {
+      activeRunIndex: true,
+      parent: "careerOpsThread",
+    }),
     shareLink: { deleteMany: vi.fn() },
   },
 }));
@@ -212,6 +255,39 @@ function makeQuery(
 
 let autoId = 0;
 
+/** Serializes transactions so the fake matches Firestore's isolation. */
+let transactionQueue: Promise<void> = Promise.resolve();
+
+type TxHandle = {
+  get: (ref: { get: () => Promise<unknown> }) => Promise<unknown>;
+  create: (ref: MockRef, data: Row) => void;
+  set: (ref: MockRef, data: Row) => void;
+  update: (ref: MockRef, data: Row) => void;
+  delete: (ref: MockRef) => void;
+};
+
+async function runSerializedTransaction<T>(
+  callback: (transaction: TxHandle) => Promise<T>,
+): Promise<T> {
+  const writes: Array<() => void> = [];
+  const result = await callback({
+    get: (ref) => ref.get(),
+    create: (ref, data) => {
+      if (ref.__store.has(ref.id)) throw Object.assign(new Error("already exists"), { code: 6 });
+      writes.push(() => ref.__store.set(ref.id, data));
+    },
+    set: (ref, data) => writes.push(() => ref.__store.set(ref.id, data)),
+    update: (ref, data) => {
+      const current = ref.__store.get(ref.id);
+      if (!current) throw new Error("not_found");
+      writes.push(() => ref.__store.set(ref.id, { ...current, ...data }));
+    },
+    delete: (ref) => writes.push(() => ref.__store.delete(ref.id)),
+  });
+  writes.forEach((write) => write());
+  return result;
+}
+
 function makeCollection(store: Map<string, Row>) {
   return {
     ...makeQuery(store),
@@ -232,30 +308,25 @@ vi.mock("firebase-admin/firestore", () => ({
       return makeCollection(firestoreStores[name]);
     },
     getAll: vi.fn(),
-    async runTransaction<T>(callback: (transaction: {
-      get: (ref: { get: () => Promise<unknown> }) => Promise<unknown>;
-      create: (ref: MockRef, data: Row) => void;
-      set: (ref: MockRef, data: Row) => void;
-      update: (ref: MockRef, data: Row) => void;
-      delete: (ref: MockRef) => void;
-    }) => Promise<T>): Promise<T> {
-      const writes: Array<() => void> = [];
-      const result = await callback({
-        get: (ref) => ref.get(),
-        create: (ref, data) => {
-          if (ref.__store.has(ref.id)) throw Object.assign(new Error("already exists"), { code: 6 });
-          writes.push(() => ref.__store.set(ref.id, data));
-        },
-        set: (ref, data) => writes.push(() => ref.__store.set(ref.id, data)),
-        update: (ref, data) => {
-          const current = ref.__store.get(ref.id);
-          if (!current) throw new Error("not_found");
-          writes.push(() => ref.__store.set(ref.id, { ...current, ...data }));
-        },
-        delete: (ref) => writes.push(() => ref.__store.delete(ref.id)),
+    /**
+     * Firestore transactions are serializable: a concurrent writer that
+     * invalidates the read set causes an abort and retry. The fake models that
+     * guarantee by running transactions one at a time, so a concurrency test
+     * here fails for the same reason it would against a real Firestore rather
+     * than passing because the fake has no isolation at all.
+     */
+    async runTransaction<T>(callback: (transaction: TxHandle) => Promise<T>): Promise<T> {
+      const previous = transactionQueue;
+      let release!: () => void;
+      transactionQueue = new Promise<void>((resolve) => {
+        release = resolve;
       });
-      writes.forEach((write) => write());
-      return result;
+      await previous;
+      try {
+        return await runSerializedTransaction(callback);
+      } finally {
+        release();
+      }
     },
     batch: () => {
       const writes: Array<() => void> = [];
@@ -294,6 +365,7 @@ vi.mock("@/types", () => ({
 import { PrismaAdapter } from "../prisma-adapter";
 import { FirestoreAdapter } from "../firestore-adapter";
 import type { DatabaseAdapter } from "../adapter";
+import type { CareerOpsRunStatus } from "../types";
 
 const backends: Array<[string, () => DatabaseAdapter]> = [
   ["prisma", () => new PrismaAdapter()],
@@ -321,6 +393,26 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       title: overrides.title ?? "Career Ops",
       applicationId: overrides.applicationId ?? null,
     });
+  }
+
+  /**
+   * Legacy shape used by the tests written against the pre-atomic API. The
+   * claim now reports why it failed, so translate the two success outcomes and
+   * make any refusal loud rather than silently returning undefined.
+   */
+  async function claimRun(
+    userId: string,
+    data: {
+      threadId: string;
+      hermesRunId: string;
+      clientRequestId: string;
+      status: CareerOpsRunStatus;
+    },
+  ) {
+    const claim = await db.claimCareerOpsRun(userId, data);
+    if (claim.outcome === "active_run_exists") throw new Error("active_run_exists");
+    if (claim.outcome === "thread_gone") throw new Error("thread_gone");
+    return { run: claim.run, created: claim.outcome === "claimed" };
   }
 
   it("creates and reads back an owner-scoped thread", async () => {
@@ -377,7 +469,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("creates a run and reads it back under the owner", async () => {
     const thread = await seedThread("user-a");
-    const { run, created } = await db.createCareerOpsRun("user-a", {
+    const { run, created } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-request-1",
@@ -396,13 +488,13 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("deduplicates run creation on (threadId, clientRequestId)", async () => {
     const thread = await seedThread("user-a");
-    const first = await db.createCareerOpsRun("user-a", {
+    const first = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "same-client-id",
       status: "queued",
     });
-    const second = await db.createCareerOpsRun("user-a", {
+    const second = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_2",
       clientRequestId: "same-client-id",
@@ -415,15 +507,17 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(second.run.hermesRunId).toBe("run_1");
   });
 
-  it("creates distinct runs for distinct client request identifiers", async () => {
+  it("creates distinct runs for distinct client request ids once the first settles", async () => {
     const thread = await seedThread("user-a");
-    const first = await db.createCareerOpsRun("user-a", {
+    const first = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-one",
       status: "queued",
     });
-    const second = await db.createCareerOpsRun("user-a", {
+    await db.updateCareerOpsRunStatus(first.run.id, "user-a", "completed");
+
+    const second = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_2",
       clientRequestId: "client-id-two",
@@ -433,13 +527,111 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(second.created).toBe(true);
   });
 
+  it("admits only one active run per conversation", async () => {
+    // Two tabs, two different client request ids, no coordination. Only the
+    // database can decide this — a read-then-write guard lets both through and
+    // both start a privileged agent run against one Hermes session.
+    const thread = await seedThread("user-a");
+    await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "tab-one",
+      status: "queued",
+    });
+
+    await expect(
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_2",
+        clientRequestId: "tab-two",
+        status: "queued",
+      }),
+    ).resolves.toEqual({ outcome: "active_run_exists" });
+  });
+
+  it("admits only one winner when concurrent claims race", async () => {
+    const thread = await seedThread("user-a");
+    const results = await Promise.all(
+      ["tab-one", "tab-two", "tab-three"].map((clientRequestId) =>
+        db.claimCareerOpsRun("user-a", {
+          threadId: thread.id,
+          hermesRunId: "",
+          clientRequestId,
+          status: "queued",
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.outcome === "claimed")).toHaveLength(1);
+    expect(results.filter((r) => r.outcome === "active_run_exists")).toHaveLength(2);
+  });
+
+  it("resolves an idempotent retry to its own run rather than refusing it", async () => {
+    // The first attempt's own reservation is the conversation's active run, so
+    // a naive active-run guard would reject the retry that is trying to recover
+    // from a lost response.
+    const thread = await seedThread("user-a");
+    const first = await db.claimCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "same-id",
+      status: "queued",
+    });
+    const retry = await db.claimCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "same-id",
+      status: "queued",
+    });
+    expect(first.outcome).toBe("claimed");
+    expect(retry).toMatchObject({ outcome: "existing" });
+    if (retry.outcome !== "existing") throw new Error("unreachable");
+    if (first.outcome !== "claimed") throw new Error("unreachable");
+    expect(retry.run.id).toBe(first.run.id);
+  });
+
+  it("reports a claim against a deleted conversation as gone, not as a new run", async () => {
+    // Failure injection for the delete-during-submit race: the thread vanishes
+    // between the caller's ownership read and the write. If this produced a run
+    // anyway, a privileged Hermes run could execute with no resolvable mapping.
+    const thread = await seedThread("user-a");
+    await db.deleteCareerOpsThread(thread.id, "user-a");
+
+    await expect(
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "",
+        clientRequestId: "orphan",
+        status: "queued",
+      }),
+    ).resolves.toEqual({ outcome: "thread_gone" });
+  });
+
+  it("never moves a terminal run back to an active status", async () => {
+    // A delayed status poll that observed `running` must not resurrect a run
+    // the event stream already settled — that would both misreport the run and
+    // re-occupy the conversation's single active slot.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-one",
+      status: "running",
+    });
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "running");
+
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      status: "completed",
+    });
+  });
+
   it("finds the run already claimed by a client request id", async () => {
     const thread = await seedThread("user-a");
     await expect(
       db.findCareerOpsRunByClientRequestId(thread.id, "user-a", "client-id-lookup"),
     ).resolves.toBeNull();
 
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-lookup",
@@ -457,13 +649,13 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
   it("scopes deduplication per owner, so two users never collide", async () => {
     const threadA = await seedThread("user-a", { hermesSessionId: "sa" });
     const threadB = await seedThread("user-b", { hermesSessionId: "sb" });
-    const a = await db.createCareerOpsRun("user-a", {
+    const a = await claimRun("user-a", {
       threadId: threadA.id,
       hermesRunId: "run_a",
       clientRequestId: "shared-client-id",
       status: "queued",
     });
-    const b = await db.createCareerOpsRun("user-b", {
+    const b = await claimRun("user-b", {
       threadId: threadB.id,
       hermesRunId: "run_b",
       clientRequestId: "shared-client-id",
@@ -477,21 +669,21 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.getCareerOpsRun(b.run.id, "user-a")).resolves.toBeNull();
   });
 
-  it("refuses to create a run on a thread the caller does not own", async () => {
+  it("refuses to claim a run on a thread the caller does not own", async () => {
     const thread = await seedThread("user-a");
     await expect(
-      db.createCareerOpsRun("user-b", {
+      db.claimCareerOpsRun("user-b", {
         threadId: thread.id,
         hermesRunId: "run_x",
         clientRequestId: "client-id-x",
         status: "queued",
       }),
-    ).rejects.toThrow();
+    ).resolves.toEqual({ outcome: "thread_gone" });
   });
 
   it("updates a run status only for its owner", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-status",
@@ -509,7 +701,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("binds an upstream run id onto a reservation", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "",
       clientRequestId: "client-id-reserve",
@@ -526,7 +718,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("refuses to bind or delete another user's run", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "",
       clientRequestId: "client-id-foreign",
@@ -540,7 +732,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("releases a reservation so the same client request id can be retried", async () => {
     const thread = await seedThread("user-a");
-    const first = await db.createCareerOpsRun("user-a", {
+    const first = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "",
       clientRequestId: "client-id-release",
@@ -549,7 +741,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await db.deleteCareerOpsRun(first.run.id, "user-a");
     await expect(db.getCareerOpsRun(first.run.id, "user-a")).resolves.toBeNull();
 
-    const second = await db.createCareerOpsRun("user-a", {
+    const second = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_retry",
       clientRequestId: "client-id-release",
@@ -563,13 +755,13 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     const thread = await seedThread("user-a");
     await expect(db.getLatestCareerOpsRun(thread.id, "user-a")).resolves.toBeNull();
 
-    await db.createCareerOpsRun("user-a", {
+    await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_old",
       clientRequestId: "client-id-old",
       status: "completed",
     });
-    const newer = await db.createCareerOpsRun("user-a", {
+    const newer = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_new",
       clientRequestId: "client-id-new",
@@ -585,7 +777,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("deletes a thread together with its runs", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-delete",
@@ -601,7 +793,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("records who decided an approval and when, and nothing else", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-approval",
@@ -621,7 +813,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("ignores an approval decision recorded by another user", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-foreign-approval",
@@ -635,7 +827,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
   it("stores no credential material on either record", async () => {
     const thread = await seedThread("user-a");
-    const { run } = await db.createCareerOpsRun("user-a", {
+    const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
       clientRequestId: "client-id-secret",

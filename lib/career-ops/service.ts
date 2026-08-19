@@ -408,17 +408,20 @@ export async function deleteCareerOpsThread(
     );
   }
   if (active && active.hermesRunId) {
-    try {
-      await client(config).stopRun(active.hermesRunId);
-    } catch (reason) {
-      // Deleting anyway would destroy the last handle on a still-executing
-      // privileged run. Keep the mapping so the owner can retry.
-      console.warn("career-ops: stop before delete failed", redactUpstreamError(reason));
+    // A stop is only an acknowledgement — Hermes reports `stopping` and settles
+    // later. Deleting on the acknowledgement would discard the last handle on a
+    // run whose tool call has not yet honoured cancellation, so wait for an
+    // observed terminal state and keep the mapping if it never arrives.
+    const confirmed = await stopAndConfirmTerminal(config, active.hermesRunId);
+    if (!confirmed) {
       throw new CareerOpsServiceError(
         "conflict",
-        "The active run could not be stopped; the conversation was not deleted",
+        "The active run could not be confirmed stopped; the conversation was not deleted",
       );
     }
+    await getDb()
+      .updateCareerOpsRunStatus(active.id, session.userId, "cancelled")
+      .catch(() => undefined);
   }
 
   // Then remove the Nexus mapping unconditionally: leaving a mapping behind
@@ -492,6 +495,64 @@ async function threadInstructions(
   });
 }
 
+const TERMINAL_RUN_STATUSES: readonly string[] = ["completed", "failed", "cancelled"];
+
+/** How long to wait for a stopped run to actually settle. */
+function stopConfirmationWindowMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
+  return Math.min(Math.max(config.connectTimeoutMs * 3, 3_000), 15_000);
+}
+
+/**
+ * Stop an upstream run and confirm it actually reached a terminal state.
+ *
+ * `POST /v1/runs/{id}/stop` only acknowledges the request — Hermes reports
+ * `stopping` and settles later — so treating the acknowledgement as the end of
+ * the run lets a tool that has not yet honoured cancellation keep mutating CRM
+ * data while Nexus throws away the only handle to it. Callers that are about to
+ * discard a mapping must know whether the run is really finished.
+ *
+ * Returns true only on observed terminal state. A stop that fails, a status
+ * that never settles, and a deadline overrun all return false: unknown is not
+ * stopped.
+ */
+async function stopAndConfirmTerminal(
+  config: Extract<CareerOpsConfig, { enabled: true }>,
+  hermesRunId: string,
+): Promise<boolean> {
+  const api = client(config);
+  try {
+    await api.stopRun(hermesRunId);
+  } catch (reason) {
+    // A run Hermes has already forgotten cannot still be executing; anything
+    // else leaves the outcome unknown.
+    if (reason instanceof HermesError && reason.kind === "not_found") return true;
+    return false;
+  }
+
+  // Bounded by a short window, not the run lifetime: this runs inside a request
+  // the user is waiting on, and "not settled yet" is a safe answer — the caller
+  // keeps the mapping and the owner can retry. Blocking for the full run
+  // timeout would hang a delete for minutes to reach the same conclusion.
+  const deadline = Date.now() + stopConfirmationWindowMs(config);
+  let delayMs = 200;
+  while (Date.now() < deadline) {
+    try {
+      const status = await api.getRun(hermesRunId);
+      if (TERMINAL_RUN_STATUSES.includes(status.status)) return true;
+    } catch (reason) {
+      if (reason instanceof HermesError && reason.kind === "not_found") return true;
+      return false;
+    }
+    await sleep(Math.min(delayMs, Math.max(0, deadline - Date.now())));
+    delayMs = Math.min(delayMs * 2, 2_000);
+  }
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function startCareerOpsRun(
   session: CareerOpsSession,
   threadId: string,
@@ -517,38 +578,31 @@ export async function startCareerOpsRun(
 
   const db = getDb();
 
-  // One active run per thread. The unique key only covers
-  // (threadId, clientRequestId), so two tabs with different ids would
-  // otherwise both start runs against the same Hermes session, interleaving
-  // conversation state and each executing tools or requesting approvals.
-  // An idempotent retry must resolve to its own run, not be refused for being
-  // concurrent with itself. This lookup has to precede the active-run guard:
-  // the first attempt's reservation IS the active run the guard would reject,
-  // and a client whose first response was lost would then see failure while the
-  // agent kept executing.
-  const already = await db.findCareerOpsRunByClientRequestId(
-    threadId,
-    session.userId,
-    input.clientRequestId,
-  );
-  if (already) return already;
-
-  const inFlight = await getActiveCareerOpsRun(session, threadId);
-  if (inFlight) {
-    throw new CareerOpsServiceError("conflict", "This conversation already has a run in progress");
-  }
-
-  // Claim (threadId, clientRequestId) BEFORE any upstream work. Starting the
-  // Hermes run first and deduplicating afterwards would let a retry launch a
-  // second privileged agent run that can execute tools and mutate CRM data in
-  // the window before a best-effort stop lands — and that stop can fail.
-  const { run: reservation, created } = await db.createCareerOpsRun(session.userId, {
+  // One atomic claim decides all three questions: is this an idempotent retry,
+  // does the conversation already hold a live run, and does the conversation
+  // still exist. A read-then-write sequence cannot decide any of them — two
+  // submissions both pass it and both start a privileged agent run against the
+  // same Hermes session — so the invariant lives in the database.
+  const claim = await db.claimCareerOpsRun(session.userId, {
     threadId,
     hermesRunId: "",
     clientRequestId: input.clientRequestId,
     status: "queued",
   });
-  if (!created) return reservation;
+  if (claim.outcome === "existing") return claim.run;
+  if (claim.outcome === "thread_gone") {
+    throw new CareerOpsServiceError("not_found", "Not found");
+  }
+  if (claim.outcome === "active_run_exists") {
+    // An expired unbound reservation must not wedge the conversation forever.
+    // Settle it, then let the caller retry into the freed slot.
+    const stale = await db.getLatestCareerOpsRun(threadId, session.userId);
+    if (stale && isStaleUnboundReservation(stale, config)) {
+      await db.updateCareerOpsRunStatus(stale.id, session.userId, "failed").catch(() => undefined);
+    }
+    throw new CareerOpsServiceError("conflict", "This conversation already has a run in progress");
+  }
+  const reservation = claim.run;
 
   let instructions: string;
   try {
@@ -588,18 +642,28 @@ export async function startCareerOpsRun(
   try {
     bound = await db.bindCareerOpsRunHermesId(reservation.id, session.userId, runId);
   } catch (reason) {
-    // The upstream run is live but Nexus could not record its id. Leaving the
-    // reservation would strand it: a retry with the same client request id
-    // returns the unbound row, so the run could never be observed, stopped or
-    // approved. Kill the orphan and release the claim so the retry works.
-    void client(config).stopRun(runId).catch(() => undefined);
-    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    // The upstream run is live but Nexus could not record its id. Releasing the
+    // claim is only safe once that run is provably finished — an unawaited stop
+    // can be cut short by the process ending, and Hermes can reject it, either
+    // of which would let a retry start a second privileged run alongside the
+    // first. Confirm termination before freeing the slot; if it cannot be
+    // confirmed, keep the reservation so the conversation stays blocked rather
+    // than running two agents against one session.
+    const confirmed = await stopAndConfirmTerminal(config, runId).catch(() => false);
+    if (confirmed) {
+      await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    } else {
+      await db
+        .updateCareerOpsRunStatus(reservation.id, session.userId, "stopping")
+        .catch(() => undefined);
+    }
     throw toServiceError(reason);
   }
   if (!bound) {
     // The reservation vanished under us (concurrent thread delete). Same
-    // reasoning: do not leave a live agent run nothing can address.
-    void client(config).stopRun(runId).catch(() => undefined);
+    // reasoning: do not leave a live agent run nothing can address — and await
+    // the stop, because the response may end this process.
+    await stopAndConfirmTerminal(config, runId).catch(() => false);
     throw new CareerOpsServiceError("conflict", "The conversation is no longer available");
   }
   return bound;
@@ -626,6 +690,15 @@ export async function getCareerOpsRunStatus(
     await getDb().updateCareerOpsRunStatus(run.id, session.userId, upstream.status);
     return upstream;
   } catch (reason) {
+    // Hermes retains run status for a bounded window. Once it has forgotten a
+    // bound run, no upstream run exists any more — but the local row would stay
+    // active forever and, with one active run per conversation, wedge it. A
+    // definitive 404 is therefore reconciled into a terminal local state.
+    if (reason instanceof HermesError && reason.kind === "not_found") {
+      await getDb()
+        .updateCareerOpsRunStatus(run.id, session.userId, "failed")
+        .catch(() => undefined);
+    }
     throw toServiceError(reason);
   }
 }

@@ -62,8 +62,9 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
-  CreateCareerOpsRunResult,
+  CareerOpsRunClaim,
 } from "./types";
+import { CAREER_OPS_TERMINAL_RUN_STATUSES } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
 // ── Helpers: convert Prisma int IDs ↔ string IDs ────────────────────────────
@@ -2180,17 +2181,25 @@ export class PrismaAdapter implements DatabaseAdapter {
     return row ? mapCareerOpsRun(row) : null;
   }
 
-  async createCareerOpsRun(
+  async claimCareerOpsRun(
     userId: string,
     data: CreateCareerOpsRunInput,
-  ): Promise<CreateCareerOpsRunResult> {
-    const thread = await this.getCareerOpsThread(data.threadId, userId);
-    if (!thread) throw new Error("career_ops_thread_not_found");
+  ): Promise<CareerOpsRunClaim> {
+    // Ownership is a separate question from atomicity. A thread's owner never
+    // changes, so reading it is sufficient here, while the foreign key and the
+    // partial unique index below still decide existence and the active-run race
+    // at write time.
+    const owned = await prisma.careerOpsThread.findFirst({
+      where: { id: data.threadId, userId },
+    });
+    if (!owned) return { outcome: "thread_gone" };
 
+    // The idempotent-retry lookup comes next so a repeated submission resolves
+    // to its own reservation rather than colliding with itself.
     const existing = await prisma.careerOpsRun.findFirst({
       where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
     });
-    if (existing) return { run: mapCareerOpsRun(existing), created: false };
+    if (existing) return { outcome: "existing", run: mapCareerOpsRun(existing) };
 
     try {
       const row = await prisma.careerOpsRun.create({
@@ -2202,16 +2211,24 @@ export class PrismaAdapter implements DatabaseAdapter {
           status: data.status,
         },
       });
-      return { run: mapCareerOpsRun(row), created: true };
+      return { outcome: "claimed", run: mapCareerOpsRun(row) };
     } catch (error) {
-      // A concurrent duplicate won the unique index; return the winner so a
-      // retry can never observe two runs for one client request.
-      if ((error as { code?: string }).code !== "P2002") throw error;
+      const code = (error as { code?: string }).code;
+      // The thread was deleted between the caller's read and this write. The
+      // foreign key is what actually decides it, not a prior existence check.
+      if (code === "P2003") return { outcome: "thread_gone" };
+      if (code !== "P2002") throw error;
+
+      // Two constraints can raise P2002 here: the (threadId, clientRequestId)
+      // key when an identical retry raced us, and the partial unique index that
+      // admits one active run per thread. Re-read rather than trust the error
+      // metadata — if our own request id is present we lost a duplicate race,
+      // otherwise another run holds the slot.
       const winner = await prisma.careerOpsRun.findFirst({
         where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
       });
-      if (!winner) throw error;
-      return { run: mapCareerOpsRun(winner), created: false };
+      if (winner) return { outcome: "existing", run: mapCareerOpsRun(winner) };
+      return { outcome: "active_run_exists" };
     }
   }
 
@@ -2220,7 +2237,22 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     status: CareerOpsRunStatus,
   ): Promise<void> {
-    await prisma.careerOpsRun.updateMany({ where: { id, userId }, data: { status } });
+    // Status transitions are monotonic: a delayed poll that observed `running`
+    // must not overwrite a terminal state the event stream already persisted.
+    // Beyond showing a finished run as active, that would resurrect the row
+    // into the one-active-run index and wedge the conversation.
+    await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        ...(CAREER_OPS_TERMINAL_RUN_STATUSES.includes(
+          status as (typeof CAREER_OPS_TERMINAL_RUN_STATUSES)[number],
+        )
+          ? {}
+          : { status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] } }),
+      },
+      data: { status },
+    });
   }
 
   async bindCareerOpsRunHermesId(

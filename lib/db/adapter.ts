@@ -43,7 +43,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
-  CreateCareerOpsRunResult,
+  CareerOpsRunClaim,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -148,7 +148,13 @@ export interface DatabaseAdapter {
   /** Fetch one run, or null when it does not exist or belongs to someone else. */
   getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null>;
   /** Create a run, returning the existing one when (threadId, clientRequestId) is already used. */
-  createCareerOpsRun(userId: string, data: CreateCareerOpsRunInput): Promise<CreateCareerOpsRunResult>;
+  /**
+   * Atomically claim the conversation's single active-run slot. Implementations
+   * MUST decide the race in the database — a read followed by a write lets two
+   * concurrent submissions both start a privileged agent run against one Hermes
+   * session — and MUST refuse a run whose parent thread is gone.
+   */
+  claimCareerOpsRun(userId: string, data: CreateCareerOpsRunInput): Promise<CareerOpsRunClaim>;
   /** Record the last-known Hermes run state. No-op when the run is not the user's. */
   updateCareerOpsRunStatus(id: string, userId: string, status: CareerOpsRunStatus): Promise<void>;
   /**

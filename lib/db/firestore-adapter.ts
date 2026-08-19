@@ -62,7 +62,11 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
-  CreateCareerOpsRunResult,
+  CareerOpsRunClaim,
+} from "./types";
+import {
+  CAREER_OPS_ACTIVE_RUN_STATUSES,
+  CAREER_OPS_TERMINAL_RUN_STATUSES,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -2561,34 +2565,50 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return this.mapCareerOpsRun(snapshot.id, data);
   }
 
-  async createCareerOpsRun(
+  async claimCareerOpsRun(
     userId: string,
     data: CreateCareerOpsRunInput,
-  ): Promise<CreateCareerOpsRunResult> {
-    const thread = await this.getCareerOpsThread(data.threadId, userId);
-    if (!thread) throw new Error("career_ops_thread_not_found");
-
+  ): Promise<CareerOpsRunClaim> {
     const ref = this.careerOpsRunRef(data.threadId, data.clientRequestId);
-    const now = Timestamp.now();
-    const payload = {
-      userId,
-      threadId: data.threadId,
-      hermesRunId: data.hermesRunId,
-      clientRequestId: data.clientRequestId,
-      status: data.status,
-      createdAt: now,
-      updatedAt: now,
-    };
-    try {
-      await ref.create(payload);
-      return { run: this.mapCareerOpsRun(ref.id, payload), created: true };
-    } catch {
-      const existing = await ref.get();
-      if (!existing.exists) throw new Error("career_ops_run_create_failed");
-      const current = existing.data()!;
-      if (current.userId !== userId) throw new Error("career_ops_run_create_failed");
-      return { run: this.mapCareerOpsRun(existing.id, current), created: false };
-    }
+    const threadRef = this.careerOpsThreads.doc(data.threadId);
+    // Firestore has no partial unique index, so the invariant Postgres gets
+    // from one is enforced here by doing every read and the write inside one
+    // transaction. Reading the parent thread in the same transaction is what
+    // stops a concurrent thread deletion from leaving a live run behind with
+    // no mapping to observe or stop it.
+    return this.db.runTransaction<CareerOpsRunClaim>(async (tx) => {
+      const thread = await tx.get(threadRef);
+      if (!thread.exists || thread.data()!.userId !== userId) {
+        return { outcome: "thread_gone" };
+      }
+
+      const mine = await tx.get(ref);
+      if (mine.exists) {
+        const current = mine.data()!;
+        if (current.userId !== userId) return { outcome: "thread_gone" };
+        return { outcome: "existing", run: this.mapCareerOpsRun(mine.id, current) };
+      }
+
+      const active = await tx.get(
+        this.careerOpsRuns
+          .where("threadId", "==", data.threadId)
+          .where("status", "in", [...CAREER_OPS_ACTIVE_RUN_STATUSES]),
+      );
+      if (!active.empty) return { outcome: "active_run_exists" };
+
+      const now = Timestamp.now();
+      const payload = {
+        userId,
+        threadId: data.threadId,
+        hermesRunId: data.hermesRunId,
+        clientRequestId: data.clientRequestId,
+        status: data.status,
+        createdAt: now,
+        updatedAt: now,
+      };
+      tx.create(ref, payload);
+      return { outcome: "claimed", run: this.mapCareerOpsRun(ref.id, payload) };
+    });
   }
 
   async updateCareerOpsRunStatus(
@@ -2597,9 +2617,22 @@ export class FirestoreAdapter implements DatabaseAdapter {
     status: CareerOpsRunStatus,
   ): Promise<void> {
     const ref = this.careerOpsRuns.doc(id);
-    const snapshot = await ref.get();
-    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
-    await ref.update({ status, updatedAt: Timestamp.now() });
+    const terminal = (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(status);
+    // Same monotonicity rule as the relational backend, and for the same
+    // reason: a late poll must not move a settled run back to active. Read and
+    // write in one transaction so the check cannot be raced.
+    await this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+      const current = snapshot.data()!.status as string;
+      if (
+        !terminal &&
+        (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(current)
+      ) {
+        return;
+      }
+      tx.update(ref, { status, updatedAt: Timestamp.now() });
+    });
   }
 
   async bindCareerOpsRunHermesId(
