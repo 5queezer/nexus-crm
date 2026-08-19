@@ -19,6 +19,7 @@ const { prismaTables, firestoreStores } = vi.hoisted(() => ({
   prismaTables: {
     careerOpsThread: new Map<string, Row>(),
     careerOpsRun: new Map<string, Row>(),
+    application: new Map<string, Row>(),
   },
   firestoreStores: {
     careerOpsThreads: new Map<string, Row>(),
@@ -79,13 +80,29 @@ function matches(row: Row, where: Row): boolean {
 function makeTable(
   name: keyof typeof prismaTables,
   uniqueBy: string[],
-  options: { activeRunIndex?: boolean; parent?: keyof typeof prismaTables } = {},
+  options: {
+    activeRunIndex?: boolean;
+    parent?: keyof typeof prismaTables;
+    /** Models the nullable FK from a thread to the application it is scoped to. */
+    optionalParent?: { table: keyof typeof prismaTables; field: string };
+  } = {},
 ) {
   const store = prismaTables[name];
   let sequence = 0;
   return {
     async create({ data }: { data: Row }) {
       if (options.parent && !prismaTables[options.parent].has(data.threadId as string)) {
+        throw new PrismaForeignKeyError();
+      }
+      const link = options.optionalParent
+        ? (data[options.optionalParent.field] as string | number | null)
+        : null;
+      if (
+        options.optionalParent &&
+        link !== null &&
+        link !== undefined &&
+        !prismaTables[options.optionalParent.table].has(String(link))
+      ) {
         throw new PrismaForeignKeyError();
       }
       const duplicate = Array.from(store.values()).some((row) =>
@@ -152,7 +169,9 @@ function makeTable(
 
 vi.mock("@/lib/prisma", () => {
   const client: Record<string, unknown> = {
-    careerOpsThread: makeTable("careerOpsThread", ["userId", "hermesSessionId"]),
+    careerOpsThread: makeTable("careerOpsThread", ["userId", "hermesSessionId"], {
+      optionalParent: { table: "application", field: "applicationId" },
+    }),
     careerOpsRun: makeTable("careerOpsRun", ["threadId", "clientRequestId"], {
       activeRunIndex: true,
       parent: "careerOpsThread",
@@ -409,6 +428,16 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
   }
 
   /**
+   * Both backends require the linked application to exist when a scoped
+   * conversation is written — relationally through a foreign key, in Firestore
+   * through a re-read inside the creating transaction.
+   */
+  function seedApplication(id: string, userId: string) {
+    firestoreStores.applications.set(id, { userId, company: "Acme", role: "Engineer" });
+    prismaTables.application.set(id, { id, userId });
+  }
+
+  /**
    * Legacy shape used by the tests written against the pre-atomic API. The
    * claim now reports why it failed, so translate the two success outcomes and
    * make any refusal loud rather than silently returning undefined.
@@ -475,6 +504,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
   });
 
   it("persists an application link on the thread", async () => {
+    seedApplication("42", "user-a");
     const thread = await seedThread("user-a", { applicationId: "42" });
     expect(thread.applicationId).toBe("42");
     await expect(db.getCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
@@ -826,6 +856,19 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
     const listed = await db.listCareerOpsThreads("user-a");
     expect(listed[0]?.id).toBe(older.id);
+  });
+
+  it("refuses to scope a conversation to an application that vanished", async () => {
+    // The application is verified before Hermes is asked for a session, and can
+    // be deleted during that round-trip; writing the thread anyway would point
+    // a conversation at a record that no longer exists.
+    await expect(
+      db.createCareerOpsThread("user-a", {
+        hermesSessionId: "sess-vanished",
+        title: "Gone",
+        applicationId: "999",
+      }),
+    ).rejects.toThrow();
   });
 
   it("refuses to delete a conversation that still holds an active run", async () => {

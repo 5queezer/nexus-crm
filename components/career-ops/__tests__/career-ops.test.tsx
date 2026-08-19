@@ -381,6 +381,27 @@ describe("application context", () => {
     expect(within(dialog).getByText("CURRENT ANSWER")).toBeTruthy();
   });
 
+  it("does not keep an unsent message in the transcript when the run is refused", async () => {
+    const user = userEvent.setup();
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ error: "conflict" }, 409));
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    const composer = within(dialog).getByRole("textbox");
+    await user.type(composer, "please update my pipeline");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+
+    // Nothing was sent, so the text must not be presented as history — and the
+    // user must not have to retype it.
+    await waitFor(() => expect((composer as HTMLTextAreaElement).value).toBe(
+      "please update my pipeline",
+    ));
+    const transcript = within(dialog).queryAllByRole("listitem");
+    expect(
+      transcript.filter((item) => item.textContent?.includes("please update my pipeline")),
+    ).toHaveLength(0);
+  });
+
   it("links the history disclosure to the panel it controls", async () => {
     const user = userEvent.setup();
     renderCareerOps();

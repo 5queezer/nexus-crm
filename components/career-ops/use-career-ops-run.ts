@@ -262,10 +262,14 @@ export function useCareerOpsRun(
     [applyEvent, onSettled, settleFromStatus],
   );
 
+  /**
+   * Returns true only once Hermes has accepted the run, so the caller knows
+   * whether the message it optimistically rendered actually went anywhere.
+   */
   const start = useCallback(
-    async (threadId: string, message: string) => {
+    async (threadId: string, message: string): Promise<boolean> => {
       // A second submit while one is starting must never create a second run.
-      if (startingRef.current) return;
+      if (startingRef.current) return false;
       startingRef.current = true;
 
       abortRef.current?.abort();
@@ -289,12 +293,13 @@ export function useCareerOpsRun(
         const code =
           reason instanceof CareerOpsRequestError ? reason.code : "error_generic";
         settle("failed", code);
-        return;
+        return false;
       }
 
       startingRef.current = false;
       setState((current) => ({ ...current, runId, phase: "streaming" }));
       await consume(runId, controller.signal);
+      return true;
     },
     [consume, settle],
   );

@@ -93,7 +93,7 @@ This is a property of the deployment shape, not something the Nexus BFF can fix:
 *Impact:* a compromised Hermes can return anything, and already holds a Nexus MCP token.
 
 - A compromised Hermes is a compromise of everything its MCP token can reach. **Nexus cannot mitigate this** — the mitigations are deployment isolation, a dedicated and narrowly scoped Nexus API token for the profile, and monitoring.
-- What Nexus does bound: response parsing is defensive (unknown statuses map to `failed`, missing fields are tolerated, non-JSON bodies are rejected), all upstream text is redacted before logging, all lengths are capped, and `redirect: "error"` prevents the upstream from steering a request elsewhere.
+- What Nexus does bound: response parsing is defensive (unknown statuses map to `failed`, missing fields are tolerated, non-JSON bodies are rejected), all upstream text is redacted before logging, response and frame sizes are bounded while reading, and `redirect: "error"` prevents the upstream from steering a request elsewhere.
 - The browser is never told to connect to Hermes, so a compromised upstream cannot pivot into the user's origin.
 
 ### T9 — Over-privileged Career Ops profile
@@ -108,7 +108,8 @@ This is a property of the deployment shape, not something the Nexus BFF can fix:
 - Bodies are capped at 32 KB and messages at 8 000 characters, checked before any upstream request.
 - Run creation, stop, and approval are rate limited per authenticated user (not per source address, so a shared proxy address cannot be used to exhaust one bucket).
 - Connect, idle, and total-run timeouts are bounded and configurable, enforced with `AbortSignal`; upstream `429` is surfaced with `Retry-After`.
-- Nexus keeps no per-run server-side buffer, so a stream cannot grow unbounded memory.
+- Response bodies are read through a byte bound and cancelled at the limit rather than buffered whole, on both success and error paths, so an upstream that returns an unbounded reply cannot exhaust the process.
+- The SSE reader caps a single unterminated frame (256 KB) and the total payload of one run stream (8 MB), and aborts the stream when either is exceeded. Without the frame cap an upstream that never sends a blank-line delimiter would grow the buffer without end.
 
 ### T11 — Data at rest
 

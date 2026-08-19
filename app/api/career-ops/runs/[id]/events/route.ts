@@ -3,7 +3,12 @@ import {
   openCareerOpsRunEvents,
   recordCareerOpsRunStatus,
 } from "@/lib/career-ops/service";
-import { SseFrameParser, normalizeHermesEvent, serializeCareerOpsEvent } from "@/lib/career-ops/sse";
+import {
+  SseFrameParser,
+  SseStreamTooLargeError,
+  normalizeHermesEvent,
+  serializeCareerOpsEvent,
+} from "@/lib/career-ops/sse";
 import type { CareerOpsRunStatus } from "@/lib/db/types";
 import {
   careerOpsErrorResponse,
@@ -124,8 +129,17 @@ export async function GET(request: Request, context: Context) {
           for (const payload of parser.push(text)) await handle(payload);
         }
         for (const payload of parser.flush()) await handle(payload);
-      } catch {
-        emit(serializeCareerOpsEvent({ type: "error", message: "stream_interrupted" }));
+      } catch (reason) {
+        // A stream that blew the size bounds is a broken or hostile upstream,
+        // not a transport hiccup; say so distinctly so the client settles from
+        // run status rather than retrying into the same flood.
+        emit(
+          serializeCareerOpsEvent({
+            type: "error",
+            message:
+              reason instanceof SseStreamTooLargeError ? "stream_too_large" : "stream_interrupted",
+          }),
+        );
       } finally {
         reader.cancel().catch(() => undefined);
         abort.abort();

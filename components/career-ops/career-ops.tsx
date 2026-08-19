@@ -377,14 +377,23 @@ export function CareerOps({
     // Move the finished answer of the previous turn into the transcript before
     // the next run resets the live buffer, so earlier replies stay visible.
     const previousAnswer = run.answer;
+    const optimisticId = `local-${Date.now()}`;
+    const restored = messages;
     setMessages((current) => [
       ...current,
       ...(previousAnswer
         ? [{ id: `answer-${current.length}`, role: "assistant" as const, content: previousAnswer }]
         : []),
-      { id: `local-${current.length + 1}`, role: "user" as const, content: message },
+      { id: optimisticId, role: "user" as const, content: message },
     ]);
-    await start(activeThreadId, message);
+
+    const accepted = await start(activeThreadId, message);
+    if (!accepted) {
+      // Nothing was sent. Leaving the text in the transcript would present an
+      // unsent message as conversation history and make the user retype it.
+      setMessages(restored);
+      setDraft((current) => (current === "" ? message : current));
+    }
   }
 
   // The trigger is hidden entirely when the integration is not configured:

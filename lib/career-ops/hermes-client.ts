@@ -65,6 +65,42 @@ export type HermesMessage = {
   createdAt: number | null;
 };
 
+/** Largest non-streaming response body accepted from Hermes. */
+const MAX_RESPONSE_BODY_BYTES = 4 * 1024 * 1024;
+
+/** Error bodies only ever feed a short redacted detail string. */
+const MAX_ERROR_BODY_BYTES = 64 * 1024;
+
+/**
+ * Read a response body up to a byte bound, then cancel.
+ *
+ * Buffering the whole body first (`response.json()` / `response.text()`) means
+ * an upstream that returns an unbounded reply can exhaust this process before
+ * any size check runs, so the bound has to be applied while reading.
+ */
+async function readBounded(response: Response, maxBytes: number): Promise<string> {
+  const body = response.body;
+  if (!body) return "";
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new HermesError("upstream_error", "Hermes returned an oversized response");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.cancel().catch(() => undefined);
+  }
+}
+
 const RUN_STATUSES: readonly HermesRunStatus[] = [
   "queued",
   "running",
@@ -111,7 +147,9 @@ export function createHermesClient(config: EnabledConfig) {
   async function failure(response: Response): Promise<HermesError> {
     let detail = "";
     try {
-      detail = redactUpstreamError((await response.text()).slice(0, 1_000));
+      // Read through the byte bound rather than buffering the whole body: an
+      // error response is as attacker-controlled as a successful one.
+      detail = redactUpstreamError((await readBounded(response, MAX_ERROR_BODY_BYTES)).slice(0, 1_000));
     } catch {
       detail = "";
     }
@@ -150,8 +188,11 @@ export function createHermesClient(config: EnabledConfig) {
     if (!response.ok) throw await failure(response);
     let parsed: unknown;
     try {
-      parsed = await response.json();
-    } catch {
+      // `response.json()` would pull an unbounded body into memory, so a broken
+      // or compromised Hermes could exhaust the Nexus process with one reply.
+      parsed = JSON.parse(await readBounded(response, MAX_RESPONSE_BODY_BYTES));
+    } catch (reason) {
+      if (reason instanceof HermesError) throw reason;
       throw new HermesError("upstream_error", "Hermes returned a malformed response");
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

@@ -37,11 +37,35 @@ export type CareerOpsEvent =
   | { type: "status"; status: string }
   | { type: "error"; message: string };
 
+/**
+ * Largest incomplete frame the parser will hold before giving up.
+ *
+ * A broken or hostile upstream can send an endless frame that never reaches a
+ * blank-line delimiter; without a cap the buffer grows until the process dies.
+ */
+export const MAX_SSE_FRAME_BYTES = 256 * 1024;
+
+/** Largest total payload accepted from one run stream. */
+export const MAX_SSE_STREAM_BYTES = 8 * 1024 * 1024;
+
+export class SseStreamTooLargeError extends Error {
+  constructor(readonly bound: "frame" | "stream") {
+    super(`career_ops_sse_${bound}_limit_exceeded`);
+    this.name = "SseStreamTooLargeError";
+  }
+}
+
 /** Incremental SSE frame reader. Feed it decoded text chunks in arrival order. */
 export class SseFrameParser {
   private buffer = "";
+  private consumed = 0;
 
   push(chunk: string): string[] {
+    this.consumed += chunk.length;
+    if (this.consumed > MAX_SSE_STREAM_BYTES) {
+      this.buffer = "";
+      throw new SseStreamTooLargeError("stream");
+    }
     this.buffer += chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     const frames: string[] = [];
     let separator = this.buffer.indexOf("\n\n");
@@ -51,6 +75,12 @@ export class SseFrameParser {
       const payload = readDataLines(raw);
       if (payload !== null) frames.push(payload);
       separator = this.buffer.indexOf("\n\n");
+    }
+    // Whatever is left is an unterminated frame. Bounding it here is what stops
+    // an upstream that never sends a delimiter from growing memory without end.
+    if (this.buffer.length > MAX_SSE_FRAME_BYTES) {
+      this.buffer = "";
+      throw new SseStreamTooLargeError("frame");
     }
     return frames;
   }

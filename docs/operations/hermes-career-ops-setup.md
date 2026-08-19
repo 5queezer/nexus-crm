@@ -116,7 +116,17 @@ Then, in another shell:
 export HERMES_CAREER_OPS_ENABLED=true
 export HERMES_CAREER_OPS_BASE_URL="http://127.0.0.1:8642/p/career-ops"
 export HERMES_CAREER_OPS_API_KEY="dev-key"
+# Required. Without it the status endpoint reports `owner_not_configured`,
+# the launcher never renders, and none of the scenarios below can be run.
+# Use the Nexus user id that owns the API token in the Hermes profile.
+export HERMES_CAREER_OPS_OWNER_USER_ID="<your-nexus-user-id>"
 npm run dev
+```
+
+To find your user id locally:
+
+```bash
+psql "$DATABASE_URL" -tAc 'SELECT id, email FROM "User" ORDER BY "createdAt" LIMIT 5;'
 ```
 
 The mock picks a scenario from the message text:

@@ -384,3 +384,53 @@ describe("run operations", () => {
     expect(url).toBe("http://127.0.0.1:8642/p/career-ops/v1/runs/run_7/events");
   });
 });
+
+describe("upstream response size bounds", () => {
+  /** A body that keeps producing chunks, the way a hostile upstream would. */
+  function endlessResponse() {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (cancelled) return;
+        controller.enqueue(new TextEncoder().encode("x".repeat(64 * 1024)));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  it("refuses an unbounded success body instead of buffering it", async () => {
+    const config = enabledConfig();
+    globalThis.fetch = vi.fn(async () => endlessResponse()) as unknown as typeof fetch;
+
+    await expect(createHermesClient(config).health()).rejects.toMatchObject({
+      kind: "upstream_error",
+    });
+  });
+
+  it("refuses an unbounded error body too", async () => {
+    const config = enabledConfig();
+    globalThis.fetch = vi.fn(async () => {
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (cancelled) return;
+          controller.enqueue(new TextEncoder().encode("x".repeat(64 * 1024)));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      return new Response(stream, { status: 500 });
+    }) as unknown as typeof fetch;
+
+    // The failure path must still produce a controlled error rather than
+    // reading forever to build a detail string.
+    await expect(createHermesClient(config).health()).rejects.toBeInstanceOf(HermesError);
+  });
+});

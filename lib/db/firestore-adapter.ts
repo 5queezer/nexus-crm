@@ -2514,18 +2514,46 @@ export class FirestoreAdapter implements DatabaseAdapter {
     userId: string,
     data: CreateCareerOpsThreadInput,
   ): Promise<CareerOpsThreadRecord> {
-    const now = Timestamp.now();
-    const ref = this.careerOpsThreads.doc();
-    const payload = {
-      userId,
-      hermesSessionId: data.hermesSessionId,
-      title: data.title,
-      applicationId: data.applicationId ?? null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await ref.set(payload);
-    return this.mapCareerOpsThread(ref.id, payload);
+    // Deterministic id from (owner, session), mirroring the relational
+    // @@unique([userId, hermesSessionId]). With a random id the same Hermes
+    // session could acquire two Nexus mappings, each with its own active-run
+    // slot, and both could drive one upstream conversation at once.
+    const ref = this.careerOpsThreads.doc(
+      submissionRequestHash({ kind: "career-ops-thread", userId, session: data.hermesSessionId }),
+    );
+    const applicationId = data.applicationId ?? null;
+
+    return this.db.runTransaction(async (tx) => {
+      const existing = await tx.get(ref);
+      if (existing.exists) {
+        const current = existing.data()!;
+        if (current.userId !== userId) throw new Error("career_ops_thread_conflict");
+        return this.mapCareerOpsThread(existing.id, current);
+      }
+
+      // The application was verified before Hermes was asked for a session, and
+      // it can be deleted during that round-trip. Re-read it inside the
+      // transaction so a thread is never written against a record that is gone
+      // — the relational backend gets this from its foreign key.
+      if (applicationId) {
+        const application = await tx.get(this.apps.doc(applicationId));
+        if (!application.exists || application.data()!.userId !== userId) {
+          throw new Error("career_ops_application_not_found");
+        }
+      }
+
+      const now = Timestamp.now();
+      const payload = {
+        userId,
+        hermesSessionId: data.hermesSessionId,
+        title: data.title,
+        applicationId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      tx.create(ref, payload);
+      return this.mapCareerOpsThread(ref.id, payload);
+    });
   }
 
   async renameCareerOpsThread(

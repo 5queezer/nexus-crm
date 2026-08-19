@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SseFrameParser, normalizeHermesEvent, serializeCareerOpsEvent } from "../sse";
+import {
+  SseFrameParser,
+  SseStreamTooLargeError,
+  normalizeHermesEvent,
+  serializeCareerOpsEvent,
+} from "../sse";
 
 function collect(chunks: string[]): string[] {
   const parser = new SseFrameParser();
@@ -183,5 +188,30 @@ describe("approval prompts that do not fit the display bound", () => {
       truncated: false,
       choices: ["once", "deny"],
     });
+  });
+});
+
+describe("stream size bounds", () => {
+  it("gives up on an unterminated frame instead of growing memory", () => {
+    // A hostile or broken upstream can stream forever without ever sending the
+    // blank-line delimiter that would flush a frame.
+    const parser = new SseFrameParser();
+    expect(() => {
+      for (let i = 0; i < 40; i += 1) parser.push("data: " + "x".repeat(16 * 1024) + "\n");
+    }).toThrow(SseStreamTooLargeError);
+  });
+
+  it("gives up once one run stream exceeds its total budget", () => {
+    const parser = new SseFrameParser();
+    const frame = `data: {"event":"message.delta","delta":"${"x".repeat(200 * 1024)}"}\n\n`;
+    expect(() => {
+      for (let i = 0; i < 64; i += 1) parser.push(frame);
+    }).toThrow(SseStreamTooLargeError);
+  });
+
+  it("accepts an ordinary stream well inside the bounds", () => {
+    const parser = new SseFrameParser();
+    const frames = parser.push('data: {"event":"message.delta","delta":"hi"}\n\n');
+    expect(frames).toHaveLength(1);
   });
 });
