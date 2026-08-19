@@ -482,3 +482,74 @@ describe("stored transcript redaction", () => {
     expect(JSON.stringify(messages)).not.toContain(SECRET);
   });
 });
+
+describe("event stream connection bound", () => {
+  it("does not abort a stream that outlives the connect timeout", async () => {
+    // The connect bound must cover waiting for headers only. Leaving it
+    // attached to the body kills every run longer than the timeout — which is
+    // most of them — and the stream is single-consumer, so it cannot be
+    // reopened.
+    process.env.HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS = "1000";
+    const config = enabledConfig();
+
+    let push!: (chunk: string) => void;
+    // Model what fetch actually does: the signal it is given also governs the
+    // response body, so an abort after headers destroys the stream.
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          push = (chunk) => {
+            try {
+              controller.enqueue(encoder.encode(chunk));
+            } catch {
+              // already destroyed
+            }
+          };
+          signal?.addEventListener("abort", () => {
+            try {
+              controller.error(new Error("aborted"));
+            } catch {
+              // already closed
+            }
+          });
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }) as unknown as typeof fetch;
+
+    const caller = new AbortController();
+    const stream = await createHermesClient(config).openRunEvents("run_1", caller.signal);
+    const reader = stream.getReader();
+
+    // Well past the connect timeout, the stream must still deliver.
+    await new Promise((resolve) => setTimeout(resolve, 1_400));
+    push('data: {"event":"message.delta","delta":"still here"}\n\n');
+    const chunk = await reader.read();
+    expect(new TextDecoder().decode(chunk.value)).toContain("still here");
+
+    delete process.env.HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS;
+  });
+
+  it("still gives up when headers never arrive", async () => {
+    process.env.HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS = "1000";
+    const config = enabledConfig();
+    globalThis.fetch = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    ) as unknown as typeof fetch;
+
+    const caller = new AbortController();
+    await expect(
+      createHermesClient(config).openRunEvents("run_1", caller.signal),
+    ).rejects.toBeInstanceOf(HermesError);
+
+    delete process.env.HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS;
+  });
+});

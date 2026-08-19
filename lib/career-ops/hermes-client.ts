@@ -361,12 +361,19 @@ export function createHermesClient(config: EnabledConfig) {
 
     async openRunEvents(runId: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
       let response: Response;
-      // The route's idle and total timers only start once this resolves, so
-      // without a bound here a Hermes that accepts the connection and never
-      // sends response headers would hold the Nexus request open for as long
+      // Bound waiting for *headers* only. The route's idle and total timers do
+      // not start until this resolves, so a Hermes that accepts the connection
+      // and never responds would otherwise hold the request open for as long
       // as the browser stayed connected.
-      const connect = AbortSignal.timeout(config.connectTimeoutMs);
-      const combined = AbortSignal.any([signal, connect]);
+      //
+      // The signal handed to fetch also governs the response body, so this
+      // timer must be cancelled the moment headers arrive — an unconditional
+      // `AbortSignal.timeout` would tear down the event stream of every run
+      // that outlives the connect timeout, which is nearly all of them, and the
+      // stream is single-consumer so it cannot be reopened.
+      const connect = new AbortController();
+      const timer = setTimeout(() => connect.abort(), config.connectTimeoutMs);
+      const combined = AbortSignal.any([signal, connect.signal]);
       try {
         response = await fetch(url(`/v1/runs/${encodeURIComponent(runId)}/events`), {
           method: "GET",
@@ -377,6 +384,9 @@ export function createHermesClient(config: EnabledConfig) {
         });
       } catch (reason) {
         throw toHermesError(reason);
+      } finally {
+        // Body consumption stays bound to the caller's signal alone.
+        clearTimeout(timer);
       }
       if (!response.ok) throw await failure(response);
       if (!response.body) {
