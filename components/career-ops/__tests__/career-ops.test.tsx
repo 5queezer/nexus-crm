@@ -343,6 +343,36 @@ describe("rejoining a run in flight", () => {
     });
   }, 15_000);
 
+  it("does not render a finished answer twice after reopening the drawer", async () => {
+    const user = userEvent.setup();
+    route("GET", /\/threads\/[^/]+\/messages$/, () =>
+      json({
+        messages: [
+          { id: "1", role: "user", content: "status?" },
+          { id: "2", role: "assistant", content: "Here is a mock Career Ops answer." },
+        ],
+      }),
+    );
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "status?");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await waitFor(() =>
+      expect(within(dialog).getAllByText("Here is a mock Career Ops answer.").length).toBeGreaterThan(0),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: /^close career ops$/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(screen.getByRole("button", { name: /open career ops/i }));
+    const reopened = await screen.findByRole("dialog", { name: "Career Ops" });
+
+    // The transcript already carries the reply; the live buffer must not add it.
+    await waitFor(() =>
+      expect(within(reopened).getAllByText("Here is a mock Career Ops answer.")).toHaveLength(1),
+    );
+  }, 15_000);
+
   it("stays idle when the thread has no run in flight", async () => {
     const user = userEvent.setup();
     renderCareerOps();

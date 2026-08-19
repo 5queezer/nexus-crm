@@ -2632,6 +2632,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
     await ref.update({ approvalChoice: choice, approvalAt: Timestamp.now() });
   }
 
+  async findCareerOpsRunByClientRequestId(
+    threadId: string,
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    // The deterministic id that enforces uniqueness also makes this a direct get.
+    const snapshot = await this.careerOpsRunRef(threadId, clientRequestId).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId) return null;
+    return this.mapCareerOpsRun(snapshot.id, data);
+  }
+
   async getLatestCareerOpsRun(
     threadId: string,
     userId: string,

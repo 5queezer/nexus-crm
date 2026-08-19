@@ -221,7 +221,10 @@ export function createHermesClient(config: EnabledConfig) {
 
     async listSessionMessages(sessionId: string): Promise<HermesMessage[]> {
       const body = await json(
-        await request(`/api/sessions/${encodeURIComponent(sessionId)}/messages?order=oldest&limit=200`, {
+        // Ask for the newest page: a session with more than one page of history
+        // would otherwise show only its oldest turns and hide the entire recent
+        // conversation. Re-sorted to chronological order below.
+        await request(`/api/sessions/${encodeURIComponent(sessionId)}/messages?order=latest&limit=200`, {
           method: "GET",
         }),
       );
@@ -240,6 +243,14 @@ export function createHermesClient(config: EnabledConfig) {
           content,
           createdAt: typeof record.timestamp === "number" ? record.timestamp : null,
         });
+      }
+      // `order=latest` may arrive newest-first; present them oldest-first.
+      const timestamped = messages.filter((message) => message.createdAt !== null);
+      if (
+        timestamped.length > 1 &&
+        timestamped[0].createdAt! > timestamped[timestamped.length - 1].createdAt!
+      ) {
+        messages.reverse();
       }
       return messages;
     },

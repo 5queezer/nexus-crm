@@ -160,6 +160,12 @@ export interface DatabaseAdapter {
   deleteCareerOpsRun(id: string, userId: string): Promise<void>;
   /** Most recent run on a thread, so a reloaded client can rejoin it. */
   getLatestCareerOpsRun(threadId: string, userId: string): Promise<CareerOpsRunRecord | null>;
+  /** The run already claimed by this (thread, clientRequestId), if any. */
+  findCareerOpsRunByClientRequestId(
+    threadId: string,
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsRunRecord | null>;
   /**
    * Record who decided an approval and when. Deliberately stores no command
    * payload or arguments. No-op when the run is not the user's.

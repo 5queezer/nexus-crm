@@ -474,6 +474,18 @@ export async function startCareerOpsRun(
   // (threadId, clientRequestId), so two tabs with different ids would
   // otherwise both start runs against the same Hermes session, interleaving
   // conversation state and each executing tools or requesting approvals.
+  // An idempotent retry must resolve to its own run, not be refused for being
+  // concurrent with itself. This lookup has to precede the active-run guard:
+  // the first attempt's reservation IS the active run the guard would reject,
+  // and a client whose first response was lost would then see failure while the
+  // agent kept executing.
+  const already = await db.findCareerOpsRunByClientRequestId(
+    threadId,
+    session.userId,
+    input.clientRequestId,
+  );
+  if (already) return already;
+
   const inFlight = await getActiveCareerOpsRun(session, threadId);
   if (inFlight) {
     throw new CareerOpsServiceError("conflict", "This conversation already has a run in progress");

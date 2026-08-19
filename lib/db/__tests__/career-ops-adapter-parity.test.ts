@@ -433,6 +433,27 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(second.created).toBe(true);
   });
 
+  it("finds the run already claimed by a client request id", async () => {
+    const thread = await seedThread("user-a");
+    await expect(
+      db.findCareerOpsRunByClientRequestId(thread.id, "user-a", "client-id-lookup"),
+    ).resolves.toBeNull();
+
+    const { run } = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-lookup",
+      status: "queued",
+    });
+
+    await expect(
+      db.findCareerOpsRunByClientRequestId(thread.id, "user-a", "client-id-lookup"),
+    ).resolves.toMatchObject({ id: run.id, hermesRunId: "run_1" });
+    await expect(
+      db.findCareerOpsRunByClientRequestId(thread.id, "user-b", "client-id-lookup"),
+    ).resolves.toBeNull();
+  });
+
   it("scopes deduplication per owner, so two users never collide", async () => {
     const threadA = await seedThread("user-a", { hermesSessionId: "sa" });
     const threadB = await seedThread("user-b", { hermesSessionId: "sb" });

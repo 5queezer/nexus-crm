@@ -158,7 +158,13 @@ export function CareerOps({
         const result = await careerOpsJson<{ activeRun: { id: string } | null }>(
           `/api/career-ops/threads/${threadId}`,
         );
-        if (!result.activeRun) return;
+        if (!result.activeRun) {
+          // The transcript just reloaded from Hermes and already contains the
+          // finished reply; leaving the hook's completed answer in place would
+          // render it a second time.
+          reset();
+          return;
+        }
         // Already tracking this run — its stream is live and it may hold a
         // detailed approval prompt. Resuming would abort the stream and
         // downgrade that prompt to the denial-only recovered form.
@@ -168,7 +174,7 @@ export function CareerOps({
         // A thread that cannot be inspected simply stays idle.
       }
     },
-    [resume],
+    [reset, resume],
   );
 
   const createThread = useCallback(

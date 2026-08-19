@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     createCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
     getLatestCareerOpsRun: vi.fn(),
+    findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
@@ -102,6 +103,7 @@ beforeEach(() => {
   mocks.db.getCareerOpsThread.mockResolvedValue(null);
   mocks.db.getCareerOpsRun.mockResolvedValue(null);
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
+  mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
 });
 
@@ -705,6 +707,22 @@ describe("startCareerOpsRun", () => {
         clientRequestId: "client-id-too-soon",
       }),
     ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("returns its own run on an idempotent retry rather than refusing it", async () => {
+    // The first attempt's reservation IS the active run; refusing the retry
+    // would tell a client whose response was lost that the run failed.
+    const claimed = { ...RESERVATION, hermesRunId: "run_first", status: "running" as const };
+    mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(claimed);
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue(claimed);
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).resolves.toMatchObject({ hermesRunId: "run_first" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
   });
 
   it("refuses a second concurrent run on the same thread", async () => {

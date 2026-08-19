@@ -2251,6 +2251,17 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
+  async findCareerOpsRunByClientRequestId(
+    threadId: string,
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const row = await prisma.careerOpsRun.findFirst({
+      where: { threadId, userId, clientRequestId },
+    });
+    return row ? mapCareerOpsRun(row) : null;
+  }
+
   async getLatestCareerOpsRun(
     threadId: string,
     userId: string,

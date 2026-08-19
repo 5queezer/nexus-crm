@@ -228,6 +228,26 @@ describe("session operations", () => {
     ]);
   });
 
+  it("requests the newest page and presents it chronologically", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        object: "list",
+        data: [
+          { id: 9, role: "assistant", content: "newest", timestamp: 9000 },
+          { id: 8, role: "user", content: "older", timestamp: 8000 },
+        ],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const messages = await createHermesClient(enabledConfig()).listSessionMessages("sess-9");
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    // A long transcript must not show only its oldest page.
+    expect(url).toContain("order=latest");
+    expect(messages.map((message) => message.content)).toEqual(["older", "newest"]);
+  });
+
   it("percent-encodes the session identifier in the path", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ object: "list", data: [] }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
