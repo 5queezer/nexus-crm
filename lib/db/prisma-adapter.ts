@@ -1446,16 +1446,17 @@ export class PrismaAdapter implements DatabaseAdapter {
     }
     if (filter.search) {
       const term = filter.search;
-      where.OR = [
-        { company: { contains: term, mode: "insensitive" } },
-        { role: { contains: term, mode: "insensitive" } },
-        { notes: { contains: term, mode: "insensitive" } },
-        { jobDescription: { contains: term, mode: "insensitive" } },
-      ];
+      const searchFields = filter.searchFields ?? ["company", "role", "notes", "jobDescription"];
+      where.OR = searchFields.map((field) => ({
+        [field]: { contains: term, mode: "insensitive" },
+      }));
     }
 
     // Sort
-    let orderBy: Prisma.ApplicationOrderByWithRelationInput = { createdAt: "desc" };
+    let orderBy: Prisma.ApplicationOrderByWithRelationInput[] = [
+      { createdAt: "desc" },
+      { id: "desc" },
+    ];
     if (filter.sort) {
       const desc = filter.sort.startsWith("-");
       const field = desc ? filter.sort.slice(1) : filter.sort;
@@ -1465,17 +1466,33 @@ export class PrismaAdapter implements DatabaseAdapter {
         "triageQuality",
       ];
       if (allowedSortFields.includes(field)) {
-        orderBy = { [field]: desc ? "desc" : "asc" };
+        const direction = desc ? "desc" : "asc";
+        orderBy = [{ [field]: direction }, { id: direction }];
       }
     }
 
     const includeContacts = filter.includeContacts ?? false;
+    let cursor: { id: number } | undefined;
+    try {
+      cursor = filter.cursor ? { id: nid(filter.cursor) } : undefined;
+    } catch {
+      throw new Error("application_cursor_invalid");
+    }
+    if (cursor) {
+      const cursorApplication = await prisma.application.findFirst({
+        where: { ...where, id: cursor.id },
+        select: { id: true },
+      });
+      if (!cursorApplication) throw new Error("application_cursor_invalid");
+    }
 
     if (includeContacts) {
       const rows = await prisma.application.findMany({
         where,
         orderBy,
         take: filter.limit ?? undefined,
+        cursor,
+        skip: filter.cursor ? 1 : undefined,
         include: { contacts: true },
       });
       return pickFields(rows.map(mapApp), filter.fields);
@@ -1485,6 +1502,8 @@ export class PrismaAdapter implements DatabaseAdapter {
       where,
       orderBy,
       take: filter.limit ?? undefined,
+      cursor,
+      skip: filter.cursor ? 1 : undefined,
     });
     // Map without contacts — give mapApp an empty contacts array to satisfy the type
     const mapped = rows.map((row) => mapApp({ ...row, contacts: [] }));

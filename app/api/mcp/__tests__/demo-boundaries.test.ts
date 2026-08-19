@@ -104,10 +104,15 @@ describe("MCP demo application boundaries", () => {
     await call("list_applications_filtered", { search: "demo" });
     const canonical = await call("find_application_by_job_url", { jobUrl: "https://example.com/jobs/demo" });
 
-    expect(mocks.listApplications).toHaveBeenCalledWith("owner-1", DEMO_EXCLUDE);
+    expect(mocks.listApplicationsFiltered).toHaveBeenNthCalledWith(
+      1,
+      "owner-1",
+      expect.objectContaining({ limit: 50 }),
+      DEMO_EXCLUDE,
+    );
     expect(mocks.getApplication).toHaveBeenCalledWith("demo-app", "owner-1", DEMO_EXCLUDE);
     expect(detail.isError).toBe(true);
-    expect(mocks.listApplicationsFiltered).toHaveBeenCalledWith("owner-1", expect.any(Object), DEMO_EXCLUDE);
+    expect(mocks.listApplicationsFiltered).toHaveBeenNthCalledWith(2, "owner-1", expect.any(Object), DEMO_EXCLUDE);
     expect(json(canonical)).toMatchObject({ application: null });
     expect(mocks.findApplicationByCanonicalJobUrl).toHaveBeenCalledWith(
       "owner-1",

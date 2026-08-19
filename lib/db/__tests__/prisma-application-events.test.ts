@@ -44,6 +44,7 @@ const fake = vi.hoisted(() => {
 
   const prisma: Record<string, unknown> = {};
   const applicationApi = {
+    findMany: vi.fn(async () => []),
     findFirst: vi.fn(async ({ where }: { where: { id?: number; userId?: string } }) => {
       if (where.id !== undefined && where.id !== application.id) return null;
       if (where.userId !== undefined && where.userId !== application.userId) return null;
@@ -171,6 +172,29 @@ describe("PrismaAdapter — atomic application events", () => {
   it("returns null instead of throwing for malformed application IDs", async () => {
     await expect(new PrismaAdapter().getApplication("not-an-id", "owner-1")).resolves.toBeNull();
     expect((fake.prisma.application as { findFirst: ReturnType<typeof vi.fn> }).findFirst).not.toHaveBeenCalled();
+  });
+
+  it("adds an ID tie-breaker to default cursor pagination", async () => {
+    await new PrismaAdapter().listApplicationsFiltered("owner-1", { cursor: "1", limit: 20 });
+
+    expect((fake.prisma.application as { findMany: ReturnType<typeof vi.fn> }).findMany)
+      .toHaveBeenCalledWith(expect.objectContaining({
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        cursor: { id: 1 },
+        skip: 1,
+      }));
+  });
+
+  it("normalizes a malformed application cursor", async () => {
+    await expect(new PrismaAdapter().listApplicationsFiltered("owner-1", { cursor: "deleted-app" }))
+      .rejects.toThrow("application_cursor_invalid");
+    expect((fake.prisma.application as { findMany: ReturnType<typeof vi.fn> }).findMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a numeric cursor outside the scoped result set", async () => {
+    await expect(new PrismaAdapter().listApplicationsFiltered("owner-1", { cursor: "999" }))
+      .rejects.toThrow("application_cursor_invalid");
+    expect((fake.prisma.application as { findMany: ReturnType<typeof vi.fn> }).findMany).not.toHaveBeenCalled();
   });
 
   it("updates the projection and creates one immutable event", async () => {
