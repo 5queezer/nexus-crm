@@ -404,7 +404,18 @@ export async function createCareerOpsThread(
   } catch (reason) {
     // The upstream session exists but nothing in Nexus points at it. Without
     // this cleanup every retry would strand another unaddressable session.
-    void client(config).deleteSession(hermesSessionId).catch(() => undefined);
+    // Awaited, not fire-and-forget: the response can end this process before an
+    // unawaited request is sent, which is exactly the case that leaks. A
+    // failure here is logged rather than hidden, because the session then
+    // outlives Nexus' knowledge of it and only an operator can reconcile it.
+    await client(config)
+      .deleteSession(hermesSessionId)
+      .catch((cleanupFailure) => {
+        console.warn(
+          "career-ops: orphaned upstream session, manual cleanup required",
+          redactUpstreamError(cleanupFailure),
+        );
+      });
     throw toServiceError(reason);
   }
 }
@@ -543,6 +554,13 @@ async function threadInstructions(
 }
 
 const TERMINAL_RUN_STATUSES: readonly string[] = ["completed", "failed", "cancelled"];
+
+/**
+ * Upstream failures that leave it unknown whether the request took effect. A
+ * refusal Hermes stated (`conflict`, `not_found`) is decided; a transport
+ * failure is not.
+ */
+const AMBIGUOUS_UPSTREAM_KINDS: readonly string[] = ["timeout", "unreachable", "upstream_error"];
 
 /** How long to wait for a stopped run to actually settle. */
 function stopConfirmationWindowMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
@@ -867,9 +885,30 @@ export async function resolveCareerOpsApproval(
     consumedChallengeId = verified.payload.jti;
   }
 
+  // Commit the intent before the upstream call. Recording only afterwards
+  // meant a decision that Hermes accepted could leave no local trace at all if
+  // the write then failed — the privileged effect had happened and Nexus could
+  // not say who caused it. Now the worst case is a decision marked
+  // `outcome_unknown` that an operator can reconcile.
+  await getDb()
+    .recordCareerOpsApprovalDecision(run.id, session.userId, choice, consumedChallengeId, "pending")
+    .catch(() => undefined);
+
   try {
     await client(config).resolveApproval(run.hermesRunId, choice);
   } catch (reason) {
+    // A refusal Hermes stated is a known non-effect; a transport failure is not.
+    const undecided =
+      !(reason instanceof HermesError) || AMBIGUOUS_UPSTREAM_KINDS.includes(reason.kind);
+    await getDb()
+      .recordCareerOpsApprovalDecision(
+        run.id,
+        session.userId,
+        choice,
+        consumedChallengeId,
+        undecided ? "outcome_unknown" : "not_applied",
+      )
+      .catch(() => undefined);
     throw toServiceError(reason);
   }
   // Attribution only: which owner decided what, and when. The command and its
@@ -882,6 +921,7 @@ export async function resolveCareerOpsApproval(
       session.userId,
       choice,
       consumedChallengeId,
+      "effect_completed",
     );
   } catch {
     throw new CareerOpsServiceError(

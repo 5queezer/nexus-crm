@@ -62,6 +62,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
+  CareerOpsApprovalState,
   CareerOpsRunClaim,
   CareerOpsThreadDeletion,
 } from "./types";
@@ -2297,10 +2298,16 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     choice: string,
     challengeId: string,
+    state: CareerOpsApprovalState,
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({
       where: { id, userId },
-      data: { approvalChoice: choice, approvalAt: new Date(), approvalChallengeId: challengeId },
+      data: {
+        approvalChoice: choice,
+        approvalAt: new Date(),
+        approvalChallengeId: challengeId,
+        approvalState: state,
+      },
     });
   }
 
@@ -2358,6 +2365,7 @@ function mapCareerOpsRun(row: {
   approvalChoice: string | null;
   approvalAt: Date | null;
   approvalChallengeId: string | null;
+  approvalState: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsRunRecord {
@@ -2371,6 +2379,7 @@ function mapCareerOpsRun(row: {
     approvalChoice: row.approvalChoice ?? null,
     approvalAt: row.approvalAt ?? null,
     approvalChallengeId: row.approvalChallengeId ?? null,
+    approvalState: (row.approvalState as CareerOpsApprovalState | null) ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

@@ -616,6 +616,10 @@ model CareerOpsRun {
   /// Single-use marker of the approval challenge this decision consumed, so the
   /// same disclosed prompt cannot be replayed. Never the command or arguments.
   approvalChallengeId String?
+  /// Lifecycle of the last decision: `pending` once Nexus commits to sending it,
+  /// `effect_completed` once Hermes accepted it, `outcome_unknown` when the
+  /// upstream call left it undecided. Never the command or its arguments.
+  approvalState       String?
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 

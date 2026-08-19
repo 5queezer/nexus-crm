@@ -980,18 +980,39 @@ describe("run controls", () => {
 
   it("records the decision for attribution after forwarding it", async () => {
     await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
-    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenCalledWith(
+    // Intent first, outcome second: a decision Hermes accepted must never be
+    // invisible to Nexus just because the later write failed.
+    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenNthCalledWith(
+      1,
       "run-1",
       "user-a",
       "deny",
       "",
+      "pending",
+    );
+    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
+      "run-1",
+      "user-a",
+      "deny",
+      "",
+      "effect_completed",
     );
   });
 
-  it("records nothing when the decision was not forwarded", async () => {
+  it("records a stated upstream refusal as a known non-effect", async () => {
     mocks.client.resolveApproval.mockRejectedValue(new HermesError("conflict", "not pending"));
-    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"]))).rejects.toBeTruthy();
-    expect(mocks.db.recordCareerOpsApprovalDecision).not.toHaveBeenCalled();
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"])),
+    ).rejects.toBeTruthy();
+    // Hermes said no, so nothing happened — and the audit says exactly that
+    // rather than leaving the decision looking still in flight.
+    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
+      "run-1",
+      "user-a",
+      "once",
+      expect.any(String),
+      "not_applied",
+    );
   });
 
   it("reports a failure to record the decision rather than claiming success", async () => {
@@ -1050,6 +1071,21 @@ describe("run controls", () => {
     ).rejects.toMatchObject({ code: "unavailable" });
     expect(mocks.client.createRun).not.toHaveBeenCalled();
     expect(mocks.db.claimCareerOpsRun).not.toHaveBeenCalled();
+  });
+
+  it("marks the outcome unknown when the upstream call is ambiguous", async () => {
+    // A transport failure does not say whether Hermes applied the decision, so
+    // the record must not claim it did — nor silently disappear.
+    mocks.client.resolveApproval.mockRejectedValue(new HermesError("timeout", "gone quiet"));
+
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toBeTruthy();
+    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
+      "run-1",
+      "user-a",
+      "deny",
+      "",
+      "outcome_unknown",
+    );
   });
 
   it("refuses a granting decision that carries no challenge", async () => {

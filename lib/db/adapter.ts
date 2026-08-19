@@ -43,6 +43,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
+  CareerOpsApprovalState,
   CareerOpsRunClaim,
   CareerOpsThreadDeletion,
 } from "./types";
@@ -186,5 +187,6 @@ export interface DatabaseAdapter {
     userId: string,
     choice: string,
     challengeId: string,
+    state: CareerOpsApprovalState,
   ): Promise<void>;
 }

@@ -123,9 +123,17 @@ The system SHALL record only the minimal metadata needed to attribute an approva
 - **THEN** the record reflects the most recent decision on that run
 - **AND** earlier decisions on the same run are not separately retained
 
-#### Scenario: Undelivered decision is not recorded
-- **WHEN** an approval decision fails to reach the agent
-- **THEN** no decision is recorded against the run
+#### Scenario: Decision outcome is recorded before it is attempted
+- **WHEN** Nexus commits to forwarding a decision
+- **THEN** the decision is recorded as pending before the upstream call, so a decision the agent accepts can never be absent from the record because a later write failed
+
+#### Scenario: Agent refuses the decision
+- **WHEN** the agent explicitly refuses a decision, for example because the gate is no longer pending
+- **THEN** the record states that the decision had no effect, rather than leaving it appearing still in flight
+
+#### Scenario: Decision outcome is undetermined
+- **WHEN** the call carrying a decision fails in a way that does not reveal whether the agent applied it
+- **THEN** the record states that the outcome is unknown, so it can be reconciled rather than assumed either way
 
 #### Scenario: Payload not persisted
 - **WHEN** an approval request carries operation arguments

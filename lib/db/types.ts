@@ -690,6 +690,24 @@ export const CAREER_OPS_ACTIVE_RUN_STATUSES = [
   "stopping",
 ] as const satisfies readonly CareerOpsRunStatus[];
 
+/**
+ * Where a human decision got to.
+ *
+ * Recorded *before* the upstream call, so a decision that reached Hermes is
+ * never invisible to Nexus because a later write failed: the worst case becomes
+ * a decision marked `outcome_unknown` that an operator can reconcile, rather
+ * than a privileged action with no local trace at all.
+ */
+export type CareerOpsApprovalState =
+  /** Nexus has committed to sending it; the upstream call has not returned. */
+  | "pending"
+  /** Hermes accepted it: the gated action was authorized or refused as chosen. */
+  | "effect_completed"
+  /** Hermes refused it outright — no effect, and that is known, not assumed. */
+  | "not_applied"
+  /** A transport failure left it undecided; only an operator can reconcile it. */
+  | "outcome_unknown";
+
 export interface CareerOpsThreadRecord {
   id: string;
   userId: string;
@@ -720,6 +738,8 @@ export interface CareerOpsRunRecord {
   approvalAt: Date | null;
   /** Challenge consumed by the last decision, so it cannot be replayed. */
   approvalChallengeId: string | null;
+  /** Lifecycle of that decision; see CareerOpsApprovalState. */
+  approvalState: CareerOpsApprovalState | null;
   createdAt: Date;
   updatedAt: Date;
 }

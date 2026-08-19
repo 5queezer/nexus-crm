@@ -62,6 +62,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
+  CareerOpsApprovalState,
   CareerOpsRunClaim,
   CareerOpsThreadDeletion,
 } from "./types";
@@ -2465,6 +2466,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
       approvalAt: toDate(data.approvalAt),
       approvalChallengeId:
         typeof data.approvalChallengeId === "string" ? data.approvalChallengeId : null,
+      approvalState:
+        typeof data.approvalState === "string"
+          ? (data.approvalState as CareerOpsApprovalState)
+          : null,
       createdAt: toDate(data.createdAt) ?? new Date(0),
       updatedAt: toDate(data.updatedAt) ?? new Date(0),
     };
@@ -2715,6 +2720,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     userId: string,
     choice: string,
     challengeId: string,
+    state: CareerOpsApprovalState,
   ): Promise<void> {
     const ref = this.careerOpsRuns.doc(id);
     const snapshot = await ref.get();
@@ -2723,6 +2729,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       approvalChoice: choice,
       approvalAt: Timestamp.now(),
       approvalChallengeId: challengeId,
+      approvalState: state,
     });
   }
 
