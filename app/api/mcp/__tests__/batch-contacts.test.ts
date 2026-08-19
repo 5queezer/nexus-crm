@@ -60,6 +60,19 @@ describe("MCP batch_create_contacts", () => {
     await server.close();
   });
 
+  it("reports an application lookup failure without leaking adapter details", async () => {
+    mocks.getApplication.mockRejectedValueOnce(new Error("sensitive database detail"));
+
+    const result = await client.callTool({
+      name: "batch_create_contacts",
+      arguments: { applicationId: "app-1", contacts: [{ name: "Recruiter" }] },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textValue(result)).toBe("Batch contact creation failed");
+    expect(mocks.batchCreateContacts).not.toHaveBeenCalled();
+  });
+
   it("rejects an unauthorized application before any contact write", async () => {
     mocks.getApplication.mockResolvedValueOnce(null);
 

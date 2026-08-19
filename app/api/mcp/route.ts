@@ -1045,21 +1045,21 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       })).min(1).max(50).describe("Contacts to create (max 50)"),
     },
     async ({ applicationId, contacts }) => {
-      const application = await getRealApplication(applicationId);
-      if (!application) {
-        return {
-          content: [{ type: "text", text: "Application not found or access denied" }],
-          isError: true,
-        };
-      }
-      const sanitized = contacts.map((contact) => ({
-        name: contact.name.slice(0, 255),
-        email: contact.email?.slice(0, 255) ?? null,
-        phone: contact.phone?.slice(0, 50) ?? null,
-        role: contact.role?.slice(0, 100) ?? null,
-        linkedIn: contact.linkedIn?.slice(0, 500) ?? null,
-      }));
       try {
+        const application = await getRealApplication(applicationId);
+        if (!application) {
+          return {
+            content: [{ type: "text", text: "Application not found or access denied" }],
+            isError: true,
+          };
+        }
+        const sanitized = contacts.map((contact) => ({
+          name: contact.name.slice(0, 255),
+          email: contact.email?.slice(0, 255) ?? null,
+          phone: contact.phone?.slice(0, 50) ?? null,
+          role: contact.role?.slice(0, 100) ?? null,
+          linkedIn: contact.linkedIn?.slice(0, 500) ?? null,
+        }));
         const result = await getDb().batchCreateContacts(applicationId, auth.userId, sanitized);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
