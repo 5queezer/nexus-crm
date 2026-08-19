@@ -854,6 +854,7 @@
     "empty_application_body": "This conversation is scoped to {company} — {role}. Career Ops reads the current record from Nexus each time.",
     "composer_label": "Message Career Ops",
     "composer_placeholder": "Ask about this opportunity…",
+    "composer_placeholder_global": "Ask about your pipeline…",
     "send": "Send",
     "sending": "Starting…",
     "stop": "Stop",

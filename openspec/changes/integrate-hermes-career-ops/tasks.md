@@ -58,11 +58,11 @@
 
 ## 7. Verification gates
 
-- [ ] 7.1 `npx -y @fission-ai/openspec@latest validate integrate-hermes-career-ops --strict`
-- [ ] 7.2 Targeted new test suites pass.
-- [ ] 7.3 `npm test` (full suite) passes.
-- [ ] 7.4 `npm run lint` passes.
-- [ ] 7.5 `npm run build` passes.
-- [ ] 7.6 `npx prisma generate` and migration validation pass.
-- [ ] 7.7 Secret scan over the diff, `git diff --check`, and `git status --short` are clean.
-- [ ] 7.8 Production-like smoke test against the mock Hermes server, with desktop and mobile browser verification and screenshots.
+- [x] 7.1 `npx -y @fission-ai/openspec@latest validate integrate-hermes-career-ops --strict`
+- [x] 7.2 Targeted new test suites pass.
+- [x] 7.3 `npm test` (full suite) passes.
+- [x] 7.4 `npm run lint` passes.
+- [x] 7.5 `npm run build` passes.
+- [x] 7.6 `npx prisma generate` and migration validation pass.
+- [x] 7.7 Secret scan over the diff, `git diff --check`, and `git status --short` are clean.
+- [x] 7.8 Production-like smoke test against the mock Hermes server, with desktop and mobile browser verification and screenshots.

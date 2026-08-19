@@ -255,9 +255,15 @@ export function CareerOps({
     const message = draft.trim();
     if (!message || busy || !activeThreadId) return;
     setDraft("");
+    // Move the finished answer of the previous turn into the transcript before
+    // the next run resets the live buffer, so earlier replies stay visible.
+    const previousAnswer = run.answer;
     setMessages((current) => [
       ...current,
-      { id: `local-${current.length}`, role: "user", content: message },
+      ...(previousAnswer
+        ? [{ id: `answer-${current.length}`, role: "assistant" as const, content: previousAnswer }]
+        : []),
+      { id: `local-${current.length + 1}`, role: "user" as const, content: message },
     ]);
     await start(activeThreadId, message);
   }
@@ -617,7 +623,11 @@ export function CareerOps({
                       id="career-ops-composer"
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
-                      placeholder={t("composer_placeholder")}
+                      placeholder={
+                        activeThread?.applicationId
+                          ? t("composer_placeholder")
+                          : t("composer_placeholder_global")
+                      }
                       rows={2}
                       maxLength={8000}
                       disabled={!activeThreadId}

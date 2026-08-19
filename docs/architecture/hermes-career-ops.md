@@ -86,6 +86,26 @@ sequenceDiagram
     end
 ```
 
+## What it looks like
+
+Desktop — the drawer opens beside the pipeline, which stays usable. Tool progress is shown as text plus an icon, never colour alone, and the live region announces run state rather than tokens.
+
+![Career Ops drawer at desktop width, showing a streamed answer and finished tool step alongside the opportunity table](../screenshots/career-ops-desktop.png)
+
+An approval gate: a plain-language summary, the operation, the sanitized arguments the event contract provides, and explicit approve/reject controls. Nothing is approved implicitly, and assistant text cannot approve on the user's behalf.
+
+![Career Ops approval prompt showing the operation, sanitized details and approve/reject controls](../screenshots/career-ops-approval.png)
+
+An application-scoped conversation opened from an opportunity. The badge names the linked company and role, and one control returns to global context.
+
+![Career Ops opened from an opportunity, with an application-context badge and a switch back to global context](../screenshots/career-ops-application-context.png)
+
+Mobile — a full-height sheet with a visible close control, no horizontal overflow, and touch targets at or above 44 px.
+
+![Career Ops as a full-height sheet on a 390 px viewport](../screenshots/career-ops-mobile.png)
+
+All screenshots use fictional demo records and a local mock Hermes; no real application, credential, or conversation data appears in them.
+
 ## Why the Runs API, and what that costs
 
 The Hermes session chat-stream endpoint couples a turn to one HTTP response: losing the response loses the turn, and it exposes no run identifier to stop or approve. `POST /v1/runs` returns a `run_id` immediately (202) and gives a separate event stream, pollable status retained for an hour, plus `stop` and `approval` control endpoints.

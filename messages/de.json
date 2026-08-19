@@ -854,6 +854,7 @@
     "empty_application_body": "Diese Unterhaltung ist auf {company} — {role} bezogen. Career Ops liest den aktuellen Datensatz jedes Mal neu aus Nexus.",
     "composer_label": "Nachricht an Career Ops",
     "composer_placeholder": "Frag zu dieser Gelegenheit …",
+    "composer_placeholder_global": "Frag zu deiner Pipeline …",
     "send": "Senden",
     "sending": "Wird gestartet …",
     "stop": "Stoppen",
