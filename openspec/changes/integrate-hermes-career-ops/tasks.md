@@ -21,21 +21,21 @@
 
 ## 3. Career Ops service layer (RED → GREEN)
 
-- [ ] 3.1 Write failing tests for `lib/career-ops/service.ts`: ownership resolution returns `null` for foreign and unknown IDs; administrators are not exempt; `readScopeUserId` is ignored; thread creation verifies application ownership; run creation deduplicates on `(threadId, clientRequestId)` including the concurrent unique-violation path; thread deletion succeeds even when the upstream session delete fails.
-- [ ] 3.2 Implement `lib/career-ops/service.ts` as the single choke point between routes and the Hermes client.
-- [ ] 3.3 Implement `lib/career-ops/instructions.ts` building the bounded application-context instruction (verified ID + truncated company/role + Nexus-MCP directive), with tests asserting the full job description is never included.
-- [ ] 3.4 Run the focused service suites green.
+- [x] 3.1 Write failing tests for `lib/career-ops/service.ts`: ownership resolution returns `null` for foreign and unknown IDs; administrators are not exempt; `readScopeUserId` is ignored; thread creation verifies application ownership; run creation deduplicates on `(threadId, clientRequestId)` including the concurrent unique-violation path; thread deletion succeeds even when the upstream session delete fails.
+- [x] 3.2 Implement `lib/career-ops/service.ts` as the single choke point between routes and the Hermes client.
+- [x] 3.3 Implement `lib/career-ops/instructions.ts` building the bounded application-context instruction (verified ID + truncated company/role + Nexus-MCP directive), with tests asserting the full job description is never included.
+- [x] 3.4 Run the focused service suites green.
 
 ## 4. API routes (RED → GREEN)
 
-- [ ] 4.1 Write failing route tests for `GET /api/career-ops/status`: `401` unauthenticated; disabled response when unconfigured; unavailable response when Hermes health fails; capability flags reflected; no upstream authorization value in the body.
-- [ ] 4.2 Implement `app/api/career-ops/status/route.ts`.
-- [ ] 4.3 Write failing route tests for threads: `GET`/`POST /api/career-ops/threads`, `GET`/`DELETE /api/career-ops/threads/[id]`, `GET /api/career-ops/threads/[id]/messages` — `401`, invalid JSON `400`, oversized body `413`, foreign thread `404`, foreign application `404`, cross-user list isolation, disabled-integration response.
-- [ ] 4.4 Implement the thread routes.
-- [ ] 4.5 Write failing route tests for runs: `POST /api/career-ops/threads/[id]/runs` (bounded message, empty message `400`, invalid/missing `clientRequestId` `400`, duplicate `clientRequestId` yields one run), `GET /api/career-ops/runs/[id]`, `GET /api/career-ops/runs/[id]/events`, `POST /api/career-ops/runs/[id]/stop`, `POST /api/career-ops/runs/[id]/approval` — including foreign-run `404` on every one, invalid approval choice `400`, and unsupported-capability handling for stop/approval.
-- [ ] 4.6 Implement the run routes, including the normalized SSE re-emitter and the upstream→Nexus status mapping from design D9.
-- [ ] 4.7 Add rate limiting consistent with the existing middleware helper to the run-creating routes, with a test for the limited response.
-- [ ] 4.8 Run the focused route suites green.
+- [x] 4.1 Write failing route tests for `GET /api/career-ops/status`: `401` unauthenticated; disabled response when unconfigured; unavailable response when Hermes health fails; capability flags reflected; no upstream authorization value in the body.
+- [x] 4.2 Implement `app/api/career-ops/status/route.ts`.
+- [x] 4.3 Write failing route tests for threads: `GET`/`POST /api/career-ops/threads`, `GET`/`DELETE /api/career-ops/threads/[id]`, `GET /api/career-ops/threads/[id]/messages` — `401`, invalid JSON `400`, oversized body `413`, foreign thread `404`, foreign application `404`, cross-user list isolation, disabled-integration response.
+- [x] 4.4 Implement the thread routes.
+- [x] 4.5 Write failing route tests for runs: `POST /api/career-ops/threads/[id]/runs` (bounded message, empty message `400`, invalid/missing `clientRequestId` `400`, duplicate `clientRequestId` yields one run), `GET /api/career-ops/runs/[id]`, `GET /api/career-ops/runs/[id]/events`, `POST /api/career-ops/runs/[id]/stop`, `POST /api/career-ops/runs/[id]/approval` — including foreign-run `404` on every one, invalid approval choice `400`, and unsupported-capability handling for stop/approval.
+- [x] 4.6 Implement the run routes, including the normalized SSE re-emitter and the upstream→Nexus status mapping from design D9.
+- [x] 4.7 Add rate limiting consistent with the existing middleware helper to the run-creating routes, with a test for the limited response.
+- [x] 4.8 Run the focused route suites green.
 
 ## 5. Career Ops UI (RED → GREEN)
 

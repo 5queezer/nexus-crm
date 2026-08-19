@@ -1,0 +1,39 @@
+import { NextResponse } from "next/server";
+import { resolveCareerOpsApproval } from "@/lib/career-ops/service";
+import type { CareerOpsApprovalChoice } from "@/lib/career-ops/sse";
+import {
+  careerOpsErrorResponse,
+  enforceCareerOpsRateLimit,
+  readCareerOpsBody,
+  requireCareerOpsSession,
+  unauthorized,
+} from "@/lib/career-ops/http";
+
+type Context = { params: Promise<{ id: string }> };
+
+const CHOICES: readonly CareerOpsApprovalChoice[] = ["once", "session", "always", "deny"];
+
+export async function POST(request: Request, context: Context) {
+  const session = await requireCareerOpsSession();
+  if (!session) return unauthorized();
+  const limited = enforceCareerOpsRateLimit(session);
+  if (limited) return limited;
+
+  try {
+    const { id } = await context.params;
+    const body = await readCareerOpsBody(request);
+    // An approval is a human decision: only an explicit, known choice counts.
+    // There is no default and no inferred value.
+    const choice = body.choice;
+    if (typeof choice !== "string" || !CHOICES.includes(choice as CareerOpsApprovalChoice)) {
+      return NextResponse.json(
+        { error: "invalid_request", message: "Invalid approval decision" },
+        { status: 400 },
+      );
+    }
+    await resolveCareerOpsApproval(session, id, choice as CareerOpsApprovalChoice);
+    return NextResponse.json({ resolved: true, choice });
+  } catch (reason) {
+    return careerOpsErrorResponse(reason);
+  }
+}

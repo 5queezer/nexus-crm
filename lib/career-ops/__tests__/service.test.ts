@@ -1,0 +1,470 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  db: {
+    listCareerOpsThreads: vi.fn(),
+    getCareerOpsThread: vi.fn(),
+    createCareerOpsThread: vi.fn(),
+    renameCareerOpsThread: vi.fn(),
+    deleteCareerOpsThread: vi.fn(),
+    getCareerOpsRun: vi.fn(),
+    createCareerOpsRun: vi.fn(),
+    updateCareerOpsRunStatus: vi.fn(),
+    verifyApplicationOwner: vi.fn(),
+    getApplication: vi.fn(),
+  },
+  client: {
+    health: vi.fn(),
+    capabilities: vi.fn(),
+    createSession: vi.fn(),
+    deleteSession: vi.fn(),
+    listSessionMessages: vi.fn(),
+    createRun: vi.fn(),
+    getRun: vi.fn(),
+    stopRun: vi.fn(),
+    resolveApproval: vi.fn(),
+    openRunEvents: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/db", () => ({ getDb: () => mocks.db }));
+vi.mock("../hermes-client", async () => {
+  const actual = await vi.importActual<typeof import("../hermes-client")>("../hermes-client");
+  return { ...actual, createHermesClient: () => mocks.client };
+});
+
+import { HermesError } from "../hermes-client";
+import {
+  CareerOpsServiceError,
+  createCareerOpsThread,
+  deleteCareerOpsThread,
+  getCareerOpsStatus,
+  listCareerOpsThreadMessages,
+  listCareerOpsThreads,
+  requireOwnedRun,
+  requireOwnedThread,
+  resolveCareerOpsApproval,
+  startCareerOpsRun,
+  stopCareerOpsRun,
+} from "../service";
+
+const SECRET = "hermes-secret-key-0123456789";
+
+const SESSION_A = { userId: "user-a", user: { isAdmin: false } };
+const ADMIN = { userId: "admin-1", user: { isAdmin: true } };
+
+const THREAD = {
+  id: "thread-1",
+  userId: "user-a",
+  hermesSessionId: "sess-1",
+  title: "Career Ops",
+  applicationId: null,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+};
+
+function enable() {
+  process.env.HERMES_CAREER_OPS_ENABLED = "true";
+  process.env.HERMES_CAREER_OPS_BASE_URL = "http://127.0.0.1:8642/p/career-ops";
+  process.env.HERMES_CAREER_OPS_API_KEY = SECRET;
+}
+
+function disable() {
+  delete process.env.HERMES_CAREER_OPS_ENABLED;
+  delete process.env.HERMES_CAREER_OPS_BASE_URL;
+  delete process.env.HERMES_CAREER_OPS_API_KEY;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  enable();
+  mocks.client.capabilities.mockResolvedValue({
+    runs: true,
+    runStatus: true,
+    runEvents: true,
+    stop: true,
+    approvals: true,
+    sessions: true,
+  });
+  mocks.client.health.mockResolvedValue({ healthy: true, version: "1.0.0" });
+  mocks.client.stopRun.mockResolvedValue(undefined);
+  mocks.client.resolveApproval.mockResolvedValue(undefined);
+  mocks.client.deleteSession.mockResolvedValue(undefined);
+  mocks.db.getCareerOpsThread.mockResolvedValue(null);
+  mocks.db.getCareerOpsRun.mockResolvedValue(null);
+});
+
+describe("getCareerOpsStatus", () => {
+  it("reports disabled when the integration is not configured", async () => {
+    disable();
+    await expect(getCareerOpsStatus()).resolves.toEqual({
+      enabled: false,
+      available: false,
+      reason: "not_configured",
+      capabilities: { stop: false, approvals: false, streaming: false },
+    });
+    expect(mocks.client.health).not.toHaveBeenCalled();
+  });
+
+  it("reports available with the advertised capabilities", async () => {
+    await expect(getCareerOpsStatus()).resolves.toEqual({
+      enabled: true,
+      available: true,
+      reason: null,
+      capabilities: { stop: true, approvals: true, streaming: true },
+    });
+  });
+
+  it("reports unavailable when Hermes is unreachable, without upstream detail", async () => {
+    mocks.client.health.mockRejectedValue(
+      new HermesError("unreachable", "Hermes is unreachable", `Bearer ${SECRET}`),
+    );
+    const status = await getCareerOpsStatus();
+    expect(status).toEqual({
+      enabled: true,
+      available: false,
+      reason: "unreachable",
+      capabilities: { stop: false, approvals: false, streaming: false },
+    });
+    expect(JSON.stringify(status)).not.toContain(SECRET);
+  });
+
+  it("reports unavailable when Hermes reports a degraded health status", async () => {
+    mocks.client.health.mockResolvedValue({ healthy: false, version: null });
+    await expect(getCareerOpsStatus()).resolves.toMatchObject({
+      available: false,
+      reason: "degraded",
+    });
+  });
+
+  it("reflects partial capability support", async () => {
+    mocks.client.capabilities.mockResolvedValue({
+      runs: true,
+      runStatus: true,
+      runEvents: true,
+      stop: false,
+      approvals: false,
+      sessions: true,
+    });
+    await expect(getCareerOpsStatus()).resolves.toMatchObject({
+      available: true,
+      capabilities: { stop: false, approvals: false, streaming: true },
+    });
+  });
+
+  it("reports unavailable when Hermes cannot submit runs at all", async () => {
+    mocks.client.capabilities.mockResolvedValue({
+      runs: false,
+      runStatus: false,
+      runEvents: false,
+      stop: false,
+      approvals: false,
+      sessions: false,
+    });
+    await expect(getCareerOpsStatus()).resolves.toMatchObject({
+      available: false,
+      reason: "unsupported",
+    });
+  });
+});
+
+describe("ownership resolution", () => {
+  it("returns the thread for its owner", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    await expect(requireOwnedThread(SESSION_A, "thread-1")).resolves.toEqual(THREAD);
+    expect(mocks.db.getCareerOpsThread).toHaveBeenCalledWith("thread-1", "user-a");
+  });
+
+  it("rejects a foreign thread as not found", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(null);
+    await expect(requireOwnedThread(SESSION_A, "thread-9")).rejects.toMatchObject({
+      code: "not_found",
+    });
+  });
+
+  it("does not exempt administrators", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(null);
+    await expect(requireOwnedThread(ADMIN, "thread-1")).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(mocks.db.getCareerOpsThread).toHaveBeenCalledWith("thread-1", "admin-1");
+  });
+
+  it("rejects a foreign run and never resolves its thread", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue(null);
+    await expect(requireOwnedRun(SESSION_A, "run-9")).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(mocks.db.getCareerOpsThread).not.toHaveBeenCalled();
+  });
+
+  it("rejects a run whose thread is no longer owned", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue({
+      id: "run-1",
+      userId: "user-a",
+      threadId: "thread-1",
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-1",
+      status: "running",
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    });
+    mocks.db.getCareerOpsThread.mockResolvedValue(null);
+    await expect(requireOwnedRun(SESSION_A, "run-1")).rejects.toMatchObject({
+      code: "not_found",
+    });
+  });
+});
+
+describe("thread lifecycle", () => {
+  it("creates a global thread and a Hermes session scoped to the user's memory key", async () => {
+    mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
+    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, hermesSessionId: "sess-new" });
+
+    const thread = await createCareerOpsThread(SESSION_A, { title: "Pipeline" });
+
+    expect(thread.hermesSessionId).toBe("sess-new");
+    const [sessionArgs] = mocks.client.createSession.mock.calls[0];
+    expect(sessionArgs.memoryScope).toMatch(/^agent:career-ops:nexus:dm:[0-9a-f]{32}$/);
+    expect(mocks.db.createCareerOpsThread).toHaveBeenCalledWith("user-a", {
+      hermesSessionId: "sess-new",
+      title: "Pipeline",
+      applicationId: null,
+    });
+  });
+
+  it("verifies application ownership before linking", async () => {
+    mocks.db.verifyApplicationOwner.mockResolvedValue(false);
+    await expect(
+      createCareerOpsThread(SESSION_A, { applicationId: "42" }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
+  });
+
+  it("links an owned application and names the thread after it", async () => {
+    mocks.db.verifyApplicationOwner.mockResolvedValue(true);
+    mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
+    mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
+    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+
+    await createCareerOpsThread(SESSION_A, { applicationId: "42" });
+
+    expect(mocks.db.createCareerOpsThread).toHaveBeenCalledWith(
+      "user-a",
+      expect.objectContaining({ applicationId: "42", title: expect.stringContaining("Acme") }),
+    );
+  });
+
+  it("lists only the caller's threads", async () => {
+    mocks.db.listCareerOpsThreads.mockResolvedValue([THREAD]);
+    await expect(listCareerOpsThreads(SESSION_A)).resolves.toEqual([THREAD]);
+    expect(mocks.db.listCareerOpsThreads).toHaveBeenCalledWith("user-a");
+  });
+
+  it("deletes the Nexus mapping even when the upstream session delete fails", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.db.deleteCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.client.deleteSession.mockRejectedValue(
+      new HermesError("upstream_error", "boom", `Bearer ${SECRET}`),
+    );
+
+    await expect(deleteCareerOpsThread(SESSION_A, "thread-1")).resolves.toBeUndefined();
+    expect(mocks.db.deleteCareerOpsThread).toHaveBeenCalledWith("thread-1", "user-a");
+  });
+
+  it("refuses to delete a thread the caller does not own", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(null);
+    await expect(deleteCareerOpsThread(SESSION_A, "thread-9")).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(mocks.client.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("reads messages from the owned Hermes session only", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.client.listSessionMessages.mockResolvedValue([
+      { id: "1", role: "user", content: "hi", createdAt: 1 },
+    ]);
+    await expect(listCareerOpsThreadMessages(SESSION_A, "thread-1")).resolves.toHaveLength(1);
+    expect(mocks.client.listSessionMessages).toHaveBeenCalledWith("sess-1");
+  });
+});
+
+describe("startCareerOpsRun", () => {
+  beforeEach(() => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.client.createRun.mockResolvedValue({ runId: "run_1" });
+    mocks.db.createCareerOpsRun.mockResolvedValue({
+      created: true,
+      run: {
+        id: "run-1",
+        userId: "user-a",
+        threadId: "thread-1",
+        hermesRunId: "run_1",
+        clientRequestId: "client-id-1",
+        status: "queued",
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+    });
+  });
+
+  it("starts a run for an owned thread", async () => {
+    const run = await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-1",
+    });
+    expect(run.hermesRunId).toBe("run_1");
+    const [args] = mocks.client.createRun.mock.calls[0];
+    expect(args.sessionId).toBe("sess-1");
+    expect(args.input).toBe("hello");
+  });
+
+  it("returns the existing run for a repeated client request id without a second upstream call", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue(null);
+    mocks.db.createCareerOpsRun.mockResolvedValue({
+      created: false,
+      run: {
+        id: "run-1",
+        userId: "user-a",
+        threadId: "thread-1",
+        hermesRunId: "run_first",
+        clientRequestId: "client-id-1",
+        status: "running",
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+    });
+
+    const run = await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-1",
+    });
+    expect(run.hermesRunId).toBe("run_first");
+    // The losing upstream run is abandoned, and stopped best-effort.
+    expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
+  });
+
+  it("rejects an empty message", async () => {
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", { message: "   ", clientRequestId: "client-id-1" }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized message", async () => {
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "x".repeat(50_000),
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed client request id", async () => {
+    for (const value of ["", "short", "has spaces!!", "x".repeat(200)]) {
+      await expect(
+        startCareerOpsRun(SESSION_A, "thread-1", { message: "hello", clientRequestId: value }),
+      ).rejects.toMatchObject({ code: "invalid_request" });
+    }
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+
+  it("passes application context as instructions without the job description", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getApplication.mockResolvedValue({
+      id: "42",
+      company: "Acme",
+      role: "Engineer",
+      jobDescription: "TOP SECRET JOB TEXT",
+    });
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-1",
+    });
+
+    const [args] = mocks.client.createRun.mock.calls[0];
+    expect(args.instructions).toContain("42");
+    expect(args.instructions).toContain("Acme");
+    expect(args.instructions).not.toContain("TOP SECRET JOB TEXT");
+  });
+
+  it("refuses to start a run on a foreign thread", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(null);
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-9", { message: "hi", clientRequestId: "client-id-1" }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("run controls", () => {
+  const RUN = {
+    id: "run-1",
+    userId: "user-a",
+    threadId: "thread-1",
+    hermesRunId: "run_1",
+    clientRequestId: "client-id-1",
+    status: "running" as const,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
+
+  beforeEach(() => {
+    mocks.db.getCareerOpsRun.mockResolvedValue(RUN);
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+  });
+
+  it("stops an owned run", async () => {
+    await expect(stopCareerOpsRun(SESSION_A, "run-1")).resolves.toBeUndefined();
+    expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
+  });
+
+  it("refuses to stop a foreign run", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue(null);
+    await expect(stopCareerOpsRun(SESSION_A, "run-1")).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(mocks.client.stopRun).not.toHaveBeenCalled();
+  });
+
+  it("forwards an approval decision for an owned run", async () => {
+    await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
+    expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
+  });
+
+  it("rejects an unsupported approval decision", async () => {
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "maybe" as never),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses an approval decision for a foreign run", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue(null);
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once")).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an upstream conflict as a conflict, without upstream text", async () => {
+    mocks.client.resolveApproval.mockRejectedValue(
+      new HermesError("conflict", "no pending approval", `Bearer ${SECRET}`),
+    );
+    const error = await resolveCareerOpsApproval(SESSION_A, "run-1", "once").catch((r) => r);
+    expect(error).toBeInstanceOf(CareerOpsServiceError);
+    expect(error.code).toBe("conflict");
+    expect(JSON.stringify({ message: error.message })).not.toContain(SECRET);
+  });
+
+  it("rejects every operation when the integration is disabled", async () => {
+    disable();
+    await expect(stopCareerOpsRun(SESSION_A, "run-1")).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    await expect(listCareerOpsThreads(SESSION_A)).rejects.toMatchObject({ code: "unavailable" });
+  });
+});
