@@ -459,9 +459,17 @@ describe("run controls", () => {
     mocks.client.resolveApproval.mockRejectedValue(
       new HermesError("conflict", "not pending", `Bearer ${SECRET}`),
     );
-    const response = await approveRun(post({ choice: "once" }), runContext);
+    // Denial needs no challenge, so this exercises the upstream mapping rather
+    // than the disclosure check.
+    const response = await approveRun(post({ choice: "deny" }), runContext);
     expect(response.status).toBe(409);
     expect(await response.text()).not.toContain(SECRET);
+  });
+
+  it("rejects a granting decision that carries no challenge", async () => {
+    const response = await approveRun(post({ choice: "once" }), runContext);
+    expect(response.status).toBe(400);
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
   });
 });
 

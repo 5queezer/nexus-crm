@@ -718,6 +718,8 @@ export interface CareerOpsRunRecord {
   /** Last human approval decision on this run. Never the command or arguments. */
   approvalChoice: string | null;
   approvalAt: Date | null;
+  /** Challenge consumed by the last decision, so it cannot be replayed. */
+  approvalChallengeId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

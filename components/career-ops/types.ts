@@ -39,6 +39,14 @@ export type ApprovalRequest = {
   details: string;
   choices: string[];
   /**
+   * Server-issued proof that this exact prompt was disclosed. Submitted back
+   * with a granting decision; absent on a prompt recovered after a disconnect,
+   * which is why such a prompt can only be denied.
+   */
+  challenge?: string;
+  /** True when the action text did not fit the display bound. */
+  truncated?: boolean;
+  /**
    * True when the run was rejoined after a disconnect: Hermes' run status
    * reports that a decision is pending but carries no operation payload, and
    * the event stream that had it is single-consumer and gone.
@@ -51,7 +59,15 @@ export type CareerOpsStreamEvent =
   | { type: "delta"; text: string }
   | { type: "tool_started"; tool: string }
   | { type: "tool_completed"; tool: string; durationMs: number | null; failed: boolean }
-  | { type: "approval_required"; operation: string; summary: string; details: string; choices: string[] }
+  | {
+      type: "approval_required";
+      operation: string;
+      summary: string;
+      details: string;
+      choices: string[];
+      challenge?: string;
+      truncated?: boolean;
+    }
   | { type: "approval_resolved"; choice: string }
   | { type: "completed"; output: string }
   | { type: "failed"; message: string }

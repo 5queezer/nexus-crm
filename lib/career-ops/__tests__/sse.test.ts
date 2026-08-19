@@ -93,6 +93,7 @@ describe("normalizeHermesEvent", () => {
       summary: "Delete a temporary folder",
       details: "rm -rf /tmp/x",
       choices: ["once", "session", "always", "deny"],
+      truncated: false,
     });
   });
 
@@ -148,5 +149,39 @@ describe("serializeCareerOpsEvent", () => {
     const frame = serializeCareerOpsEvent({ type: "delta", text: "a\nb" });
     expect(frame.split("\n\n")).toHaveLength(2);
     expect(frame.startsWith("data: ")).toBe(true);
+  });
+});
+
+describe("approval prompts that do not fit the display bound", () => {
+  it("offers denial only when the command is clipped", () => {
+    // A consequential argument can sit past the bound, so approving what was
+    // shown would authorize something the human never saw.
+    const event = normalizeHermesEvent(
+      JSON.stringify({
+        event: "approval.request",
+        pattern_key: "shell",
+        description: "Run a command",
+        command: "x".repeat(5_000),
+        choices: ["once", "session", "always", "deny"],
+      }),
+    );
+    expect(event).toMatchObject({ type: "approval_required", truncated: true, choices: ["deny"] });
+  });
+
+  it("keeps the offered choices when the whole action fits", () => {
+    const event = normalizeHermesEvent(
+      JSON.stringify({
+        event: "approval.request",
+        pattern_key: "shell",
+        description: "Run a command",
+        command: "nexus update 42",
+        choices: ["once", "deny"],
+      }),
+    );
+    expect(event).toMatchObject({
+      type: "approval_required",
+      truncated: false,
+      choices: ["once", "deny"],
+    });
   });
 });

@@ -801,7 +801,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
     expect(run.approvalChoice).toBeNull();
 
-    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny");
+    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "challenge-1");
     const decided = await db.getCareerOpsRun(run.id, "user-a");
     expect(decided?.approvalChoice).toBe("deny");
     expect(decided?.approvalAt).toBeInstanceOf(Date);
@@ -819,7 +819,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       clientRequestId: "client-id-foreign-approval",
       status: "waiting_for_approval",
     });
-    await db.recordCareerOpsApprovalDecision(run.id, "user-b", "once");
+    await db.recordCareerOpsApprovalDecision(run.id, "user-b", "once", "challenge-1");
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
       approvalChoice: null,
     });

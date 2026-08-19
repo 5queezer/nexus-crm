@@ -2276,10 +2276,11 @@ export class PrismaAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     choice: string,
+    challengeId: string,
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({
       where: { id, userId },
-      data: { approvalChoice: choice, approvalAt: new Date() },
+      data: { approvalChoice: choice, approvalAt: new Date(), approvalChallengeId: challengeId },
     });
   }
 
@@ -2336,6 +2337,7 @@ function mapCareerOpsRun(row: {
   status: string;
   approvalChoice: string | null;
   approvalAt: Date | null;
+  approvalChallengeId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsRunRecord {
@@ -2348,6 +2350,7 @@ function mapCareerOpsRun(row: {
     status: row.status as CareerOpsRunStatus,
     approvalChoice: row.approvalChoice ?? null,
     approvalAt: row.approvalAt ?? null,
+    approvalChallengeId: row.approvalChallengeId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

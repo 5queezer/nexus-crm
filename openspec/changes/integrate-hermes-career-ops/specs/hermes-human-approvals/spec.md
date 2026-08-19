@@ -35,6 +35,40 @@ The system SHALL present an approval request as a non-technical summary of the o
 - **WHEN** a run is waiting for approval
 - **THEN** the waiting state is conveyed by text or an icon in addition to any color
 
+### Requirement: A decision is bound to the action that was disclosed
+The system SHALL bind every approval that grants permission to the specific prompt Nexus disclosed and to the choices that prompt offered, and SHALL refuse a granting decision that cannot be shown to answer such a disclosure. Ownership of a run SHALL NOT by itself authorize an action.
+
+#### Scenario: Decision without a disclosed prompt
+- **WHEN** an authenticated owner submits a granting decision that carries no proof the corresponding prompt was disclosed
+- **THEN** the system refuses the decision and forwards nothing upstream
+
+#### Scenario: Decision broader than the prompt offered
+- **WHEN** a granting decision selects a permission breadth the disclosed prompt did not offer, such as a session-wide or permanent grant for a gate that offered a single use
+- **THEN** the system refuses the decision and forwards nothing upstream
+
+#### Scenario: Decision replayed
+- **WHEN** a decision that was already recorded for a disclosed prompt is submitted again
+- **THEN** the system refuses it rather than re-authorizing the action
+
+#### Scenario: Decision for a different run or user
+- **WHEN** proof of disclosure issued for one run or one user is presented for another
+- **THEN** the system refuses the decision
+
+#### Scenario: Rejection is always available to the owner
+- **WHEN** the owner rejects a gated action, including when the prompt could not be recovered after a disconnect
+- **THEN** the system forwards the rejection, because rejection grants nothing and must remain available exactly when disclosure could not be reproduced
+
+### Requirement: An action that cannot be shown in full is not approvable
+The system SHALL treat an approval prompt whose disclosed action does not fit the display bound as rejection-only, and SHALL NOT offer approval for an action the human cannot have seen in full.
+
+#### Scenario: Action exceeds the display bound
+- **WHEN** the operation, summary or detail of an approval request is longer than the surface displays
+- **THEN** the prompt is marked as not fully displayable and offers only rejection
+
+#### Scenario: Action fits
+- **WHEN** the whole disclosed action fits within the display bound
+- **THEN** the prompt offers the choices the gate advertised
+
 ### Requirement: Authenticated, owner-scoped approval decisions
 The system SHALL route every approval decision through an authenticated Nexus endpoint that verifies thread and run ownership before forwarding it, and SHALL reject decisions for runs the caller does not own.
 

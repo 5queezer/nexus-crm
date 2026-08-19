@@ -21,6 +21,14 @@ export type CareerOpsEvent =
       summary: string;
       details: string;
       choices: CareerOpsApprovalChoice[];
+      /**
+       * True when the disclosed action did not fit the display bound, so the
+       * human cannot have seen all of what they would be authorizing. Such a
+       * prompt is denial-only.
+       */
+      truncated: boolean;
+      /** Set by the event route: proof this exact prompt was disclosed. */
+      challenge?: string;
     }
   | { type: "approval_resolved"; choice: string }
   | { type: "completed"; output: string }
@@ -66,6 +74,14 @@ function readDataLines(frame: string): string | null {
   }
   if (data.length === 0) return null;
   return data.join("\n");
+}
+
+/** Display bound for the human-readable parts of an approval prompt. */
+export const APPROVAL_TEXT_LIMIT = 400;
+
+/** True when the value would lose content at this bound. */
+function exceedsDisplayBound(value: unknown, maximum: number): boolean {
+  return typeof value === "string" && value.length > maximum;
 }
 
 function asString(value: unknown, maximum: number): string {
@@ -115,12 +131,20 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
     case "approval.request": {
       const rawChoices = Array.isArray(event.choices) ? event.choices : [];
       const choices = APPROVAL_CHOICES.filter((choice) => rawChoices.includes(choice));
+      // A consequential argument can sit past the display bound. Approving what
+      // was shown would then authorize something else, so a clipped action is
+      // offered for denial only rather than silently truncated.
+      const truncated = exceedsDisplayBound(event.pattern_key, 120)
+        || exceedsDisplayBound(event.description, APPROVAL_TEXT_LIMIT)
+        || exceedsDisplayBound(event.command, APPROVAL_TEXT_LIMIT);
+      const offered = choices.length > 0 ? choices : (["once", "deny"] as CareerOpsApprovalChoice[]);
       return {
         type: "approval_required",
         operation: asString(event.pattern_key, 120),
-        summary: redactUpstreamError(asString(event.description, 400)),
-        details: redactUpstreamError(asString(event.command, 400)),
-        choices: choices.length > 0 ? choices : ["once", "deny"],
+        summary: redactUpstreamError(asString(event.description, APPROVAL_TEXT_LIMIT)),
+        details: redactUpstreamError(asString(event.command, APPROVAL_TEXT_LIMIT)),
+        choices: truncated ? ["deny"] : offered,
+        truncated,
       };
     }
     case "approval.responded": {

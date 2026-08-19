@@ -121,6 +121,8 @@ export function useCareerOpsRun(
               summary: event.summary,
               details: event.details,
               choices: event.choices,
+              challenge: event.challenge,
+              truncated: event.truncated,
             },
           };
         case "approval_resolved":
@@ -332,7 +334,8 @@ export function useCareerOpsRun(
         await careerOpsJson(`/api/career-ops/runs/${runId}/approval`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ choice }),
+          // The challenge is what makes an approval answer a specific prompt.
+          body: JSON.stringify({ choice, challenge: pending?.challenge }),
         });
       } catch (reason) {
         const code = reason instanceof CareerOpsRequestError ? reason.code : "error_generic";

@@ -22,6 +22,11 @@ import {
 } from "./instructions";
 import type { CareerOpsApprovalChoice } from "./sse";
 import type { CareerOpsApplicationView } from "./serialize";
+import {
+  approvalActionHash,
+  issueApprovalChallenge,
+  verifyApprovalChallenge,
+} from "./approval-challenge";
 
 /**
  * The single choke point between the browser-facing routes and Hermes.
@@ -753,10 +758,30 @@ export async function stopCareerOpsRun(
   }
 }
 
+/**
+ * Mint the proof that a specific approval prompt was disclosed to this owner.
+ * Called only from the event route, at the moment the sanitized prompt is put
+ * on the wire, so the token describes exactly what the human will see.
+ */
+export function careerOpsApprovalChallengeFor(
+  session: CareerOpsSession,
+  runId: string,
+  event: { operation: string; summary: string; details: string; choices: CareerOpsApprovalChoice[] },
+): string {
+  const config = enabledConfig(session);
+  return issueApprovalChallenge(config, {
+    runId,
+    userId: session.userId,
+    actionHash: approvalActionHash(event),
+    choices: event.choices,
+  });
+}
+
 export async function resolveCareerOpsApproval(
   session: CareerOpsSession,
   runId: string,
   choice: CareerOpsApprovalChoice,
+  challenge?: unknown,
 ): Promise<void> {
   const config = enabledConfig(session);
   if (!APPROVAL_CHOICES.includes(choice)) {
@@ -766,6 +791,40 @@ export async function resolveCareerOpsApproval(
   if (isUnbound(run)) {
     throw new CareerOpsServiceError("conflict", "The run has not started yet");
   }
+
+  // Ownership of the run is not consent to a specific action. The challenge is
+  // what ties this decision to the prompt Nexus actually disclosed, and to the
+  // choices that prompt offered — without it an authenticated request could
+  // approve an action the browser never showed, or grant `session`/`always`
+  // breadth the gate never advertised.
+  //
+  // The requirement is deliberately asymmetric. Only a decision that *grants*
+  // needs proof of disclosure; `deny` grants nothing, and requiring a challenge
+  // for it would strip the owner of the safe option in exactly the case where
+  // the prompt could not be recovered — after the single-consumer event stream
+  // dropped. Denial stays available to the owner unconditionally.
+  let consumedChallengeId = "";
+  if (choice !== "deny") {
+    const verified = verifyApprovalChallenge(config, challenge, {
+      runId: run.id,
+      userId: session.userId,
+      choice,
+    });
+    if (!verified.ok) {
+      throw new CareerOpsServiceError(
+        "invalid_request",
+        verified.reason === "expired"
+          ? "That approval prompt has expired; reload the conversation"
+          : "That decision does not match the approval that was shown",
+      );
+    }
+    // Single use: the same disclosure cannot be replayed to re-authorize.
+    if (run.approvalChallengeId && run.approvalChallengeId === verified.payload.jti) {
+      throw new CareerOpsServiceError("conflict", "That decision was already recorded");
+    }
+    consumedChallengeId = verified.payload.jti;
+  }
+
   try {
     await client(config).resolveApproval(run.hermesRunId, choice);
   } catch (reason) {
@@ -776,7 +835,12 @@ export async function resolveCareerOpsApproval(
   // failure is reported rather than swallowed — the decision did reach Hermes,
   // which the controlled error says explicitly.
   try {
-    await getDb().recordCareerOpsApprovalDecision(run.id, session.userId, choice);
+    await getDb().recordCareerOpsApprovalDecision(
+      run.id,
+      session.userId,
+      choice,
+      consumedChallengeId,
+    );
   } catch {
     throw new CareerOpsServiceError(
       "upstream_error",

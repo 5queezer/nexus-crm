@@ -176,5 +176,10 @@ export interface DatabaseAdapter {
    * Record who decided an approval and when. Deliberately stores no command
    * payload or arguments. No-op when the run is not the user's.
    */
-  recordCareerOpsApprovalDecision(id: string, userId: string, choice: string): Promise<void>;
+  recordCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    choice: string,
+    challengeId: string,
+  ): Promise<void>;
 }

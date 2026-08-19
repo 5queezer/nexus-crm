@@ -1,4 +1,8 @@
-import { openCareerOpsRunEvents, recordCareerOpsRunStatus } from "@/lib/career-ops/service";
+import {
+  careerOpsApprovalChallengeFor,
+  openCareerOpsRunEvents,
+  recordCareerOpsRunStatus,
+} from "@/lib/career-ops/service";
 import { SseFrameParser, normalizeHermesEvent, serializeCareerOpsEvent } from "@/lib/career-ops/sse";
 import type { CareerOpsRunStatus } from "@/lib/db/types";
 import {
@@ -85,7 +89,15 @@ export async function GET(request: Request, context: Context) {
       const handle = async (payload: string) => {
         const event = normalizeHermesEvent(payload);
         if (!event) return;
-        emit(serializeCareerOpsEvent(event));
+        // Mint the challenge here, where the sanitized prompt is actually
+        // disclosed, and bind it to what this stream is about to show. The
+        // approval endpoint accepts nothing else, so a decision cannot be
+        // submitted for an action the browser never received.
+        const outgoing =
+          event.type === "approval_required"
+            ? { ...event, challenge: careerOpsApprovalChallengeFor(session, runId, event) }
+            : event;
+        emit(serializeCareerOpsEvent(outgoing));
         const terminal = TERMINAL_STATUS[event.type];
         if (terminal) {
           await recordCareerOpsRunStatus(session, runId, terminal).catch(() => undefined);

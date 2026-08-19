@@ -49,6 +49,7 @@ import {
   requireOwnedThread,
   resetCareerOpsCapabilityCacheForTests,
   resolveCareerOpsThreadApplication,
+  careerOpsApprovalChallengeFor,
   resolveCareerOpsApproval,
   startCareerOpsRun,
   stopCareerOpsRun,
@@ -926,6 +927,16 @@ describe("startCareerOpsRun", () => {
   });
 });
 
+/** Mint a real challenge the way the event route does. */
+function challengeFor(runId: string, choices: Array<"once" | "session" | "always" | "deny">) {
+  return careerOpsApprovalChallengeFor(SESSION_A, runId, {
+    operation: "shell",
+    summary: "Update the application",
+    details: "nexus update 42",
+    choices,
+  });
+}
+
 describe("run controls", () => {
   const RUN = {
     id: "run-1",
@@ -967,12 +978,13 @@ describe("run controls", () => {
       "run-1",
       "user-a",
       "deny",
+      "",
     );
   });
 
   it("records nothing when the decision was not forwarded", async () => {
     mocks.client.resolveApproval.mockRejectedValue(new HermesError("conflict", "not pending"));
-    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once")).rejects.toBeTruthy();
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"]))).rejects.toBeTruthy();
     expect(mocks.db.recordCareerOpsApprovalDecision).not.toHaveBeenCalled();
   });
 
@@ -994,7 +1006,7 @@ describe("run controls", () => {
 
   it("refuses an approval decision for a foreign run", async () => {
     mocks.db.getCareerOpsRun.mockResolvedValue(null);
-    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once")).rejects.toMatchObject({
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"]))).rejects.toMatchObject({
       code: "not_found",
     });
     expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
@@ -1004,10 +1016,59 @@ describe("run controls", () => {
     mocks.client.resolveApproval.mockRejectedValue(
       new HermesError("conflict", "no pending approval", `Bearer ${SECRET}`),
     );
-    const error = await resolveCareerOpsApproval(SESSION_A, "run-1", "once").catch((r) => r);
+    const error = await resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-1", ["once", "deny"])).catch((r) => r);
     expect(error).toBeInstanceOf(CareerOpsServiceError);
     expect(error.code).toBe("conflict");
     expect(JSON.stringify({ message: error.message })).not.toContain(SECRET);
+  });
+
+  it("refuses a granting decision that carries no challenge", async () => {
+    // Ownership of the run is not consent to a specific action: without proof
+    // that Nexus disclosed this prompt, an authenticated request could approve
+    // something the browser never displayed.
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once")).rejects.toMatchObject({
+      code: "invalid_request",
+    });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision broader than the prompt offered", async () => {
+    await expect(
+      resolveCareerOpsApproval(
+        SESSION_A,
+        "run-1",
+        "always",
+        challengeFor("run-1", ["once", "deny"]),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses a challenge minted for a different run", async () => {
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challengeFor("run-other", ["once"])),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses to replay a challenge that was already consumed", async () => {
+    const challenge = challengeFor("run-1", ["once", "deny"]);
+    await resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge);
+    const consumedId = mocks.db.recordCareerOpsApprovalDecision.mock.calls.at(-1)?.[3] as string;
+    expect(consumedId).toBeTruthy();
+
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, approvalChallengeId: consumedId });
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("always lets the owner deny, even with no recoverable prompt", async () => {
+    // After the single-consumer stream drops, the prompt cannot be reissued.
+    // Denial grants nothing, so requiring proof of disclosure for it would take
+    // away the safe option in exactly the case that needs it.
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).resolves.toBeUndefined();
+    expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
   });
 
   it("rejects every operation when the integration is disabled", async () => {

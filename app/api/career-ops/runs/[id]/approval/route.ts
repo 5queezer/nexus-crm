@@ -31,7 +31,14 @@ export async function POST(request: Request, context: Context) {
         { status: 400 },
       );
     }
-    await resolveCareerOpsApproval(session, id, choice as CareerOpsApprovalChoice);
+    // The challenge proves this decision answers the prompt Nexus disclosed.
+    // It is required: a decision without one is not an informed decision.
+    await resolveCareerOpsApproval(
+      session,
+      id,
+      choice as CareerOpsApprovalChoice,
+      body.challenge,
+    );
     return NextResponse.json({ resolved: true, choice });
   } catch (reason) {
     return careerOpsErrorResponse(reason);
