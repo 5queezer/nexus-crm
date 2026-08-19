@@ -1477,6 +1477,13 @@ export class PrismaAdapter implements DatabaseAdapter {
     } catch {
       throw new Error("application_cursor_invalid");
     }
+    if (cursor) {
+      const cursorApplication = await prisma.application.findFirst({
+        where: { ...where, id: cursor.id },
+        select: { id: true },
+      });
+      if (!cursorApplication) throw new Error("application_cursor_invalid");
+    }
 
     if (includeContacts) {
       const rows = await prisma.application.findMany({

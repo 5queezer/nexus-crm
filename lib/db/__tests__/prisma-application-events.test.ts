@@ -191,6 +191,12 @@ describe("PrismaAdapter — atomic application events", () => {
     expect((fake.prisma.application as { findMany: ReturnType<typeof vi.fn> }).findMany).not.toHaveBeenCalled();
   });
 
+  it("rejects a numeric cursor outside the scoped result set", async () => {
+    await expect(new PrismaAdapter().listApplicationsFiltered("owner-1", { cursor: "999" }))
+      .rejects.toThrow("application_cursor_invalid");
+    expect((fake.prisma.application as { findMany: ReturnType<typeof vi.fn> }).findMany).not.toHaveBeenCalled();
+  });
+
   it("updates the projection and creates one immutable event", async () => {
     const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
     expect(result.replayed).toBe(false);
