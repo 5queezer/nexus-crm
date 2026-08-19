@@ -892,6 +892,31 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
   });
 
+  it("lets exactly one caller consume an outstanding approval challenge", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-consume",
+      status: "running",
+    });
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
+
+    const results = await Promise.all([
+      db.consumeCareerOpsApprovalChallenge(run.id, "user-a", "gate-a"),
+      db.consumeCareerOpsApprovalChallenge(run.id, "user-a", "gate-a"),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+
+    // A different challenge never wins, and the slot is now empty.
+    await expect(
+      db.consumeCareerOpsApprovalChallenge(run.id, "user-a", "gate-b"),
+    ).resolves.toBe(false);
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: null,
+    });
+  });
+
   it("refuses to scope a conversation to an application that vanished", async () => {
     // The application is verified before Hermes is asked for a session, and can
     // be deleted during that round-trip; writing the thread anyway would point

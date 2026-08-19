@@ -118,10 +118,17 @@ export async function GET(request: Request, context: Context) {
         // disclosed, and bind it to what this stream is about to show. The
         // approval endpoint accepts nothing else, so a decision cannot be
         // submitted for an action the browser never received.
-        const outgoing =
-          event.type === "approval_required"
-            ? { ...event, challenge: await careerOpsApprovalChallengeFor(session, runId, event) }
-            : event;
+        let outgoing = event;
+        if (event.type === "approval_required") {
+          const challenge = await careerOpsApprovalChallengeFor(session, runId, event).catch(
+            () => null,
+          );
+          // No usable proof of disclosure means no grant can ever succeed, so
+          // offer denial only rather than a control that is guaranteed to fail.
+          outgoing = challenge
+            ? { ...event, challenge }
+            : { ...event, choices: ["deny"] as typeof event.choices, truncated: true };
+        }
         emit(serializeCareerOpsEvent(outgoing));
         const terminal = TERMINAL_STATUS[event.type];
         if (terminal) {

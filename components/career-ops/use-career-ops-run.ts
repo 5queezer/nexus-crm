@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CareerOpsRequestError,
   careerOpsJson,
@@ -146,12 +146,15 @@ export function useCareerOpsRun(
 
   /** Recover a run's outcome after the event stream ended without a terminal event. */
   const settleFromStatus = useCallback(
-    async (runId: string) => {
+    async (runId: string, signal?: AbortSignal) => {
       setState((current) =>
         TERMINAL_PHASES.includes(current.phase) ? current : { ...current, phase: "reconnecting" },
       );
       const deadline = Date.now() + runLifetimeMs;
       while (Date.now() < deadline) {
+        // Stop polling once the caller is gone. Without this a drawer that was
+        // unmounted keeps polling for the whole run lifetime.
+        if (signal?.aborted) return;
         let snapshot: RunSnapshot;
         try {
           snapshot = await careerOpsJson<RunSnapshot>(`/api/career-ops/runs/${runId}`);
@@ -219,11 +222,11 @@ export function useCareerOpsRun(
           signal,
         });
       } catch {
-        await settleFromStatus(runId);
+        await settleFromStatus(runId, signal);
         return;
       }
       if (!response.ok || !response.body) {
-        await settleFromStatus(runId);
+        await settleFromStatus(runId, signal);
         return;
       }
 
@@ -257,7 +260,7 @@ export function useCareerOpsRun(
         return;
       }
       if (signal.aborted) return;
-      await settleFromStatus(runId);
+      await settleFromStatus(runId, signal);
     },
     [applyEvent, onSettled, settleFromStatus],
   );
@@ -312,12 +315,25 @@ export function useCareerOpsRun(
   const resume = useCallback(
     async (runId: string) => {
       abortRef.current?.abort();
-      abortRef.current = null;
+      // Recovery polling is cancellable too, so leaving the page stops it.
+      const controller = new AbortController();
+      abortRef.current = controller;
       setState({ ...INITIAL, runId, phase: "reconnecting" });
-      await settleFromStatus(runId);
+      await settleFromStatus(runId, controller.signal);
     },
     [settleFromStatus],
   );
+
+  // Leaving the page must end the run's consumption. The Hermes event stream is
+  // single-consumer, so a detached hook that keeps reading it holds the only
+  // subscription: a drawer mounted later could then never see that run's
+  // approval prompts, while the invisible instance consumed them.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
 
   const stop = useCallback(async () => {
     const runId = state.runId;

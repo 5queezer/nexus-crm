@@ -2738,6 +2738,21 @@ export class FirestoreAdapter implements DatabaseAdapter {
     await ref.update({ pendingApprovalChallengeId: challengeId });
   }
 
+  async consumeCareerOpsApprovalChallenge(
+    id: string,
+    userId: string,
+    challengeId: string,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return false;
+      if (snapshot.data()!.pendingApprovalChallengeId !== challengeId) return false;
+      tx.update(ref, { pendingApprovalChallengeId: null });
+      return true;
+    });
+  }
+
   async recordCareerOpsApprovalDecision(
     id: string,
     userId: string,

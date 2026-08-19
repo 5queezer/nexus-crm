@@ -2318,6 +2318,19 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
+  async consumeCareerOpsApprovalChallenge(
+    id: string,
+    userId: string,
+    challengeId: string,
+  ): Promise<boolean> {
+    // The predicate is part of the write, so the database decides the winner.
+    const updated = await prisma.careerOpsRun.updateMany({
+      where: { id, userId, pendingApprovalChallengeId: challengeId },
+      data: { pendingApprovalChallengeId: null },
+    });
+    return updated.count === 1;
+  }
+
   async recordCareerOpsApprovalDecision(
     id: string,
     userId: string,

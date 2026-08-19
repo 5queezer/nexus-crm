@@ -192,6 +192,17 @@ export interface DatabaseAdapter {
     challengeId: string | null,
   ): Promise<void>;
 
+  /**
+   * Atomically clear the outstanding approval challenge if — and only if — it
+   * is still the one given. Returns true to exactly one caller, so two
+   * concurrent decisions carrying the same challenge cannot both proceed.
+   */
+  consumeCareerOpsApprovalChallenge(
+    id: string,
+    userId: string,
+    challengeId: string,
+  ): Promise<boolean>;
+
   recordCareerOpsApprovalDecision(
     id: string,
     userId: string,

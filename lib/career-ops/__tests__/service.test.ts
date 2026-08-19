@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
     setCareerOpsPendingApprovalChallenge: vi.fn(),
+    consumeCareerOpsApprovalChallenge: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
@@ -974,6 +975,14 @@ describe("run controls", () => {
         outstandingChallenge = challengeId;
       },
     );
+    // Models the conditional clear the adapters perform in one statement.
+    mocks.db.consumeCareerOpsApprovalChallenge.mockImplementation(
+      async (_id: string, _userId: string, challengeId: string) => {
+        if (outstandingChallenge !== challengeId) return false;
+        outstandingChallenge = null;
+        return true;
+      },
+    );
     mocks.db.getCareerOpsRun.mockImplementation(async () => ({
       ...RUN,
       pendingApprovalChallengeId: outstandingChallenge,
@@ -1047,13 +1056,14 @@ describe("run controls", () => {
     );
   });
 
-  it("reports a failure to record the decision rather than claiming success", async () => {
+  it("does not forward a decision it cannot record", async () => {
+    // Recording first exists so a privileged action is never taken without
+    // attribution. Forwarding anyway when the record fails would defeat that.
     mocks.db.recordCareerOpsApprovalDecision.mockRejectedValue(new Error("db down"));
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
       code: "upstream_error",
     });
-    // The decision did reach Hermes; only the audit record failed.
-    expect(mocks.client.resolveApproval).toHaveBeenCalled();
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
   });
 
   it("rejects an unsupported approval decision", async () => {
@@ -1176,16 +1186,36 @@ describe("run controls", () => {
     expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
   });
 
-  it("refuses any decision when no approval is outstanding", async () => {
+  it("consumes the outstanding challenge so it cannot be presented twice", async () => {
+    const challenge = await challengeFor("run-1", ["once"]);
     await expect(
-      resolveCareerOpsApproval(SESSION_A, "run-1", "once", await challengeFor("run-1", ["once"])),
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
     ).resolves.toBeUndefined();
-    // Consumed, so the same token cannot be presented again.
-    expect(mocks.db.setCareerOpsPendingApprovalChallenge).toHaveBeenLastCalledWith(
+
+    // The consume is what clears it, in the same statement that checks it.
+    expect(mocks.db.consumeCareerOpsApprovalChallenge).toHaveBeenCalledWith(
       "run-1",
       "user-a",
-      null,
+      expect.any(String),
     );
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("lets only one of two concurrent decisions carrying the same challenge through", async () => {
+    // Both requests read the same outstanding id; only the database can decide
+    // which one owns it. The loser must not reach Hermes, or it could land
+    // after the winner advanced the run to a different gate.
+    const challenge = await challengeFor("run-1", ["once"]);
+    const results = await Promise.allSettled([
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ]);
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+    expect(mocks.client.resolveApproval).toHaveBeenCalledTimes(1);
   });
 
   it("always lets the owner deny, even with no recoverable prompt", async () => {

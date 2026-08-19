@@ -838,7 +838,7 @@ export async function careerOpsApprovalChallengeFor(
   session: CareerOpsSession,
   runId: string,
   event: { operation: string; summary: string; details: string; choices: CareerOpsApprovalChoice[] },
-): Promise<string> {
+): Promise<string | null> {
   const config = enabledConfig(session);
   const token = issueApprovalChallenge(config, {
     runId,
@@ -849,13 +849,23 @@ export async function careerOpsApprovalChallengeFor(
   // Record it as the run's outstanding challenge. Only this one may be
   // answered, which is what stops a token minted for an earlier gate on the
   // same run from authorizing a later, different action.
+  //
+  // If it cannot be stored, the challenge is worthless: every granting decision
+  // would be refused, and the single-consumer stream means reloading cannot
+  // reissue the prompt — the user would be left with a grant button that can
+  // never work. Report that instead, so the caller offers denial only.
   const jti = approvalChallengeId(token);
-  if (jti) {
-    await getDb()
-      .setCareerOpsPendingApprovalChallenge(runId, session.userId, jti)
-      .catch(() => undefined);
+  if (!jti) return null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await getDb().setCareerOpsPendingApprovalChallenge(runId, session.userId, jti);
+      return token;
+    } catch {
+      if (attempt === 2) return null;
+      await sleep(100 * 2 ** attempt);
+    }
   }
-  return token;
+  return null;
 }
 
 export async function resolveCareerOpsApproval(
@@ -903,14 +913,22 @@ export async function resolveCareerOpsApproval(
     // can reach several gates inside one challenge lifetime, so "not the one
     // already consumed" is not enough: an earlier gate's token would still
     // verify against run, owner and choice, and could authorize whatever action
-    // is pending now. Matching the outstanding challenge closes both.
-    if (!run.pendingApprovalChallengeId) {
-      throw new CareerOpsServiceError("conflict", "There is no approval awaiting a decision");
-    }
-    if (run.pendingApprovalChallengeId !== verified.payload.jti) {
+    // is pending now.
+    //
+    // The check and the consumption are one database operation. Reading the
+    // outstanding id, comparing it here and clearing it after the upstream call
+    // would let two concurrent decisions carrying the same challenge both pass,
+    // and the second could reach Hermes after the first advanced the run to
+    // another gate — authorizing an action its token never disclosed.
+    const won = await getDb().consumeCareerOpsApprovalChallenge(
+      run.id,
+      session.userId,
+      verified.payload.jti,
+    );
+    if (!won) {
       throw new CareerOpsServiceError(
         "conflict",
-        "That decision answers a different approval than the one awaiting you",
+        "That decision does not answer the approval currently awaiting you",
       );
     }
     consumedChallengeId = verified.payload.jti;
@@ -919,11 +937,25 @@ export async function resolveCareerOpsApproval(
   // Commit the intent before the upstream call. Recording only afterwards
   // meant a decision that Hermes accepted could leave no local trace at all if
   // the write then failed — the privileged effect had happened and Nexus could
-  // not say who caused it. Now the worst case is a decision marked
-  // `outcome_unknown` that an operator can reconcile.
-  await getDb()
-    .recordCareerOpsApprovalDecision(run.id, session.userId, choice, consumedChallengeId, "pending")
-    .catch(() => undefined);
+  // not say who caused it.
+  //
+  // This write is required, not best-effort: swallowing it and forwarding
+  // anyway would authorize a privileged action with no attribution, which is
+  // the very thing recording-first exists to prevent.
+  try {
+    await getDb().recordCareerOpsApprovalDecision(
+      run.id,
+      session.userId,
+      choice,
+      consumedChallengeId,
+      "pending",
+    );
+  } catch {
+    throw new CareerOpsServiceError(
+      "upstream_error",
+      "The decision could not be recorded, so it was not sent",
+    );
+  }
 
   try {
     await client(config).resolveApproval(run.hermesRunId, choice);
@@ -954,10 +986,6 @@ export async function resolveCareerOpsApproval(
       consumedChallengeId,
       "effect_completed",
     );
-    // Consumed: the gate is answered, so nothing is outstanding any more.
-    await getDb()
-      .setCareerOpsPendingApprovalChallenge(run.id, session.userId, null)
-      .catch(() => undefined);
   } catch {
     throw new CareerOpsServiceError(
       "upstream_error",
