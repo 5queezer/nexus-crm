@@ -270,15 +270,23 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
               </button>
               <CareerOps
                 variant="inline"
-                application={{
-                  id: String(application.id),
-                  // Persisted values only. The agent resolves this opportunity
-                  // from the database by id, so showing unsaved edits here
-                  // would name a target that differs from the one the run and
-                  // its approval prompts actually act on.
-                  company: application.company,
-                  role: application.role,
-                }}
+                application={
+                  // A demo record is deliberately invisible to the agent, so a
+                  // conversation scoped to one could never be created — the
+                  // launcher would be enabled and permanently broken. Offer an
+                  // unscoped conversation instead of a scoped dead end.
+                  application.isDemo
+                    ? undefined
+                    : {
+                        id: String(application.id),
+                        // Persisted values only. The agent resolves this
+                        // opportunity from the database by id, so showing
+                        // unsaved edits would name a target that differs from
+                        // the one the run and its approval prompts act on.
+                        company: application.company,
+                        role: application.role,
+                      }
+                }
               />
               <div className="flex shrink-0 items-center gap-3">
                 <span

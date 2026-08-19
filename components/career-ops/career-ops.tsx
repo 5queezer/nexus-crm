@@ -354,12 +354,17 @@ export function CareerOps({
         first.focus();
       }
     };
-    document.addEventListener("keydown", trap);
+    // Only the compact sheet is modal. At desktop widths the drawer sits beside
+    // a workspace that stays usable, and `aria-modal` is deliberately omitted —
+    // trapping Tab there would tell assistive technology one thing while doing
+    // the opposite, and leave keyboard-only users unable to reach the pipeline
+    // the layout is inviting them to keep using.
+    if (compact) document.addEventListener("keydown", trap);
     return () => {
       document.removeEventListener("keydown", trap);
       launcher?.focus();
     };
-  }, [open]);
+  }, [open, compact]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end" });

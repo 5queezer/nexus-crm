@@ -61,6 +61,12 @@ export async function GET(request: Request, context: Context) {
   if (!session) return unauthorized();
 
   const abort = new AbortController();
+  // A listener added after the event never fires, and the browser can have
+  // disconnected while the session was being resolved. Without this check the
+  // handler would open and drain Hermes' single-consumer stream for a client
+  // that is already gone, so a drawer opened afterwards could never see that
+  // run's output or its approval prompts.
+  if (request.signal.aborted) abort.abort();
   request.signal.addEventListener("abort", () => abort.abort(), { once: true });
 
   let upstream: ReadableStream<Uint8Array>;

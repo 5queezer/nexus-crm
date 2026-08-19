@@ -166,11 +166,25 @@ function renderCareerOps(props: Parameters<typeof CareerOps>[0] = {}) {
   );
 }
 
+/** Desktop by default; the mobile test opts in and must not leak that choice. */
+function setViewport(compact: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: compact && query.includes("max-width"),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
+}
+
 beforeEach(() => {
   routes = [];
   calls.length = 0;
   invalidated.length = 0;
   vi.clearAllMocks();
+  // Without this reset the narrow-viewport test's override persisted, and every
+  // test after it silently ran as mobile — including ones asserting desktop
+  // behaviour.
+  setViewport(false);
   installFetch();
   route("GET", /\/api\/career-ops\/status$/, () => json(AVAILABLE));
   route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD] }));
@@ -274,12 +288,7 @@ describe("drawer behavior", () => {
 
   it("marks the panel as modal on narrow viewports", async () => {
     const user = userEvent.setup();
-    window.matchMedia = ((query: string) => ({
-      matches: query.includes("max-width"),
-      media: query,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    })) as unknown as typeof window.matchMedia;
+    setViewport(true);
     renderCareerOps();
     const dialog = await openDrawer(user);
     expect(dialog.getAttribute("aria-modal")).toBe("true");
@@ -628,6 +637,35 @@ describe("application context", () => {
     await user.click(within(dialog).getByRole("button", { name: /send/i }));
 
     await waitFor(() => expect(invalidated.length).toBeGreaterThan(0));
+  });
+
+  it("does not trap Tab in the non-modal desktop panel", async () => {
+    // Desktop deliberately omits aria-modal and leaves the workspace usable.
+    // Trapping Tab there would tell assistive technology one thing and do the
+    // opposite, stranding keyboard-only users inside the drawer.
+    const user = userEvent.setup();
+    const outside = document.createElement("button");
+    outside.textContent = "outside control";
+    document.body.appendChild(outside);
+    try {
+      renderCareerOps();
+      const dialog = await openDrawer(user);
+      // The same selector the component's trap uses, so "last" here is the
+      // element the trap would actually wrap from.
+      const selector =
+        "button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(selector));
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      last.focus();
+
+      // The trap's effect is to wrap from the last control back to the first.
+      // Without it focus simply moves on, wherever the document takes it.
+      await user.tab();
+      expect(document.activeElement).not.toBe(first);
+    } finally {
+      outside.remove();
+    }
   });
 
   it("links the history disclosure to the panel it controls", async () => {
