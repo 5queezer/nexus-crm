@@ -5,6 +5,7 @@ export type CareerOpsStatus = {
   available: boolean;
   reason: string | null;
   capabilities: { stop: boolean; approvals: boolean; streaming: boolean };
+  runTimeoutMs: number;
 };
 
 export type CareerOpsThread = {
@@ -31,6 +32,12 @@ export type ApprovalRequest = {
   summary: string;
   details: string;
   choices: string[];
+  /**
+   * True when the run was rejoined after a disconnect: Hermes' run status
+   * reports that a decision is pending but carries no operation payload, and
+   * the event stream that had it is single-consumer and gone.
+   */
+  detailsUnavailable?: boolean;
 };
 
 /** Mirrors the closed event set emitted by /api/career-ops/runs/[id]/events. */

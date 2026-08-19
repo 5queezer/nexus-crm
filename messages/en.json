@@ -874,6 +874,7 @@
     "approval_title": "Career Ops needs your approval",
     "approval_operation": "Operation",
     "approval_approve": "Approve once",
+    "approval_details_unavailable": "This run was rejoined after a disconnect, so the operation details could not be recovered. If you are not certain what was requested, reject it — the agent can ask again.",
     "approval_reject": "Reject",
     "approval_unsupported": "This Hermes instance does not support approval prompts, so no approval can be granted from Nexus.",
     "approval_sent": "Decision sent.",

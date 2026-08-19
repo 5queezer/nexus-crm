@@ -77,8 +77,10 @@ export function CareerOps({
     [queryClient],
   );
 
-  const { state: run, start, resume, stop, decideApproval, reset } =
-    useCareerOpsRun({ onSettled });
+  const { state: run, start, resume, stop, decideApproval, reset } = useCareerOpsRun({
+    onSettled,
+    runTimeoutMs: status?.runTimeoutMs,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +95,7 @@ export function CareerOps({
             available: false,
             reason: "unreachable",
             capabilities: { stop: false, approvals: false, streaming: false },
+            runTimeoutMs: 0,
           });
         }
       });
@@ -256,7 +259,15 @@ export function CareerOps({
     endRef.current?.scrollIntoView?.({ block: "end" });
   }, [messages, run.answer, run.tools.length]);
 
-  const busy = run.phase === "starting" || run.phase === "streaming" || run.phase === "reconnecting";
+  // A run awaiting a human decision is still in flight. Leaving the composer
+  // and thread controls live would let a new run abort the pending one's stream
+  // while the first privileged action is still undecided, or discard the only
+  // visible approval prompt. Only the approval controls stay operable.
+  const busy =
+    run.phase === "starting" ||
+    run.phase === "streaming" ||
+    run.phase === "reconnecting" ||
+    run.phase === "waiting_approval";
 
   async function selectThread(threadId: string) {
     if (busy) return;
@@ -494,6 +505,7 @@ export function CareerOps({
                           available: false,
                           reason: "unreachable",
                           capabilities: { stop: false, approvals: false, streaming: false },
+                          runTimeoutMs: 0,
                         }),
                       );
                   }}
@@ -581,7 +593,9 @@ export function CareerOps({
                         {t("approval_title")}
                       </p>
                       <p className="mt-2 text-xs leading-5 text-amber-900/90 dark:text-amber-100/90">
-                        {run.approval.summary}
+                        {run.approval.detailsUnavailable
+                          ? t("approval_details_unavailable")
+                          : run.approval.summary}
                       </p>
                       {run.approval.operation && (
                         <p className="mt-2 text-[11px] text-amber-900/80 dark:text-amber-100/80">

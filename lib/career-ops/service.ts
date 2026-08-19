@@ -59,6 +59,8 @@ export type CareerOpsStatus = {
   available: boolean;
   reason: string | null;
   capabilities: { stop: boolean; approvals: boolean; streaming: boolean };
+  /** Operator-configured upper bound on a run, so the client can size its status polling. */
+  runTimeoutMs: number;
 };
 
 const UNSUPPORTED_CAPABILITIES = { stop: false, approvals: false, streaming: false };
@@ -126,6 +128,7 @@ export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
       available: false,
       reason: config.reason,
       capabilities: { ...UNSUPPORTED_CAPABILITIES },
+      runTimeoutMs: 0,
     };
   }
 
@@ -138,6 +141,7 @@ export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
         available: false,
         reason: "degraded",
         capabilities: { ...UNSUPPORTED_CAPABILITIES },
+        runTimeoutMs: config.runTimeoutMs,
       };
     }
     // Run status is not optional: it is the only recovery path once the
@@ -149,6 +153,7 @@ export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
         available: false,
         reason: "unsupported",
         capabilities: { ...UNSUPPORTED_CAPABILITIES },
+        runTimeoutMs: config.runTimeoutMs,
       };
     }
     return {
@@ -160,6 +165,7 @@ export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
         approvals: capabilities.approvals,
         streaming: capabilities.runEvents,
       },
+      runTimeoutMs: config.runTimeoutMs,
     };
   } catch {
     // The upstream reason is deliberately not surfaced: it can carry
@@ -169,6 +175,7 @@ export async function getCareerOpsStatus(): Promise<CareerOpsStatus> {
       available: false,
       reason: "unreachable",
       capabilities: { ...UNSUPPORTED_CAPABILITIES },
+      runTimeoutMs: config.runTimeoutMs,
     };
   }
 }
@@ -378,8 +385,25 @@ export async function startCareerOpsRun(
     throw toServiceError(reason);
   }
 
-  const bound = await db.bindCareerOpsRunHermesId(reservation.id, session.userId, runId);
-  return bound ?? { ...reservation, hermesRunId: runId };
+  let bound: CareerOpsRunRecord | null;
+  try {
+    bound = await db.bindCareerOpsRunHermesId(reservation.id, session.userId, runId);
+  } catch (reason) {
+    // The upstream run is live but Nexus could not record its id. Leaving the
+    // reservation would strand it: a retry with the same client request id
+    // returns the unbound row, so the run could never be observed, stopped or
+    // approved. Kill the orphan and release the claim so the retry works.
+    void client(config).stopRun(runId).catch(() => undefined);
+    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    throw toServiceError(reason);
+  }
+  if (!bound) {
+    // The reservation vanished under us (concurrent thread delete). Same
+    // reasoning: do not leave a live agent run nothing can address.
+    void client(config).stopRun(runId).catch(() => undefined);
+    throw new CareerOpsServiceError("conflict", "The conversation is no longer available");
+  }
+  return bound;
 }
 
 /**

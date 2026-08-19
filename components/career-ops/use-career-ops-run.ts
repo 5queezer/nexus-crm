@@ -61,11 +61,20 @@ function parseFrames(buffer: string): { events: CareerOpsStreamEvent[]; rest: st
  * settles the run from its authenticated status endpoint instead of pretending
  * the connection is still live.
  */
-export function useCareerOpsRun(options: { onSettled?: (phase: RunPhase) => void } = {}) {
+const POLL_INTERVAL_MS = 1_500;
+const FALLBACK_RUN_LIFETIME_MS = 10 * 60_000;
+
+export function useCareerOpsRun(
+  options: { onSettled?: (phase: RunPhase) => void; runTimeoutMs?: number } = {},
+) {
   const [state, setState] = useState<RunState>(INITIAL);
   const abortRef = useRef<AbortController | null>(null);
   const startingRef = useRef(false);
   const onSettled = options.onSettled;
+  // Recovery must outlast a legitimately long tool call. A fixed short budget
+  // would report a still-running agent as failed and re-enable submission while
+  // it kept working remotely, so the deadline follows the server's own limit.
+  const runLifetimeMs = options.runTimeoutMs || FALLBACK_RUN_LIFETIME_MS;
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -139,7 +148,8 @@ export function useCareerOpsRun(options: { onSettled?: (phase: RunPhase) => void
       setState((current) =>
         TERMINAL_PHASES.includes(current.phase) ? current : { ...current, phase: "reconnecting" },
       );
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      const deadline = Date.now() + runLifetimeMs;
+      while (Date.now() < deadline) {
         let snapshot: RunSnapshot;
         try {
           snapshot = await careerOpsJson<RunSnapshot>(`/api/career-ops/runs/${runId}`);
@@ -159,11 +169,32 @@ export function useCareerOpsRun(options: { onSettled?: (phase: RunPhase) => void
         }
         if (snapshot.status === "failed") return settle("failed", "error_generic");
         if (snapshot.status === "cancelled") return settle("cancelled");
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        if (snapshot.status === "waiting_for_approval") {
+          // Run status carries no approval payload and the event stream is
+          // gone, so the operation details cannot be recovered. Surface the
+          // decision anyway — with the missing detail stated, not implied —
+          // rather than polling a waiting run until it looks failed.
+          setState((current) =>
+            current.approval
+              ? current
+              : {
+                  ...current,
+                  phase: "waiting_approval",
+                  approval: {
+                    operation: "",
+                    summary: "",
+                    details: "",
+                    choices: ["once", "deny"],
+                    detailsUnavailable: true,
+                  },
+                },
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       }
       settle("failed", "error_generic");
     },
-    [onSettled, settle],
+    [onSettled, runLifetimeMs, settle],
   );
 
   const consume = useCallback(

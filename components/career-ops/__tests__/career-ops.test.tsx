@@ -58,6 +58,7 @@ const AVAILABLE = {
   available: true,
   reason: null,
   capabilities: { stop: true, approvals: true, streaming: true },
+  runTimeoutMs: 20_000,
 };
 
 const THREAD = {
@@ -454,6 +455,81 @@ describe("sending and streaming", () => {
     expect(live).not.toBeNull();
     expect(live!.textContent).toMatch(/ready/i);
   });
+});
+
+describe("a run awaiting a decision blocks new work", () => {
+  const approvalStream = [
+    'data: {"type":"approval_required","operation":"shell:rm","summary":"Delete a temporary folder","details":"rm -rf /tmp/x","choices":["once","deny"]}\n\n',
+  ];
+
+  it("keeps the composer and thread controls locked while an approval is pending", async () => {
+    const user = userEvent.setup();
+    const stream = openSse(approvalStream);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "clean up");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await within(dialog).findByText(/needs your approval/i);
+
+    // Submitting here would abort the pending run's stream and start a second
+    // privileged run while the first action is still undecided.
+    expect(within(dialog).queryByRole("button", { name: /^send$/i })).toBeNull();
+    const runStarts = calls.filter((call) => call.method === "POST" && call.url.includes("/runs"));
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "another");
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.method === "POST" && call.url.includes("/runs")),
+      ).toHaveLength(runStarts.length),
+    );
+
+    // The decision itself stays available.
+    expect(within(dialog).getByRole("button", { name: /approve once/i })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /^reject$/i })).toBeTruthy();
+    stream.close();
+  });
+});
+
+describe("rejoining a run that awaits a decision", () => {
+  it("offers the decision and states that the details could not be recovered", async () => {
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({ thread: THREAD, activeRun: { id: "run-live", status: "waiting_for_approval" } }),
+    );
+    route("GET", /\/runs\/[^/]+$/, () =>
+      json({ status: "waiting_for_approval", output: "", error: null }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await waitFor(() => expect(within(dialog).getByText(/needs your approval/i)).toBeTruthy(), {
+      timeout: 6000,
+    });
+    expect(within(dialog).getByText(/could not be recovered/i)).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /^reject$/i })).toBeTruthy();
+  }, 15_000);
+
+  it("keeps polling a long-running run instead of calling it failed", async () => {
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({ thread: THREAD, activeRun: { id: "run-live", status: "running" } }),
+    );
+    let polls = 0;
+    route("GET", /\/runs\/[^/]+$/, () => {
+      polls += 1;
+      return json({ status: "running", output: "", error: null });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    // A fixed short budget used to give up after ~30s and report failure while
+    // the agent was still working remotely.
+    await waitFor(() => expect(polls).toBeGreaterThan(2), { timeout: 8000 });
+    expect(within(dialog).queryByText(/the run failed/i)).toBeNull();
+  }, 15_000);
 });
 
 describe("stop control", () => {

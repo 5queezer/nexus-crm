@@ -874,6 +874,7 @@
     "approval_title": "Career Ops braucht deine Freigabe",
     "approval_operation": "Vorgang",
     "approval_approve": "Einmal freigeben",
+    "approval_details_unavailable": "Dieser Lauf wurde nach einem Verbindungsabbruch wieder aufgenommen; die Details des Vorgangs konnten nicht wiederhergestellt werden. Wenn du nicht sicher bist, was angefragt wurde, lehne ab – der Agent kann erneut fragen.",
     "approval_reject": "Ablehnen",
     "approval_unsupported": "Diese Hermes-Instanz unterstützt keine Freigabeabfragen; aus Nexus kann keine Freigabe erteilt werden.",
     "approval_sent": "Entscheidung gesendet.",

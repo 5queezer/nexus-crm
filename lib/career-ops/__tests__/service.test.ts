@@ -105,12 +105,18 @@ describe("getCareerOpsStatus", () => {
       available: false,
       reason: "not_configured",
       capabilities: { stop: false, approvals: false, streaming: false },
+      runTimeoutMs: 0,
     });
     expect(mocks.client.health).not.toHaveBeenCalled();
   });
 
+  it("reports the configured run lifetime so the client can size its polling", async () => {
+    const status = await getCareerOpsStatus();
+    expect(status.runTimeoutMs).toBeGreaterThan(0);
+  });
+
   it("reports available with the advertised capabilities", async () => {
-    await expect(getCareerOpsStatus()).resolves.toEqual({
+    await expect(getCareerOpsStatus()).resolves.toMatchObject({
       enabled: true,
       available: true,
       reason: null,
@@ -123,7 +129,7 @@ describe("getCareerOpsStatus", () => {
       new HermesError("unreachable", "Hermes is unreachable", `Bearer ${SECRET}`),
     );
     const status = await getCareerOpsStatus();
-    expect(status).toEqual({
+    expect(status).toMatchObject({
       enabled: true,
       available: false,
       reason: "unreachable",
@@ -401,6 +407,42 @@ describe("startCareerOpsRun", () => {
     // started, so there is nothing to stop after the fact.
     expect(mocks.client.createRun).not.toHaveBeenCalled();
     expect(mocks.client.stopRun).not.toHaveBeenCalled();
+  });
+
+  it("kills the orphan and releases the claim when binding the run id fails", async () => {
+    mocks.db.createCareerOpsRun.mockResolvedValue({
+      created: true,
+      run: { ...RESERVATION, hermesRunId: "" },
+    });
+    mocks.db.bindCareerOpsRunHermesId.mockRejectedValue(new Error("db unavailable"));
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toBeInstanceOf(CareerOpsServiceError);
+
+    // Otherwise a live agent run would be left that nothing can address, and a
+    // retry would keep returning the unbound reservation.
+    expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
+  });
+
+  it("stops the upstream run when its reservation disappeared", async () => {
+    mocks.db.createCareerOpsRun.mockResolvedValue({
+      created: true,
+      run: { ...RESERVATION, hermesRunId: "" },
+    });
+    mocks.db.bindCareerOpsRunHermesId.mockResolvedValue(null);
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.stopRun).toHaveBeenCalledWith("run_1");
   });
 
   it("releases the claim when the upstream run cannot be started", async () => {

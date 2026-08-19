@@ -171,7 +171,7 @@ describe("GET /api/career-ops/status", () => {
 
   it("reports availability and capabilities", async () => {
     const response = await getStatus();
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       enabled: true,
       available: true,
       reason: null,
