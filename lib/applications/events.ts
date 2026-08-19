@@ -151,8 +151,22 @@ export interface ParsedEventQuery {
   limit: number;
 }
 
-function invalidMetadata(): never {
-  throw new Error("event_metadata_invalid");
+export class EventMetadataValidationError extends Error {
+  readonly path: string;
+  readonly expected: string;
+  readonly reason: string;
+
+  constructor(path: string, expected: string, reason: string) {
+    super("event_metadata_invalid");
+    this.name = "EventMetadataValidationError";
+    this.path = path;
+    this.expected = expected;
+    this.reason = reason;
+  }
+}
+
+function invalidMetadata(path: string, expected: string, reason: string): never {
+  throw new EventMetadataValidationError(path, expected, reason);
 }
 
 function parseDate(value: unknown, errorCode: string): Date {
@@ -167,11 +181,20 @@ function parseDate(value: unknown, errorCode: string): Date {
 function optionalString(
   value: unknown,
   maxLength = 255,
+  path = "metadata",
 ): string | null {
   if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") invalidMetadata();
+  if (typeof value !== "string") {
+    invalidMetadata(path, `string with 1 to ${maxLength} characters`, `${path.split(".").at(-1)} must be a string`);
+  }
   const normalized = value.trim();
-  if (!normalized || normalized.length > maxLength) invalidMetadata();
+  if (!normalized || normalized.length > maxLength) {
+    invalidMetadata(
+      path,
+      `string with 1 to ${maxLength} characters`,
+      `${path.split(".").at(-1)} must contain 1 to ${maxLength} characters after trimming`,
+    );
+  }
   return normalized;
 }
 
@@ -180,51 +203,90 @@ function parseMetadata(
   value: unknown,
 ): Record<string, unknown> {
   if (value === undefined || value === null) value = {};
-  if (typeof value !== "object" || Array.isArray(value)) invalidMetadata();
+  if (typeof value !== "object" || Array.isArray(value)) {
+    invalidMetadata("metadata", "object", "metadata must be an object");
+  }
   const raw = value as Record<string, unknown>;
   const entries = Object.entries(raw);
-  if (entries.length > 100 || entries.some(([key]) => !key || key.length > 100)) {
-    invalidMetadata();
+  if (entries.length > 100) {
+    invalidMetadata("metadata", "object with at most 100 keys", "metadata must have at most 100 keys");
+  }
+  const invalidKey = entries.find(([key]) => !key || key.length > 100)?.[0];
+  if (invalidKey !== undefined) {
+    invalidMetadata(
+      invalidKey ? `metadata.${invalidKey}` : "metadata",
+      "key with 1 to 100 characters",
+      "metadata keys must contain 1 to 100 characters",
+    );
   }
   const allowed = new Set(EVENT_KEYS[type]);
-  if (entries.some(([key]) => !allowed.has(key))) invalidMetadata();
+  const unsupportedKey = entries.find(([key]) => !allowed.has(key))?.[0];
+  if (unsupportedKey !== undefined) {
+    invalidMetadata(
+      `metadata.${unsupportedKey}`,
+      `one of: ${EVENT_KEYS[type].join(", ") || "no metadata keys"}`,
+      `${unsupportedKey} is not accepted for ${type}`,
+    );
+  }
 
   const metadata: Record<string, unknown> = {};
   for (const [key, item] of entries) {
     if (item === undefined || item === null || item === "") continue;
     if (ISO_KEYS.has(key)) {
-      metadata[key] = parseDate(item, "event_metadata_invalid").toISOString();
+      try {
+        metadata[key] = parseDate(item, "event_metadata_invalid").toISOString();
+      } catch {
+        invalidMetadata(`metadata.${key}`, "ISO 8601 date-time string", `${key} must be a valid ISO 8601 date-time string`);
+      }
       continue;
     }
     if (ARRAY_KEYS.has(key)) {
-      if (!Array.isArray(item) || item.length > 20) invalidMetadata();
-      const values = item.map((entry) => optionalString(entry));
-      if (values.some((entry) => entry === null)) invalidMetadata();
+      if (!Array.isArray(item) || item.length > 20) {
+        invalidMetadata(`metadata.${key}`, "array of at most 20 non-empty strings", `${key} must be an array of at most 20 non-empty strings`);
+      }
+      const values = item.map((entry, index) => optionalString(entry, 255, `metadata.${key}.${index}`));
+      if (values.some((entry) => entry === null)) {
+        const index = values.findIndex((entry) => entry === null);
+        invalidMetadata(`metadata.${key}.${index}`, "non-empty string", `${key}[${index}] must be a non-empty string`);
+      }
       metadata[key] = values;
       continue;
     }
     if (INTEGER_KEYS.has(key)) {
-      if (!Number.isInteger(item)) invalidMetadata();
       const number = item as number;
       const max = key === "durationMinutes" ? 1_440 : 50;
       const min = key === "durationMinutes" ? 1 : 0;
-      if (number < min || number > max) invalidMetadata();
+      if (!Number.isInteger(item) || number < min || number > max) {
+        invalidMetadata(
+          `metadata.${key}`,
+          `integer from ${min} to ${max}`,
+          `${key} must be an integer from ${min} to ${max}`,
+        );
+      }
       metadata[key] = number;
       continue;
     }
     if (OBJECT_KEYS.has(key)) {
-      if (typeof item !== "object" || Array.isArray(item)) invalidMetadata();
+      if (typeof item !== "object" || item === null || Array.isArray(item)) {
+        invalidMetadata(`metadata.${key}`, "object", `${key} must be an object`);
+      }
       metadata[key] = item;
       continue;
     }
     if (key === "toStatus" || key === "fromStatus") {
-      const status = optionalString(item) as ApplicationStatus | null;
-      if (!status || !STATUS_SET.has(status)) invalidMetadata();
+      const status = optionalString(item, 255, `metadata.${key}`) as ApplicationStatus | null;
+      if (!status || !STATUS_SET.has(status)) {
+        invalidMetadata(
+          `metadata.${key}`,
+          "one of: inbound, applied, interview, offer, rejected",
+          `${key} must be a valid application status`,
+        );
+      }
       metadata[key] = status;
       continue;
     }
     const maxLength = key === "note" ? 5_000 : key === "reason" || key === "nextAction" ? 2_000 : 255;
-    const normalized = optionalString(item, maxLength);
+    const normalized = optionalString(item, maxLength, `metadata.${key}`);
     if (normalized !== null) metadata[key] = normalized;
   }
 
@@ -235,8 +297,13 @@ function parseMetadata(
     document_attached: ["documentId"],
     note_added: ["note"],
   };
-  if (required[type]?.some((key) => metadata[key] === undefined)) {
-    invalidMetadata();
+  const missingKey = required[type]?.find((key) => metadata[key] === undefined);
+  if (missingKey !== undefined) {
+    invalidMetadata(
+      `metadata.${missingKey}`,
+      "required value",
+      `${missingKey} is required for ${type}`,
+    );
   }
   if (Buffer.byteLength(JSON.stringify(metadata), "utf8") > 32_000) {
     throw new Error("event_metadata_too_large");
