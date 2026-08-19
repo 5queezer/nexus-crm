@@ -282,8 +282,11 @@ export function CareerOps({
     if (busy) return;
     try {
       await careerOpsJson(`/api/career-ops/threads/${threadId}`, { method: "DELETE" });
-    } catch {
-      // The list is refreshed regardless; a failed delete simply reappears.
+    } catch (reason) {
+      // Deletion legitimately fails while a run is still in flight. Removing
+      // the row anyway would claim it worked and hide the conversation.
+      setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
+      return;
     }
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
     if (activeThreadId === threadId) {

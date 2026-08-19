@@ -60,6 +60,10 @@ Career Ops must read and write Nexus through the Nexus MCP server rather than a 
 
 The MCP server scopes every operation to the token's owner, so this token defines exactly what Career Ops can reach. Rotate it independently of the Hermes API key.
 
+> **This makes Career Ops a single-user feature per profile.** Because the profile holds one Nexus token, *every* run's tool calls act as that token's owner, whoever started the conversation. Nexus therefore requires you to declare that owner in `HERMES_CAREER_OPS_OWNER_USER_ID` and refuses the feature to everyone else. Without it the feature stays disabled — that is deliberate, so a multi-user deployment cannot silently serve one user's CRM data to another.
+>
+> Supporting several users means giving each their own Hermes profile and Nexus token, and pointing each user's Nexus at their own profile. That is not covered by this change.
+
 ## 4. Verify the Hermes side before touching Nexus
 
 From the Nexus host:
@@ -89,6 +93,7 @@ Server-only variables (see `.env.example`). Never prefix any of them with `NEXT_
 | `HERMES_CAREER_OPS_ENABLED` | Yes | `false` | Master switch. Anything but `true`/`1` disables the feature. |
 | `HERMES_CAREER_OPS_BASE_URL` | Yes | — | Absolute `http(s)` URL of the profile prefix, e.g. `http://127.0.0.1:8642/p/career-ops`. Query strings and fragments are rejected. |
 | `HERMES_CAREER_OPS_API_KEY` | Yes | — | The `career-ops` profile's `API_SERVER_KEY`. |
+| `HERMES_CAREER_OPS_OWNER_USER_ID` | Yes | — | Nexus user id owning the MCP token the profile uses. Career Ops is available to this user only; unset means disabled. |
 | `HERMES_CAREER_OPS_SCOPE_SECRET` | No | the API key | Keys the opaque long-term-memory scope. Set it explicitly if you want conversations to keep their memory scope across an API-key rotation. |
 | `HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS` | No | `10000` | Values under 1000 fall back to the default; values over 1 800 000 are clamped. |
 | `HERMES_CAREER_OPS_STREAM_IDLE_TIMEOUT_MS` | No | `90000` | Same bounds. |
@@ -186,7 +191,9 @@ On Firestore, delete the `careerOpsRuns` and `careerOpsThreads` collections. Her
 
 | Symptom | Likely cause |
 |---|---|
-| Trigger never appears | `HERMES_CAREER_OPS_ENABLED` is not `true`, or the URL/key is missing. Check `GET /api/career-ops/status`. |
+| Trigger never appears | `HERMES_CAREER_OPS_ENABLED` is not `true`, the URL/key is missing, or `HERMES_CAREER_OPS_OWNER_USER_ID` is unset. Check `GET /api/career-ops/status`. |
+| Status `owner_not_configured` | `HERMES_CAREER_OPS_OWNER_USER_ID` is not set. |
+| Trigger missing for one user only | That user is not the MCP token owner. This is intended — see section 3. |
 | Status `invalid_base_url` | The URL is relative, has a non-`http(s)` scheme, or carries a query string or fragment. |
 | Status `unreachable` | Hermes is down, bound to a different interface, or blocked. Check `/health` from the Nexus host. |
 | Status `degraded` | Hermes answered `/health` with a non-`ok` status. |

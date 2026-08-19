@@ -67,6 +67,22 @@ The system SHALL persist, per run, the owning user identifier, the owning thread
 - **WHEN** two different users submit the same client request identifier
 - **THEN** each user's request creates its own run and neither observes the other's mapping
 
+### Requirement: The agent acts as exactly one declared Nexus user
+The connected Hermes profile authenticates to the Nexus MCP server with a single Nexus credential, so every agent tool call acts as that credential's owner regardless of who started the conversation. The system SHALL require that owner to be declared in configuration and SHALL refuse Career Ops to every other user.
+
+#### Scenario: Owner not declared
+- **WHEN** the owning user is not declared in configuration
+- **THEN** the system reports Career Ops as unavailable and performs no upstream request
+
+#### Scenario: A different user requests Career Ops
+- **WHEN** an authenticated user who is not the declared owner invokes any Career Ops operation
+- **THEN** the system responds with a controlled unavailable status and starts no run
+- **AND** no upstream request is made on that user's behalf
+
+#### Scenario: Administrators gain no exemption
+- **WHEN** an administrator who is not the declared owner invokes Career Ops
+- **THEN** the system responds with a controlled unavailable status
+
 ### Requirement: Deterministic listing and retrieval
 The system SHALL list a user's Career Ops threads in a stable, deterministic order and SHALL return only that user's threads.
 

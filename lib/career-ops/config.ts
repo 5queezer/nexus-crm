@@ -21,7 +21,12 @@ const DEFAULT_RUN_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 const REDACTED_ERROR_LIMIT = 300;
 
-export type CareerOpsDisabledReason = "disabled" | "not_configured" | "invalid_base_url";
+export type CareerOpsDisabledReason =
+  | "disabled"
+  | "not_configured"
+  | "invalid_base_url"
+  | "owner_not_configured"
+  | "not_owner";
 
 export type CareerOpsConfig =
   | { enabled: false; reason: CareerOpsDisabledReason }
@@ -31,6 +36,12 @@ export type CareerOpsConfig =
       connectTimeoutMs: number;
       streamIdleTimeoutMs: number;
       runTimeoutMs: number;
+      /**
+       * The Nexus user whose API token the Hermes profile uses for Nexus MCP.
+       * Every Career Ops run's tool calls act as this user, so only this user
+       * may use the feature.
+       */
+      ownerUserId: string;
       /** Non-enumerable: never appears in JSON.stringify or object spread. */
       readonly secret: string;
       readonly scopeSecret: string;
@@ -66,6 +77,14 @@ export function readCareerOpsConfig(): CareerOpsConfig {
   const baseUrl = normalizeBaseUrl(rawBaseUrl);
   if (!baseUrl) return { enabled: false, reason: "invalid_base_url" };
 
+  // The Hermes profile holds ONE Nexus API token, and the Nexus MCP server
+  // scopes every tool call to that token's owner. So an agent run always acts
+  // as that user, whoever started it. Requiring the binding to be declared
+  // keeps a multi-user deployment from silently serving one user's CRM data to
+  // another. Fail closed: without it, the feature stays off.
+  const ownerUserId = process.env.HERMES_CAREER_OPS_OWNER_USER_ID?.trim();
+  if (!ownerUserId) return { enabled: false, reason: "owner_not_configured" };
+
   const config = {
     enabled: true as const,
     baseUrl,
@@ -81,6 +100,7 @@ export function readCareerOpsConfig(): CareerOpsConfig {
       process.env.HERMES_CAREER_OPS_RUN_TIMEOUT_MS,
       DEFAULT_RUN_TIMEOUT_MS,
     ),
+    ownerUserId,
   };
 
   // Non-enumerable so the secret survives neither JSON.stringify nor {...config}.

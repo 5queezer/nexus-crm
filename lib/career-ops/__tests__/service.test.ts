@@ -71,12 +71,14 @@ function enable() {
   process.env.HERMES_CAREER_OPS_ENABLED = "true";
   process.env.HERMES_CAREER_OPS_BASE_URL = "http://127.0.0.1:8642/p/career-ops";
   process.env.HERMES_CAREER_OPS_API_KEY = SECRET;
+  process.env.HERMES_CAREER_OPS_OWNER_USER_ID = "user-a";
 }
 
 function disable() {
   delete process.env.HERMES_CAREER_OPS_ENABLED;
   delete process.env.HERMES_CAREER_OPS_BASE_URL;
   delete process.env.HERMES_CAREER_OPS_API_KEY;
+  delete process.env.HERMES_CAREER_OPS_OWNER_USER_ID;
 }
 
 beforeEach(() => {
@@ -199,6 +201,33 @@ describe("getCareerOpsStatus", () => {
   });
 });
 
+describe("the feature is bound to the MCP token owner", () => {
+  const OTHER = { userId: "user-b", user: { isAdmin: false } };
+
+  it("refuses every operation for a user who is not the token owner", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    for (const invoke of [
+      () => listCareerOpsThreads(OTHER),
+      () => requireOwnedThread(OTHER, "thread-1"),
+      () => createCareerOpsThread(OTHER, {}),
+      () => startCareerOpsRun(OTHER, "thread-1", {
+        message: "hi",
+        clientRequestId: "client-id-1",
+      }),
+    ]) {
+      await expect(invoke()).rejects.toMatchObject({ code: "unavailable" });
+    }
+    // Their run would have acted as the owner, reading the owner's CRM data.
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
+  });
+
+  it("serves the token owner normally", async () => {
+    mocks.db.listCareerOpsThreads.mockResolvedValue([THREAD]);
+    await expect(listCareerOpsThreads(SESSION_A)).resolves.toEqual([THREAD]);
+  });
+});
+
 describe("ownership resolution", () => {
   it("returns the thread for its owner", async () => {
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
@@ -213,12 +242,22 @@ describe("ownership resolution", () => {
     });
   });
 
-  it("does not exempt administrators", async () => {
+  it("does not exempt administrators from ownership", async () => {
+    // Make the administrator the token owner, so the check under test is
+    // thread ownership rather than the owner binding.
+    process.env.HERMES_CAREER_OPS_OWNER_USER_ID = "admin-1";
     mocks.db.getCareerOpsThread.mockResolvedValue(null);
     await expect(requireOwnedThread(ADMIN, "thread-1")).rejects.toMatchObject({
       code: "not_found",
     });
     expect(mocks.db.getCareerOpsThread).toHaveBeenCalledWith("thread-1", "admin-1");
+  });
+
+  it("does not let an administrator borrow the token owner's agent", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    await expect(requireOwnedThread(ADMIN, "thread-1")).rejects.toMatchObject({
+      code: "unavailable",
+    });
   });
 
   it("rejects a foreign run and never resolves its thread", async () => {
@@ -248,6 +287,16 @@ describe("ownership resolution", () => {
 });
 
 describe("thread lifecycle", () => {
+  it("removes the upstream session when the mapping cannot be persisted", async () => {
+    mocks.client.createSession.mockResolvedValue({ id: "sess-orphan" });
+    mocks.db.createCareerOpsThread.mockRejectedValue(new Error("db down"));
+
+    await expect(createCareerOpsThread(SESSION_A, {})).rejects.toBeInstanceOf(
+      CareerOpsServiceError,
+    );
+    expect(mocks.client.deleteSession).toHaveBeenCalledWith("sess-orphan");
+  });
+
   it("creates a global thread and a Hermes session scoped to the user's memory key", async () => {
     mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
     mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, hermesSessionId: "sess-new" });

@@ -75,9 +75,14 @@ const UNSUPPORTED_CAPABILITIES = { stop: false, approvals: false, streaming: fal
 const AGENT_VISIBLE_READ = { demoVisibility: "exclude" } as const;
 const APPROVAL_CHOICES: readonly CareerOpsApprovalChoice[] = ["once", "session", "always", "deny"];
 
-function enabledConfig(): Extract<CareerOpsConfig, { enabled: true }> {
+function enabledConfig(session?: CareerOpsSession): Extract<CareerOpsConfig, { enabled: true }> {
   const config = readCareerOpsConfig();
   if (!config.enabled) {
+    throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
+  }
+  // The agent's Nexus MCP token belongs to one user and every tool call acts as
+  // that user. Serving anyone else would hand them the owner's CRM data.
+  if (session && session.userId !== config.ownerUserId) {
     throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
   }
   return config;
@@ -227,7 +232,7 @@ export async function requireOwnedThread(
   session: CareerOpsSession,
   threadId: string,
 ): Promise<CareerOpsThreadRecord> {
-  enabledConfig();
+  enabledConfig(session);
   const thread = await getDb().getCareerOpsThread(threadId, session.userId);
   if (!thread) throw new CareerOpsServiceError("not_found", "Not found");
   return thread;
@@ -237,7 +242,7 @@ export async function requireOwnedRun(
   session: CareerOpsSession,
   runId: string,
 ): Promise<{ run: CareerOpsRunRecord; thread: CareerOpsThreadRecord }> {
-  enabledConfig();
+  enabledConfig(session);
   const run = await getDb().getCareerOpsRun(runId, session.userId);
   if (!run) throw new CareerOpsServiceError("not_found", "Not found");
   const thread = await getDb().getCareerOpsThread(run.threadId, session.userId);
@@ -269,7 +274,7 @@ export async function getActiveCareerOpsRun(
 export async function listCareerOpsThreads(
   session: CareerOpsSession,
 ): Promise<CareerOpsThreadRecord[]> {
-  enabledConfig();
+  enabledConfig(session);
   return getDb().listCareerOpsThreads(session.userId);
 }
 
@@ -282,7 +287,7 @@ export async function createCareerOpsThread(
   session: CareerOpsSession,
   input: { title?: string; applicationId?: string | null },
 ): Promise<CareerOpsThreadRecord> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   const db = getDb();
 
   let applicationId: string | null = null;
@@ -307,17 +312,27 @@ export async function createCareerOpsThread(
 
   if (!title) title = "Career Ops";
 
+  let hermesSessionId: string;
   try {
-    const session_ = await client(config).createSession({
+    const created = await client(config).createSession({
       title: undefined,
       memoryScope: careerOpsMemoryScope(config, session.userId),
     });
+    hermesSessionId = created.id;
+  } catch (reason) {
+    throw toServiceError(reason);
+  }
+
+  try {
     return await db.createCareerOpsThread(session.userId, {
-      hermesSessionId: session_.id,
+      hermesSessionId,
       title,
       applicationId,
     });
   } catch (reason) {
+    // The upstream session exists but nothing in Nexus points at it. Without
+    // this cleanup every retry would strand another unaddressable session.
+    void client(config).deleteSession(hermesSessionId).catch(() => undefined);
     throw toServiceError(reason);
   }
 }
@@ -326,7 +341,7 @@ export async function deleteCareerOpsThread(
   session: CareerOpsSession,
   threadId: string,
 ): Promise<void> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   const thread = await requireOwnedThread(session, threadId);
 
   // Deleting a Hermes session does not stop its runs — the upstream handler
@@ -363,7 +378,7 @@ export async function listCareerOpsThreadMessages(
   session: CareerOpsSession,
   threadId: string,
 ): Promise<HermesMessage[]> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   const thread = await requireOwnedThread(session, threadId);
   try {
     return await client(config).listSessionMessages(thread.hermesSessionId);
@@ -398,7 +413,7 @@ export async function startCareerOpsRun(
   threadId: string,
   input: { message: string; clientRequestId: string },
 ): Promise<CareerOpsRunRecord> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
 
   const message = input.message.trim();
   if (!message || message.length > CAREER_OPS_MAX_MESSAGE_LENGTH) {
@@ -495,7 +510,7 @@ export async function getCareerOpsRunStatus(
   session: CareerOpsSession,
   runId: string,
 ): Promise<HermesRun> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   const { run } = await requireOwnedRun(session, runId);
   if (isUnbound(run)) return { runId: run.id, status: "queued", output: "", error: null };
   try {
@@ -525,7 +540,7 @@ export async function openCareerOpsRunEvents(
   idleTimeoutMs: number;
   totalTimeoutMs: number;
 }> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   const { run } = await requireOwnedRun(session, runId);
   if (isUnbound(run)) {
     throw new CareerOpsServiceError("conflict", "The run has not started yet");
@@ -547,7 +562,7 @@ export async function stopCareerOpsRun(
   session: CareerOpsSession,
   runId: string,
 ): Promise<void> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   const { run } = await requireOwnedRun(session, runId);
   if (isUnbound(run)) return;
   try {
@@ -562,7 +577,7 @@ export async function resolveCareerOpsApproval(
   runId: string,
   choice: CareerOpsApprovalChoice,
 ): Promise<void> {
-  const config = enabledConfig();
+  const config = enabledConfig(session);
   if (!APPROVAL_CHOICES.includes(choice)) {
     throw new CareerOpsServiceError("invalid_request", "Invalid approval decision");
   }

@@ -94,12 +94,14 @@ function enable() {
   process.env.HERMES_CAREER_OPS_ENABLED = "true";
   process.env.HERMES_CAREER_OPS_BASE_URL = "http://127.0.0.1:8642/p/career-ops";
   process.env.HERMES_CAREER_OPS_API_KEY = SECRET;
+  process.env.HERMES_CAREER_OPS_OWNER_USER_ID = "user-a";
 }
 
 function disable() {
   delete process.env.HERMES_CAREER_OPS_ENABLED;
   delete process.env.HERMES_CAREER_OPS_BASE_URL;
   delete process.env.HERMES_CAREER_OPS_API_KEY;
+  delete process.env.HERMES_CAREER_OPS_OWNER_USER_ID;
 }
 
 beforeEach(() => {

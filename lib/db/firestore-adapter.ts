@@ -2540,10 +2540,16 @@ export class FirestoreAdapter implements DatabaseAdapter {
       .where("threadId", "==", id)
       .where("userId", "==", userId)
       .get();
-    const batch = this.db.batch();
-    runs.docs.forEach((document) => batch.delete(document.ref));
-    batch.delete(this.careerOpsThreads.doc(id));
-    await batch.commit();
+    // Firestore caps a batch at 500 writes, so a long-lived conversation would
+    // otherwise become undeletable. Chunk the runs, then remove the thread.
+    for (let offset = 0; offset < runs.docs.length; offset += 450) {
+      const batch = this.db.batch();
+      for (const document of runs.docs.slice(offset, offset + 450)) {
+        batch.delete(document.ref);
+      }
+      await batch.commit();
+    }
+    await this.careerOpsThreads.doc(id).delete();
     return existing;
   }
 

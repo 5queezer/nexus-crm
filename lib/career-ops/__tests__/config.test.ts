@@ -11,6 +11,7 @@ const KEYS = [
   "HERMES_CAREER_OPS_BASE_URL",
   "HERMES_CAREER_OPS_API_KEY",
   "HERMES_CAREER_OPS_SCOPE_SECRET",
+  "HERMES_CAREER_OPS_OWNER_USER_ID",
   "HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS",
   "HERMES_CAREER_OPS_STREAM_IDLE_TIMEOUT_MS",
   "HERMES_CAREER_OPS_RUN_TIMEOUT_MS",
@@ -35,6 +36,7 @@ function enable(overrides: Record<string, string> = {}) {
   process.env.HERMES_CAREER_OPS_ENABLED = "true";
   process.env.HERMES_CAREER_OPS_BASE_URL = "http://127.0.0.1:8642/p/career-ops";
   process.env.HERMES_CAREER_OPS_API_KEY = "hermes-test-key-value";
+  process.env.HERMES_CAREER_OPS_OWNER_USER_ID = "user-a";
   for (const [key, value] of Object.entries(overrides)) process.env[key] = value;
 }
 
@@ -57,6 +59,7 @@ describe("readCareerOpsConfig", () => {
   it("is disabled when the API key is missing", () => {
     enable();
     delete process.env.HERMES_CAREER_OPS_API_KEY;
+  delete process.env.HERMES_CAREER_OPS_OWNER_USER_ID;
     const config = readCareerOpsConfig();
     expect(config.enabled).toBe(false);
     if (config.enabled) throw new Error("unreachable");
@@ -99,6 +102,17 @@ describe("readCareerOpsConfig", () => {
     expect(clamped.connectTimeoutMs).toBe(defaults.connectTimeoutMs);
     expect(clamped.streamIdleTimeoutMs).toBe(defaults.streamIdleTimeoutMs);
     expect(clamped.runTimeoutMs).toBeLessThanOrEqual(30 * 60_000);
+  });
+
+  it("is disabled until the MCP token owner is declared", () => {
+    enable();
+    delete process.env.HERMES_CAREER_OPS_OWNER_USER_ID;
+    const config = readCareerOpsConfig();
+    expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
+    // The agent's tool calls act as the token owner, so serving anyone before
+    // that binding is declared would expose the owner's CRM data.
+    expect(config.reason).toBe("owner_not_configured");
   });
 
   it("never exposes the API key through a stringified config", () => {
