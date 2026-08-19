@@ -1471,13 +1471,19 @@ export class PrismaAdapter implements DatabaseAdapter {
     }
 
     const includeContacts = filter.includeContacts ?? false;
+    let cursor: { id: number } | undefined;
+    try {
+      cursor = filter.cursor ? { id: nid(filter.cursor) } : undefined;
+    } catch {
+      throw new Error("application_cursor_invalid");
+    }
 
     if (includeContacts) {
       const rows = await prisma.application.findMany({
         where,
         orderBy,
         take: filter.limit ?? undefined,
-        cursor: filter.cursor ? { id: nid(filter.cursor) } : undefined,
+        cursor,
         skip: filter.cursor ? 1 : undefined,
         include: { contacts: true },
       });
@@ -1488,7 +1494,7 @@ export class PrismaAdapter implements DatabaseAdapter {
       where,
       orderBy,
       take: filter.limit ?? undefined,
-      cursor: filter.cursor ? { id: nid(filter.cursor) } : undefined,
+      cursor,
       skip: filter.cursor ? 1 : undefined,
     });
     // Map without contacts — give mapApp an empty contacts array to satisfy the type

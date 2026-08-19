@@ -185,6 +185,12 @@ describe("PrismaAdapter — atomic application events", () => {
       }));
   });
 
+  it("normalizes a malformed application cursor", async () => {
+    await expect(new PrismaAdapter().listApplicationsFiltered("owner-1", { cursor: "deleted-app" }))
+      .rejects.toThrow("application_cursor_invalid");
+    expect((fake.prisma.application as { findMany: ReturnType<typeof vi.fn> }).findMany).not.toHaveBeenCalled();
+  });
+
   it("updates the projection and creates one immutable event", async () => {
     const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
     expect(result.replayed).toBe(false);
