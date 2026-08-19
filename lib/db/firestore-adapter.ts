@@ -57,6 +57,12 @@ import type {
   DemoReadOptions,
   EnsureDemoWorkspaceResult,
   DeleteDemoWorkspaceResult,
+  CareerOpsThreadRecord,
+  CareerOpsRunRecord,
+  CareerOpsRunStatus,
+  CreateCareerOpsThreadInput,
+  CreateCareerOpsRunInput,
+  CreateCareerOpsRunResult,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -322,6 +328,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
   private get demoWorkspaces() { return this.db.collection("demoWorkspaces"); }
   private get ownerLifecycles() { return this.db.collection("ownerApplicationLifecycles"); }
   private get canonicalUrls() { return this.db.collection("applicationCanonicalUrls"); }
+  private get careerOpsThreads() { return this.db.collection("careerOpsThreads"); }
+  private get careerOpsRuns() { return this.db.collection("careerOpsRuns"); }
 
   private canonicalUrlRef(userId: string, canonicalJobUrl: string) {
     return this.canonicalUrls.doc(submissionRequestHash({ userId, canonicalJobUrl }));
@@ -814,6 +822,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
       });
       return existing.data()!.isDemo === true;
     });
+
+    // Career Ops conversations are detached before the cascade so a failure
+    // later cannot leave a thread pointing at a deleted application.
+    await this.clearCareerOpsApplicationLinks(id, userId);
 
     const [contactSnap, submissionSnap, eventSnap, linkedDocumentSnap] = await Promise.all([
       this.contacts.where("applicationId", "==", id).get(),
@@ -2420,5 +2432,183 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
       transaction.update(patchRef, { documentId, updatedAt: Timestamp.now() });
     });
+  }
+
+  // ── Career Ops (Hermes session bridge) ───────────────────────────────────
+
+  private mapCareerOpsThread(id: string, data: FirebaseFirestore.DocumentData): CareerOpsThreadRecord {
+    return {
+      id,
+      userId: data.userId,
+      hermesSessionId: data.hermesSessionId,
+      title: data.title,
+      applicationId: typeof data.applicationId === "string" ? data.applicationId : null,
+      createdAt: toDate(data.createdAt) ?? new Date(0),
+      updatedAt: toDate(data.updatedAt) ?? new Date(0),
+    };
+  }
+
+  private mapCareerOpsRun(id: string, data: FirebaseFirestore.DocumentData): CareerOpsRunRecord {
+    return {
+      id,
+      userId: data.userId,
+      threadId: data.threadId,
+      hermesRunId: data.hermesRunId,
+      clientRequestId: data.clientRequestId,
+      status: data.status as CareerOpsRunStatus,
+      createdAt: toDate(data.createdAt) ?? new Date(0),
+      updatedAt: toDate(data.updatedAt) ?? new Date(0),
+    };
+  }
+
+  /**
+   * Deterministic run document id.
+   *
+   * Firestore has no unique index, so uniqueness on
+   * (threadId, clientRequestId) is expressed as the document key and enforced
+   * by create(), which fails when the document already exists. That gives the
+   * same "exactly one run per client request" guarantee as the Prisma
+   * composite unique constraint.
+   */
+  private careerOpsRunRef(threadId: string, clientRequestId: string) {
+    return this.careerOpsRuns.doc(
+      submissionRequestHash({ kind: "career-ops-run", threadId, clientRequestId }),
+    );
+  }
+
+  async listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]> {
+    const snapshot = await this.careerOpsThreads
+      .where("userId", "==", userId)
+      .orderBy("updatedAt", "desc")
+      .get();
+    const threads = snapshot.docs.map((document) =>
+      this.mapCareerOpsThread(document.id, document.data()),
+    );
+    // Deterministic tiebreak so equal timestamps never reorder between reads.
+    threads.sort((left, right) => {
+      const byUpdated = right.updatedAt.getTime() - left.updatedAt.getTime();
+      if (byUpdated !== 0) return byUpdated;
+      return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
+    });
+    return threads;
+  }
+
+  async getCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
+    const snapshot = await this.careerOpsThreads.doc(id).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId) return null;
+    return this.mapCareerOpsThread(snapshot.id, data);
+  }
+
+  async createCareerOpsThread(
+    userId: string,
+    data: CreateCareerOpsThreadInput,
+  ): Promise<CareerOpsThreadRecord> {
+    const now = Timestamp.now();
+    const ref = this.careerOpsThreads.doc();
+    const payload = {
+      userId,
+      hermesSessionId: data.hermesSessionId,
+      title: data.title,
+      applicationId: data.applicationId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await ref.set(payload);
+    return this.mapCareerOpsThread(ref.id, payload);
+  }
+
+  async renameCareerOpsThread(
+    id: string,
+    userId: string,
+    title: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const ref = this.careerOpsThreads.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
+    await ref.update({ title, updatedAt: Timestamp.now() });
+    return this.getCareerOpsThread(id, userId);
+  }
+
+  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
+    const existing = await this.getCareerOpsThread(id, userId);
+    if (!existing) return null;
+    const runs = await this.careerOpsRuns
+      .where("threadId", "==", id)
+      .where("userId", "==", userId)
+      .get();
+    const batch = this.db.batch();
+    runs.docs.forEach((document) => batch.delete(document.ref));
+    batch.delete(this.careerOpsThreads.doc(id));
+    await batch.commit();
+    return existing;
+  }
+
+  async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
+    const snapshot = await this.careerOpsRuns.doc(id).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId) return null;
+    return this.mapCareerOpsRun(snapshot.id, data);
+  }
+
+  async createCareerOpsRun(
+    userId: string,
+    data: CreateCareerOpsRunInput,
+  ): Promise<CreateCareerOpsRunResult> {
+    const thread = await this.getCareerOpsThread(data.threadId, userId);
+    if (!thread) throw new Error("career_ops_thread_not_found");
+
+    const ref = this.careerOpsRunRef(data.threadId, data.clientRequestId);
+    const now = Timestamp.now();
+    const payload = {
+      userId,
+      threadId: data.threadId,
+      hermesRunId: data.hermesRunId,
+      clientRequestId: data.clientRequestId,
+      status: data.status,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await ref.create(payload);
+      return { run: this.mapCareerOpsRun(ref.id, payload), created: true };
+    } catch {
+      const existing = await ref.get();
+      if (!existing.exists) throw new Error("career_ops_run_create_failed");
+      const current = existing.data()!;
+      if (current.userId !== userId) throw new Error("career_ops_run_create_failed");
+      return { run: this.mapCareerOpsRun(existing.id, current), created: false };
+    }
+  }
+
+  async updateCareerOpsRunStatus(
+    id: string,
+    userId: string,
+    status: CareerOpsRunStatus,
+  ): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+    await ref.update({ status, updatedAt: Timestamp.now() });
+  }
+
+  /**
+   * Detach Career Ops conversations from an application that is going away.
+   * The conversation survives as a global thread; the link is advisory context,
+   * not ownership, so it must not cascade into a delete.
+   */
+  private async clearCareerOpsApplicationLinks(applicationId: string, userId: string): Promise<void> {
+    const snapshot = await this.careerOpsThreads
+      .where("userId", "==", userId)
+      .where("applicationId", "==", applicationId)
+      .get();
+    if (snapshot.empty) return;
+    const batch = this.db.batch();
+    snapshot.docs.forEach((document) =>
+      batch.update(document.ref, { applicationId: null, updatedAt: Timestamp.now() }),
+    );
+    await batch.commit();
   }
 }

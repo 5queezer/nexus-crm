@@ -10,14 +10,14 @@
 
 ## 2. Persistence and adapter parity (RED → GREEN)
 
-- [ ] 2.1 Add `CareerOpsThreadRecord` / `CareerOpsRunRecord` types and the Career Ops methods to `lib/db/types.ts` and `lib/db/adapter.ts`.
-- [ ] 2.2 Write failing adapter contract tests: create/list/get/delete thread; owner scoping on every read; deterministic `updatedAt desc, id` ordering; `(threadId, clientRequestId)` uniqueness; run status update; foreign-ID rejection; application-link cleanup; user-deletion cleanup.
-- [ ] 2.3 Add `CareerOpsThread` and `CareerOpsRun` to `prisma/schema.prisma` with owner indexes, the composite unique constraint, `onDelete: Cascade` from `User`, and `onDelete: SetNull` from `Application`; run `prisma format` and `prisma validate`.
-- [ ] 2.4 Write the additive migration `prisma/migrations/<ts>_add_career_ops_session_bridge/migration.sql` and confirm it contains no destructive statement.
-- [ ] 2.5 Implement the Career Ops methods in `lib/db/prisma-adapter.ts`.
-- [ ] 2.6 Implement the Career Ops methods in `lib/db/firestore-adapter.ts` using deterministic run document IDs for uniqueness, and extend the existing application-delete and user-cleanup paths to clear/remove Career Ops references.
-- [ ] 2.7 Add the Career Ops composite indexes to `firestore.indexes.json`.
-- [ ] 2.8 Run the adapter contract tests green on both backends.
+- [x] 2.1 Add `CareerOpsThreadRecord` / `CareerOpsRunRecord` types and the Career Ops methods to `lib/db/types.ts` and `lib/db/adapter.ts`.
+- [x] 2.2 Write failing adapter contract tests: create/list/get/delete thread; owner scoping on every read; deterministic `updatedAt desc, id` ordering; `(threadId, clientRequestId)` uniqueness; run status update; foreign-ID rejection; application-link cleanup; user-deletion cleanup.
+- [x] 2.3 Add `CareerOpsThread` and `CareerOpsRun` to `prisma/schema.prisma` with owner indexes, the composite unique constraint, `onDelete: Cascade` from `User`, and `onDelete: SetNull` from `Application`; run `prisma format` and `prisma validate`.
+- [x] 2.4 Write the additive migration `prisma/migrations/<ts>_add_career_ops_session_bridge/migration.sql` and confirm it contains no destructive statement.
+- [x] 2.5 Implement the Career Ops methods in `lib/db/prisma-adapter.ts`.
+- [x] 2.6 Implement the Career Ops methods in `lib/db/firestore-adapter.ts` using deterministic run document IDs for uniqueness, and extend the existing application-delete and user-cleanup paths to clear/remove Career Ops references.
+- [x] 2.7 Add the Career Ops composite indexes to `firestore.indexes.json`.
+- [x] 2.8 Run the adapter contract tests green on both backends.
 
 ## 3. Career Ops service layer (RED → GREEN)
 

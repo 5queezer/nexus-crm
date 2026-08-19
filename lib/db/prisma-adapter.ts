@@ -57,6 +57,12 @@ import type {
   DemoReadOptions,
   EnsureDemoWorkspaceResult,
   DeleteDemoWorkspaceResult,
+  CareerOpsThreadRecord,
+  CareerOpsRunRecord,
+  CareerOpsRunStatus,
+  CreateCareerOpsThreadInput,
+  CreateCareerOpsRunInput,
+  CreateCareerOpsRunResult,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -2115,4 +2121,147 @@ export class PrismaAdapter implements DatabaseAdapter {
       });
     });
   }
+
+  // ── Career Ops (Hermes session bridge) ───────────────────────────────────
+
+  async listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]> {
+    const rows = await prisma.careerOpsThread.findMany({
+      where: { userId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    });
+    return rows.map(mapCareerOpsThread);
+  }
+
+  async getCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
+    const row = await prisma.careerOpsThread.findFirst({ where: { id, userId } });
+    return row ? mapCareerOpsThread(row) : null;
+  }
+
+  async createCareerOpsThread(
+    userId: string,
+    data: CreateCareerOpsThreadInput,
+  ): Promise<CareerOpsThreadRecord> {
+    const row = await prisma.careerOpsThread.create({
+      data: {
+        userId,
+        hermesSessionId: data.hermesSessionId,
+        title: data.title,
+        applicationId: data.applicationId ? nid(data.applicationId) : null,
+      },
+    });
+    return mapCareerOpsThread(row);
+  }
+
+  async renameCareerOpsThread(
+    id: string,
+    userId: string,
+    title: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const updated = await prisma.careerOpsThread.updateMany({
+      where: { id, userId },
+      data: { title },
+    });
+    if (updated.count === 0) return null;
+    return this.getCareerOpsThread(id, userId);
+  }
+
+  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
+    const existing = await this.getCareerOpsThread(id, userId);
+    if (!existing) return null;
+    // Deleting the runs explicitly (rather than relying only on the database
+    // cascade) keeps the observable behavior identical to the Firestore path.
+    await prisma.careerOpsRun.deleteMany({ where: { threadId: id, userId } });
+    await prisma.careerOpsThread.deleteMany({ where: { id, userId } });
+    return existing;
+  }
+
+  async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
+    const row = await prisma.careerOpsRun.findFirst({ where: { id, userId } });
+    return row ? mapCareerOpsRun(row) : null;
+  }
+
+  async createCareerOpsRun(
+    userId: string,
+    data: CreateCareerOpsRunInput,
+  ): Promise<CreateCareerOpsRunResult> {
+    const thread = await this.getCareerOpsThread(data.threadId, userId);
+    if (!thread) throw new Error("career_ops_thread_not_found");
+
+    const existing = await prisma.careerOpsRun.findFirst({
+      where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
+    });
+    if (existing) return { run: mapCareerOpsRun(existing), created: false };
+
+    try {
+      const row = await prisma.careerOpsRun.create({
+        data: {
+          userId,
+          threadId: data.threadId,
+          hermesRunId: data.hermesRunId,
+          clientRequestId: data.clientRequestId,
+          status: data.status,
+        },
+      });
+      return { run: mapCareerOpsRun(row), created: true };
+    } catch (error) {
+      // A concurrent duplicate won the unique index; return the winner so a
+      // retry can never observe two runs for one client request.
+      if ((error as { code?: string }).code !== "P2002") throw error;
+      const winner = await prisma.careerOpsRun.findFirst({
+        where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
+      });
+      if (!winner) throw error;
+      return { run: mapCareerOpsRun(winner), created: false };
+    }
+  }
+
+  async updateCareerOpsRunStatus(
+    id: string,
+    userId: string,
+    status: CareerOpsRunStatus,
+  ): Promise<void> {
+    await prisma.careerOpsRun.updateMany({ where: { id, userId }, data: { status } });
+  }
+}
+
+function mapCareerOpsThread(row: {
+  id: string;
+  userId: string;
+  hermesSessionId: string;
+  title: string;
+  applicationId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): CareerOpsThreadRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    hermesSessionId: row.hermesSessionId,
+    title: row.title,
+    applicationId: row.applicationId === null ? null : sid(row.applicationId),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapCareerOpsRun(row: {
+  id: string;
+  userId: string;
+  threadId: string;
+  hermesRunId: string;
+  clientRequestId: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): CareerOpsRunRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    threadId: row.threadId,
+    hermesRunId: row.hermesRunId,
+    clientRequestId: row.clientRequestId,
+    status: row.status as CareerOpsRunStatus,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }

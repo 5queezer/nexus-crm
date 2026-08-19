@@ -85,8 +85,9 @@ The system SHALL delete a Career Ops thread and its run mappings on owner reques
 - **THEN** the Nexus mapping is still removed and the caller receives a success outcome with the upstream failure recorded only in redacted form
 
 #### Scenario: User deleted
-- **WHEN** a user record is deleted
-- **THEN** that user's Career Ops thread and run mappings are removed
+- **WHEN** a user record is deleted from the relational store
+- **THEN** that user's Career Ops thread and run mappings are removed by the relational cascade
+- **AND** on every backend a mapping whose owner no longer exists stays unreachable, because each read is filtered by the authenticated user identifier
 
 #### Scenario: Linked application deleted
 - **WHEN** an application linked to a Career Ops thread is deleted

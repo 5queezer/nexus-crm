@@ -38,6 +38,12 @@ import type {
   DemoReadOptions,
   EnsureDemoWorkspaceResult,
   DeleteDemoWorkspaceResult,
+  CareerOpsThreadRecord,
+  CareerOpsRunRecord,
+  CareerOpsRunStatus,
+  CreateCareerOpsThreadInput,
+  CreateCareerOpsRunInput,
+  CreateCareerOpsRunResult,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -128,4 +134,21 @@ export interface DatabaseAdapter {
   getCvPatch(applicationId: string, userId: string): Promise<CvPatchRecord | null>;
   upsertCvPatch(applicationId: string, userId: string, data: UpsertCvPatchInput): Promise<CvPatchRecord>;
   setCvPatchDocumentId(patchId: string, userId: string, documentId: string | null): Promise<void>;
+
+  // ── Career Ops (Hermes session bridge) ───────────────────────────────────
+  /** List a user's Career Ops threads, most recently updated first. */
+  listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]>;
+  /** Fetch one thread, or null when it does not exist or belongs to someone else. */
+  getCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null>;
+  createCareerOpsThread(userId: string, data: CreateCareerOpsThreadInput): Promise<CareerOpsThreadRecord>;
+  /** Rename a thread the user owns. Returns null when it is not theirs. */
+  renameCareerOpsThread(id: string, userId: string, title: string): Promise<CareerOpsThreadRecord | null>;
+  /** Delete a thread and its runs. Returns the removed record, or null when not owned. */
+  deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null>;
+  /** Fetch one run, or null when it does not exist or belongs to someone else. */
+  getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null>;
+  /** Create a run, returning the existing one when (threadId, clientRequestId) is already used. */
+  createCareerOpsRun(userId: string, data: CreateCareerOpsRunInput): Promise<CreateCareerOpsRunResult>;
+  /** Record the last-known Hermes run state. No-op when the run is not the user's. */
+  updateCareerOpsRunStatus(id: string, userId: string, status: CareerOpsRunStatus): Promise<void>;
 }

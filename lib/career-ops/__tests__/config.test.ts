@@ -42,6 +42,7 @@ describe("readCareerOpsConfig", () => {
   it("is disabled when nothing is configured", () => {
     const config = readCareerOpsConfig();
     expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
     expect(config.reason).toBe("not_configured");
   });
 
@@ -49,6 +50,7 @@ describe("readCareerOpsConfig", () => {
     enable({ HERMES_CAREER_OPS_ENABLED: "false" });
     const config = readCareerOpsConfig();
     expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
     expect(config.reason).toBe("disabled");
   });
 
@@ -57,6 +59,7 @@ describe("readCareerOpsConfig", () => {
     delete process.env.HERMES_CAREER_OPS_API_KEY;
     const config = readCareerOpsConfig();
     expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
     expect(config.reason).toBe("not_configured");
   });
 
@@ -65,6 +68,7 @@ describe("readCareerOpsConfig", () => {
       enable({ HERMES_CAREER_OPS_BASE_URL: value });
       const config = readCareerOpsConfig();
       expect(config.enabled, value).toBe(false);
+      if (config.enabled) throw new Error("unreachable");
       expect(config.reason, value).toBe("invalid_base_url");
     }
   });

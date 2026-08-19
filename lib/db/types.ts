@@ -651,3 +651,60 @@ export interface UpsertCvPatchInput {
   includeProjects?: boolean;
   includeEducation?: boolean;
 }
+
+// ── Career Ops (Hermes session bridge) ───────────────────────────────────────
+
+/**
+ * Last-known state of a Hermes run, mirrored into Nexus only so the UI can
+ * settle without a live stream. Hermes remains the authority.
+ */
+export type CareerOpsRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_approval"
+  | "stopping"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface CareerOpsThreadRecord {
+  id: string;
+  userId: string;
+  hermesSessionId: string;
+  title: string;
+  /** Optional Nexus application this conversation is scoped to. */
+  applicationId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateCareerOpsThreadInput {
+  hermesSessionId: string;
+  title: string;
+  applicationId?: string | null;
+}
+
+export interface CareerOpsRunRecord {
+  id: string;
+  userId: string;
+  threadId: string;
+  hermesRunId: string;
+  /** Caller-supplied bounded identifier used to make run creation idempotent. */
+  clientRequestId: string;
+  status: CareerOpsRunStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateCareerOpsRunInput {
+  threadId: string;
+  hermesRunId: string;
+  clientRequestId: string;
+  status: CareerOpsRunStatus;
+}
+
+export interface CreateCareerOpsRunResult {
+  run: CareerOpsRunRecord;
+  /** False when an existing run for (threadId, clientRequestId) was returned. */
+  created: boolean;
+}

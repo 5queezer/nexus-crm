@@ -68,6 +68,7 @@ model Application {
   cvPatch             CvPatch?
   submissions         ApplicationSubmission[]
   events              ApplicationEvent[]
+  careerOpsThreads    CareerOpsThread[]
 
   @@unique([userId, canonicalJobUrl])
   @@unique([demoWorkspaceId, demoKey])
@@ -221,6 +222,8 @@ model User {
   actionProposals        ActionProposal[]
   verificationResults    AgentVerificationResult[]
   mcpConnections         AgentMcpConnection[]
+  careerOpsThreads       CareerOpsThread[]
+  careerOpsRuns          CareerOpsRun[]
 }
 
 model UserApiToken {
@@ -572,4 +575,44 @@ model CvPatch {
   documentId       Int? // ID of the generated CV Document
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+}
+
+/// Nexus-owned mapping from an authenticated user to a Hermes Career Ops
+/// session. Nexus stores no transcript: message history is read from Hermes.
+model CareerOpsThread {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hermesSessionId String
+  title           String
+  /// Optional application scope. Cleared, not cascaded, when the application goes away.
+  applicationId   Int?
+  application     Application?   @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  runs            CareerOpsRun[]
+
+  @@unique([userId, hermesSessionId])
+  @@index([userId, updatedAt])
+  @@index([applicationId])
+}
+
+/// Nexus-owned mapping from a Career Ops thread to a Hermes run. The unique
+/// (threadId, clientRequestId) pair is what makes run creation idempotent:
+/// the Hermes runs API has no request-level idempotency of its own.
+model CareerOpsRun {
+  id              String          @id @default(cuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId        String
+  thread          CareerOpsThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  hermesRunId     String
+  clientRequestId String
+  status          String          @default("queued")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([threadId, clientRequestId])
+  @@index([userId, createdAt])
+  @@index([threadId, createdAt])
 }
