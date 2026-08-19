@@ -181,6 +181,12 @@ vi.mock("@/lib/prisma", () => {
   // The callback runs against the same stores. That models an atomic
   // *decision* — the guard and the write see one consistent state, which is
   // what the deletion contract depends on — not rollback.
+  //
+  // `$queryRaw` here stands in for the `SELECT ... FOR UPDATE` that serializes
+  // claiming against deletion. The fake is single-threaded, so transactions
+  // already cannot interleave; the lock's real effect is verified directly
+  // against Postgres rather than here.
+  client.$queryRaw = async () => [];
   client.$transaction = async <T,>(callback: (tx: unknown) => Promise<T>): Promise<T> =>
     callback(client);
   return { prisma: client };

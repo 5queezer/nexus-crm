@@ -2178,6 +2178,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     // It also makes the two deletes atomic: a failure cannot leave the runs
     // removed and the parent behind.
     return prisma.$transaction(async (tx) => {
+      // Same lock the claim takes, so the two cannot interleave: without it a
+      // claim can commit between the check below and the deletes, and the
+      // cascade then removes a reservation whose Hermes run is about to start.
+      await tx.$queryRaw`SELECT id FROM "CareerOpsThread" WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.careerOpsThread.findFirst({ where: { id, userId } });
       if (!existing) return { outcome: "not_found" as const };
       const active = await tx.careerOpsRun.findFirst({
@@ -2216,21 +2220,31 @@ export class PrismaAdapter implements DatabaseAdapter {
     if (existing) return { outcome: "existing", run: mapCareerOpsRun(existing) };
 
     try {
-      const row = await prisma.careerOpsRun.create({
-        data: {
-          userId,
-          threadId: data.threadId,
-          hermesRunId: data.hermesRunId,
-          clientRequestId: data.clientRequestId,
-          status: data.status,
-        },
-      });
-      // History is ordered by the thread's updatedAt, so without this a
-      // conversation the user is actively using stays buried under its
-      // creation or last-rename time.
-      await prisma.careerOpsThread.updateMany({
-        where: { id: data.threadId, userId },
-        data: { updatedAt: new Date() },
+      const row = await prisma.$transaction(async (tx) => {
+        // Lock the parent for the duration. Deletion takes the same lock, so a
+        // claim can no longer commit between deletion's active-run check and
+        // its removal of the mappings — which would cascade the new
+        // reservation away and leave a live Hermes run with nothing pointing
+        // at it. Locking also makes the insert and the activity bump atomic:
+        // a failed bump must not leave a committed reservation behind.
+        await tx.$queryRaw`SELECT id FROM "CareerOpsThread" WHERE id = ${data.threadId} FOR UPDATE`;
+        const created = await tx.careerOpsRun.create({
+          data: {
+            userId,
+            threadId: data.threadId,
+            hermesRunId: data.hermesRunId,
+            clientRequestId: data.clientRequestId,
+            status: data.status,
+          },
+        });
+        // History is ordered by the thread's updatedAt, so without this a
+        // conversation the user is actively using stays buried under its
+        // creation or last-rename time.
+        await tx.careerOpsThread.updateMany({
+          where: { id: data.threadId, userId },
+          data: { updatedAt: new Date() },
+        });
+        return created;
       });
       return { outcome: "claimed", run: mapCareerOpsRun(row) };
     } catch (error) {

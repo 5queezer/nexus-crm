@@ -313,12 +313,16 @@ describe("run operations", () => {
     });
   });
 
-  it("maps an unrecognized upstream run status to failed", async () => {
+  it("refuses an unrecognized upstream run status instead of calling it failed", async () => {
+    // Guessing `failed` would settle the run, free the conversation's single
+    // active-run slot, and let a second privileged run start beside one that
+    // may still be executing.
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({ run_id: "run_7", status: "who_knows" }),
     ) as unknown as typeof fetch;
-    const run = await createHermesClient(enabledConfig()).getRun("run_7");
-    expect(run.status).toBe("failed");
+    await expect(createHermesClient(enabledConfig()).getRun("run_7")).rejects.toMatchObject({
+      kind: "upstream_error",
+    });
   });
 
   it("redacts the upstream error text on a failed run", async () => {

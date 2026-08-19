@@ -69,6 +69,21 @@ The system SHALL treat an approval prompt whose disclosed action does not fit th
 - **WHEN** the whole disclosed action fits within the display bound
 - **THEN** the prompt offers the choices the gate advertised
 
+#### Scenario: Gate advertises no usable choice
+- **WHEN** an approval request carries no recognized choices
+- **THEN** the prompt offers only rejection, and no granting choice is invented on the agent's behalf
+
+### Requirement: Grants are single-use only
+The system SHALL offer only single-use approval, and SHALL NOT offer or forward a session-wide or permanent grant, so one decision can never authorize later operations the user does not see.
+
+#### Scenario: Gate advertises broader grants
+- **WHEN** an approval request advertises session-wide or permanent grants
+- **THEN** those are not presented and cannot be selected, and only single use and rejection remain
+
+#### Scenario: Gate advertises only broader grants
+- **WHEN** an approval request advertises no single-use option
+- **THEN** the prompt offers only rejection
+
 ### Requirement: Authenticated, owner-scoped approval decisions
 The system SHALL route every approval decision through an authenticated Nexus endpoint that verifies thread and run ownership before forwarding it, and SHALL reject decisions for runs the caller does not own.
 

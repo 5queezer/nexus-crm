@@ -255,6 +255,32 @@ describe("threads", () => {
     expect(mocks.client.createSession).not.toHaveBeenCalled();
   });
 
+  it("rejects an oversized chunked body without buffering it", async () => {
+    // No Content-Length, so the declared-size check cannot fire. Materializing
+    // the body first would let any authenticated caller exhaust memory before
+    // the owner gate is even reached.
+    let produced = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        produced += 1;
+        controller.enqueue(new TextEncoder().encode("x".repeat(64 * 1024)));
+        if (produced > 5_000) controller.close();
+      },
+    });
+    const request = new Request("http://test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      // @ts-expect-error duplex is required for a streaming request body
+      duplex: "half",
+    });
+
+    expect((await createThread(request)).status).toBe(413);
+    // It gave up early rather than reading the whole stream.
+    expect(produced).toBeLessThan(1_000);
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
+  });
+
   it("rejects an oversized body with 413", async () => {
     const request = new Request("http://test", {
       method: "POST",

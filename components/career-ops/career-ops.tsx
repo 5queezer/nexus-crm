@@ -378,7 +378,6 @@ export function CareerOps({
     // the next run resets the live buffer, so earlier replies stay visible.
     const previousAnswer = run.answer;
     const optimisticId = `local-${Date.now()}`;
-    const restored = messages;
     setMessages((current) => [
       ...current,
       ...(previousAnswer
@@ -389,9 +388,10 @@ export function CareerOps({
 
     const accepted = await start(activeThreadId, message);
     if (!accepted) {
-      // Nothing was sent. Leaving the text in the transcript would present an
-      // unsent message as conversation history and make the user retype it.
-      setMessages(restored);
+      // Nothing was sent. Drop only the unsent message: `start` has already
+      // reset the live run, so the previous turn's answer now exists only in
+      // the copy just made — restoring a pre-submit snapshot would erase it.
+      setMessages((current) => current.filter((item) => item.id !== optimisticId));
       setDraft((current) => (current === "" ? message : current));
     }
   }

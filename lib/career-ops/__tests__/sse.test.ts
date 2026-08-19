@@ -97,9 +97,28 @@ describe("normalizeHermesEvent", () => {
       operation: "shell:rm",
       summary: "Delete a temporary folder",
       details: "rm -rf /tmp/x",
-      choices: ["once", "session", "always", "deny"],
+      // Nexus grants single use only: session-wide and permanent grants would
+      // authorize operations the user never sees.
+      choices: ["once", "deny"],
       truncated: false,
     });
+  });
+
+  it("offers denial only when the gate advertises no usable choice", () => {
+    // Inventing `once` here would mint a signed challenge for a permission the
+    // gate never advertised.
+    for (const choices of [undefined, [], ["bogus"], ["session", "always"]]) {
+      const event = normalizeHermesEvent(
+        JSON.stringify({
+          event: "approval.request",
+          pattern_key: "shell",
+          description: "Run a command",
+          command: "nexus update 42",
+          ...(choices === undefined ? {} : { choices }),
+        }),
+      );
+      expect(event).toMatchObject({ type: "approval_required", choices: ["deny"] });
+    }
   });
 
   it("redacts secret-bearing approval details", () => {

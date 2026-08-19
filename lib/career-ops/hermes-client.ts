@@ -327,9 +327,17 @@ export function createHermesClient(config: EnabledConfig) {
         await request(`/v1/runs/${encodeURIComponent(runId)}`, { method: "GET" }),
       );
       const raw = text(body.status, 64) as HermesRunStatus;
+      if (!RUN_STATUSES.includes(raw)) {
+        // Mapping an unrecognized status to `failed` would be a guess with
+        // consequences: the caller persists it, which settles the run, frees
+        // the conversation's single active-run slot, and lets a second
+        // privileged run start while the first may still be executing. An
+        // unknown status is an upstream problem, not a finished run.
+        throw new HermesError("upstream_error", "Hermes reported an unrecognized run status");
+      }
       return {
         runId: text(body.run_id, 256) || runId,
-        status: RUN_STATUSES.includes(raw) ? raw : "failed",
+        status: raw,
         output: text(body.output, 200_000),
         error: body.error === undefined || body.error === null
           ? null

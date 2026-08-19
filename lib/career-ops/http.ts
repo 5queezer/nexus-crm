@@ -71,6 +71,30 @@ export function enforceCareerOpsRateLimit(session: CareerOpsSession): NextRespon
   );
 }
 
+async function readBoundedBody(request: Request, maxBytes: number): Promise<string> {
+  const body = request.body;
+  // No stream to bound (some runtimes and empty bodies); text() is safe here
+  // because there is nothing to buffer.
+  if (!body) return request.text();
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new CareerOpsBodyError(413);
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.cancel().catch(() => undefined);
+  }
+}
+
 export async function readCareerOpsBody(request: Request): Promise<Record<string, unknown>> {
   const declared = request.headers.get("content-length");
   if (declared !== null) {
@@ -79,13 +103,16 @@ export async function readCareerOpsBody(request: Request): Promise<Record<string
     if (bytes > CAREER_OPS_JSON_BODY_LIMIT) throw new CareerOpsBodyError(413);
   }
 
+  // Read through the bound rather than materializing the body first. A client
+  // that omits Content-Length or uses chunked encoding would otherwise have the
+  // whole body buffered before any check ran — and this happens before the
+  // owner gate, so any authenticated user could do it.
   let raw: string;
   try {
-    raw = await request.text();
-  } catch {
-    throw new CareerOpsBodyError(400);
+    raw = await readBoundedBody(request, CAREER_OPS_JSON_BODY_LIMIT);
+  } catch (reason) {
+    throw reason instanceof CareerOpsBodyError ? reason : new CareerOpsBodyError(400);
   }
-  if (raw.length > CAREER_OPS_JSON_BODY_LIMIT) throw new CareerOpsBodyError(413);
   if (!raw.trim()) return {};
 
   let parsed: unknown;

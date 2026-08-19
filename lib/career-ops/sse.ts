@@ -167,7 +167,17 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       const truncated = exceedsDisplayBound(event.pattern_key, 120)
         || exceedsDisplayBound(event.description, APPROVAL_TEXT_LIMIT)
         || exceedsDisplayBound(event.command, APPROVAL_TEXT_LIMIT);
-      const offered = choices.length > 0 ? choices : (["once", "deny"] as CareerOpsApprovalChoice[]);
+      // Nexus grants single use only. `session` and `always` would let one
+      // decision authorize operations the user never sees, which is the thing
+      // the approval gate exists to prevent, so they are dropped here rather
+      // than rendered — and therefore never signed into a challenge either.
+      //
+      // No fabricated grant: defaulting to `once` when Hermes omits `choices`
+      // or sends only unrecognized ones would mint a valid, signed challenge
+      // for a permission the gate never advertised.
+      const grantable = choices.filter((choice) => choice === "once");
+      const offered: CareerOpsApprovalChoice[] =
+        grantable.length > 0 ? [...grantable, "deny"] : ["deny"];
       return {
         type: "approval_required",
         operation: asString(event.pattern_key, 120),
