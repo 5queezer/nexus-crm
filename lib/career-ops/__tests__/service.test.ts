@@ -1250,6 +1250,19 @@ describe("run controls", () => {
     expect(mocks.client.resolveApproval).toHaveBeenCalledTimes(1);
   });
 
+  it("invalidates the outstanding challenge when denying", async () => {
+    // Otherwise a denial can reach Hermes first, the run can advance to the
+    // next gate, and a grant still carrying the previous gate's token would be
+    // applied to the new action.
+    const challenge = await challengeFor("run-1", ["once"]);
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).resolves.toBeUndefined();
+
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.resolveApproval).toHaveBeenCalledTimes(1);
+  });
+
   it("always lets the owner deny, even with no recoverable prompt", async () => {
     // After the single-consumer stream drops, the prompt cannot be reissued.
     // Denial grants nothing, so requiring proof of disclosure for it would take

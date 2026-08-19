@@ -904,7 +904,15 @@ export async function resolveCareerOpsApproval(
   // the prompt could not be recovered — after the single-consumer event stream
   // dropped. Denial stays available to the owner unconditionally.
   let consumedChallengeId = "";
-  if (choice !== "deny") {
+  if (choice === "deny") {
+    // Denial needs no proof of disclosure, but it must still invalidate the
+    // outstanding challenge. Otherwise a denial can reach Hermes first, the run
+    // can advance to the next gate, and a grant still carrying the previous
+    // gate's token would be applied to the new action.
+    await getDb()
+      .setCareerOpsPendingApprovalChallenge(run.id, session.userId, null)
+      .catch(() => undefined);
+  } else {
     const verified = verifyApprovalChallenge(config, challenge, {
       runId: run.id,
       userId: session.userId,

@@ -2617,12 +2617,22 @@ export class FirestoreAdapter implements DatabaseAdapter {
       .get();
     // Chunked: a long-lived conversation would otherwise exceed the batch cap
     // and leave its runs behind forever.
-    for (let offset = 0; offset < runs.docs.length; offset += 450) {
-      const batch = this.db.batch();
-      for (const document of runs.docs.slice(offset, offset + 450)) {
-        batch.delete(document.ref);
+    //
+    // Failures here must not propagate. The authoritative mapping — the parent
+    // thread — is already gone, so throwing would stop the caller from deleting
+    // the upstream Hermes session while a retry could only ever see
+    // `not_found`, losing the session id for good. Orphaned run documents are
+    // inert, because ownership always resolves through the thread.
+    try {
+      for (let offset = 0; offset < runs.docs.length; offset += 450) {
+        const batch = this.db.batch();
+        for (const document of runs.docs.slice(offset, offset + 450)) {
+          batch.delete(document.ref);
+        }
+        await batch.commit();
       }
-      await batch.commit();
+    } catch {
+      console.warn("career-ops: run documents left behind after thread deletion");
     }
     return result;
   }
