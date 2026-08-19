@@ -26,6 +26,11 @@ The system SHALL present an approval request as a non-technical summary of the o
 - **WHEN** the approval details contain credential-like content
 - **THEN** the displayed prompt omits that content
 
+#### Scenario: Details cannot be recovered
+- **WHEN** a run awaiting a decision is rejoined after a disconnect, so the operation and its arguments are no longer retrievable
+- **THEN** the system states that the details could not be recovered
+- **AND** offers only rejection, because an approval prompt that cannot show what is being approved must not authorize it
+
 #### Scenario: Approval state is not color-only
 - **WHEN** a run is waiting for approval
 - **THEN** the waiting state is conveyed by text or an icon in addition to any color
@@ -78,6 +83,10 @@ The system SHALL record only the minimal metadata needed to attribute an approva
 #### Scenario: Decision recorded minimally
 - **WHEN** an approval decision is forwarded
 - **THEN** Nexus retains only the owning user, run, decision, and timestamp
+
+#### Scenario: Undelivered decision is not recorded
+- **WHEN** an approval decision fails to reach the agent
+- **THEN** no decision is recorded against the run
 
 #### Scenario: Payload not persisted
 - **WHEN** an approval request carries operation arguments

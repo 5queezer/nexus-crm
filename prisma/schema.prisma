@@ -609,6 +609,10 @@ model CareerOpsRun {
   hermesRunId     String
   clientRequestId String
   status          String          @default("queued")
+  /// Attribution for the last human approval decision. The command payload and
+  /// arguments are deliberately never stored.
+  approvalChoice  String?
+  approvalAt      DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 

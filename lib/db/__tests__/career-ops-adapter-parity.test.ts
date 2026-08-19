@@ -578,6 +578,40 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.deleteCareerOpsThread(thread.id, "user-a")).resolves.toBeNull();
   });
 
+  it("records who decided an approval and when, and nothing else", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-approval",
+      status: "waiting_for_approval",
+    });
+    expect(run.approvalChoice).toBeNull();
+
+    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny");
+    const decided = await db.getCareerOpsRun(run.id, "user-a");
+    expect(decided?.approvalChoice).toBe("deny");
+    expect(decided?.approvalAt).toBeInstanceOf(Date);
+
+    // Owner and run are already on the record; nothing about the operation is.
+    expect(Object.keys(decided!)).not.toContain("approvalCommand");
+    expect(JSON.stringify(decided)).not.toMatch(/rm -rf|command|arguments/i);
+  });
+
+  it("ignores an approval decision recorded by another user", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await db.createCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-foreign-approval",
+      status: "waiting_for_approval",
+    });
+    await db.recordCareerOpsApprovalDecision(run.id, "user-b", "once");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      approvalChoice: null,
+    });
+  });
+
   it("stores no credential material on either record", async () => {
     const thread = await seedThread("user-a");
     const { run } = await db.createCareerOpsRun("user-a", {

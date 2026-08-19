@@ -58,6 +58,11 @@ The system SHALL persist, per run, the owning user identifier, the owning thread
 - **WHEN** a client request identifier exceeds the permitted length or character set
 - **THEN** the system responds `400` and creates no run
 
+#### Scenario: One active run per conversation
+- **WHEN** a run is submitted for a conversation that already has a run in a non-terminal state
+- **THEN** the system rejects it with a controlled conflict and starts no upstream run
+- **AND** two concurrent submissions with different client request identifiers cannot both run against the same conversation
+
 #### Scenario: Deduplication is scoped to the owner
 - **WHEN** two different users submit the same client request identifier
 - **THEN** each user's request creates its own run and neither observes the other's mapping
@@ -79,6 +84,10 @@ The system SHALL delete a Career Ops thread and its run mappings on owner reques
 #### Scenario: Owner deletes a thread
 - **WHEN** the owner deletes a Career Ops thread
 - **THEN** the thread mapping and its run mappings are removed and the Hermes session deletion is requested
+
+#### Scenario: Active run cannot be stopped
+- **WHEN** a conversation with a run still in flight is deleted and the agent cannot be stopped
+- **THEN** the system keeps the mapping and reports a controlled conflict, so the run does not become unreachable while it is still executing
 
 #### Scenario: Upstream deletion fails
 - **WHEN** the Hermes session deletion request fails

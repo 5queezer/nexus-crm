@@ -191,7 +191,11 @@ export function useCareerOpsRun(
                     operation: "",
                     summary: "",
                     details: "",
-                    choices: ["once", "deny"],
+                    // Only denial. The spec requires an approval prompt to
+                    // show what is being approved; nothing here can, so
+                    // offering "approve" would authorize an unknown
+                    // privileged action.
+                    choices: ["deny"],
                     detailsUnavailable: true,
                   },
                 },

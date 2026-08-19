@@ -65,7 +65,8 @@ Scope: the Nexus code under `lib/career-ops/`, `app/api/career-ops/`, `component
 - Every decision is an explicit `POST` from an authenticated browser session, ownership-checked against `CareerOpsRun` before forwarding.
 - Only `once`, `session`, `always`, `deny` are accepted; there is no default, no inferred value, and no timeout-based decision.
 - Assistant text that reads as an approval has no effect — there is a test for exactly this.
-- Nexus records no approval command payload or argument.
+- Nexus records the owning user, run, decision and timestamp for attribution — and no approval command payload or argument.
+- A run rejoined after a disconnect can only be **denied**: Hermes' run status carries no approval payload and the event stream that had it is single-consumer and gone, so a prompt that cannot show what is being approved does not offer to approve it.
 
 ### T6 — SSE disconnection and replay
 

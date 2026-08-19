@@ -609,13 +609,15 @@ export function CareerOps({
                       )}
                       {status.capabilities.approvals ? (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void decideApproval("once")}
-                            className="nexus-target nexus-focus-ring rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white dark:bg-white dark:text-slate-950"
-                          >
-                            {t("approval_approve")}
-                          </button>
+                          {run.approval.choices.includes("once") && (
+                            <button
+                              type="button"
+                              onClick={() => void decideApproval("once")}
+                              className="nexus-target nexus-focus-ring rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white dark:bg-white dark:text-slate-950"
+                            >
+                              {t("approval_approve")}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => void decideApproval("deny")}

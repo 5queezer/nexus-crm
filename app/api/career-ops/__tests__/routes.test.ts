@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
     updateCareerOpsRunStatus: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
+    getLatestCareerOpsRun: vi.fn(),
+    recordCareerOpsApprovalDecision: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -128,6 +130,8 @@ beforeEach(() => {
   mocks.db.deleteCareerOpsRun.mockResolvedValue(undefined);
   mocks.db.updateCareerOpsRunStatus.mockResolvedValue(undefined);
   mocks.db.bindCareerOpsRunHermesId.mockResolvedValue({ ...RUN });
+  mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
+  mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
 });
 
 describe("authentication", () => {

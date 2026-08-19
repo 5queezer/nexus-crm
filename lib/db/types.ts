@@ -692,6 +692,9 @@ export interface CareerOpsRunRecord {
   /** Caller-supplied bounded identifier used to make run creation idempotent. */
   clientRequestId: string;
   status: CareerOpsRunStatus;
+  /** Last human approval decision on this run. Never the command or arguments. */
+  approvalChoice: string | null;
+  approvalAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

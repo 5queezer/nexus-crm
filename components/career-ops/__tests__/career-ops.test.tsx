@@ -509,6 +509,9 @@ describe("rejoining a run that awaits a decision", () => {
     });
     expect(within(dialog).getByText(/could not be recovered/i)).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: /^reject$/i })).toBeTruthy();
+    // An approval prompt that cannot say what is being approved must not offer
+    // to approve it.
+    expect(within(dialog).queryByRole("button", { name: /approve once/i })).toBeNull();
   }, 15_000);
 
   it("keeps polling a long-running run instead of calling it failed", async () => {

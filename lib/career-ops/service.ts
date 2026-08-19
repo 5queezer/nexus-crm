@@ -338,7 +338,13 @@ export async function deleteCareerOpsThread(
     try {
       await client(config).stopRun(active.hermesRunId);
     } catch (reason) {
+      // Deleting anyway would destroy the last handle on a still-executing
+      // privileged run. Keep the mapping so the owner can retry.
       console.warn("career-ops: stop before delete failed", redactUpstreamError(reason));
+      throw new CareerOpsServiceError(
+        "conflict",
+        "The active run could not be stopped; the conversation was not deleted",
+      );
     }
   }
 
@@ -411,6 +417,15 @@ export async function startCareerOpsRun(
   }
 
   const db = getDb();
+
+  // One active run per thread. The unique key only covers
+  // (threadId, clientRequestId), so two tabs with different ids would
+  // otherwise both start runs against the same Hermes session, interleaving
+  // conversation state and each executing tools or requesting approvals.
+  const inFlight = await getActiveCareerOpsRun(session, threadId);
+  if (inFlight) {
+    throw new CareerOpsServiceError("conflict", "This conversation already has a run in progress");
+  }
 
   // Claim (threadId, clientRequestId) BEFORE any upstream work. Starting the
   // Hermes run first and deduplicating afterwards would let a retry launch a
@@ -560,4 +575,9 @@ export async function resolveCareerOpsApproval(
   } catch (reason) {
     throw toServiceError(reason);
   }
+  // Attribution only: which owner decided what, and when. The command and its
+  // arguments are never written to Nexus.
+  await getDb()
+    .recordCareerOpsApprovalDecision(run.id, session.userId, choice)
+    .catch(() => undefined);
 }

@@ -2240,6 +2240,17 @@ export class PrismaAdapter implements DatabaseAdapter {
     await prisma.careerOpsRun.deleteMany({ where: { id, userId } });
   }
 
+  async recordCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    choice: string,
+  ): Promise<void> {
+    await prisma.careerOpsRun.updateMany({
+      where: { id, userId },
+      data: { approvalChoice: choice, approvalAt: new Date() },
+    });
+  }
+
   async getLatestCareerOpsRun(
     threadId: string,
     userId: string,
@@ -2280,6 +2291,8 @@ function mapCareerOpsRun(row: {
   hermesRunId: string;
   clientRequestId: string;
   status: string;
+  approvalChoice: string | null;
+  approvalAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsRunRecord {
@@ -2290,6 +2303,8 @@ function mapCareerOpsRun(row: {
     hermesRunId: row.hermesRunId,
     clientRequestId: row.clientRequestId,
     status: row.status as CareerOpsRunStatus,
+    approvalChoice: row.approvalChoice ?? null,
+    approvalAt: row.approvalAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

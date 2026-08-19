@@ -2456,6 +2456,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
       hermesRunId: data.hermesRunId,
       clientRequestId: data.clientRequestId,
       status: data.status as CareerOpsRunStatus,
+      approvalChoice: typeof data.approvalChoice === "string" ? data.approvalChoice : null,
+      approvalAt: toDate(data.approvalAt),
       createdAt: toDate(data.createdAt) ?? new Date(0),
       updatedAt: toDate(data.updatedAt) ?? new Date(0),
     };
@@ -2611,6 +2613,17 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const snapshot = await ref.get();
     if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
     await ref.delete();
+  }
+
+  async recordCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    choice: string,
+  ): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+    await ref.update({ approvalChoice: choice, approvalAt: Timestamp.now() });
   }
 
   async getLatestCareerOpsRun(

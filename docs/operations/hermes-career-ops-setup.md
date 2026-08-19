@@ -140,7 +140,7 @@ The existing `deploy.sh` needs no changes; the migration and build are already p
    ```bash
    ./deploy.sh          # npm ci → prisma generate → prisma migrate deploy → build → systemctl restart
    ```
-   `20260819080000_add_career_ops_session_bridge` is additive: it creates `CareerOpsThread` and `CareerOpsRun` and alters nothing existing, so it is safe to apply ahead of enabling the feature.
+   `20260819080000_add_career_ops_session_bridge` and `20260819124500_add_career_ops_approval_audit` are additive: they create `CareerOpsThread` and `CareerOpsRun` and add two nullable approval-attribution columns, altering nothing existing, so both are safe to apply ahead of enabling the feature.
 3. On a **Firestore** deployment (`DB_PROVIDER=firestore`), deploy the index definitions before enabling the feature:
    ```bash
    firebase deploy --only firestore:indexes

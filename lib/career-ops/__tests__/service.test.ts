@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     createCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
     getLatestCareerOpsRun: vi.fn(),
+    recordCareerOpsApprovalDecision: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
@@ -99,6 +100,7 @@ beforeEach(() => {
   mocks.db.getCareerOpsThread.mockResolvedValue(null);
   mocks.db.getCareerOpsRun.mockResolvedValue(null);
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
+  mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
 });
 
 describe("getCareerOpsStatus", () => {
@@ -332,6 +334,22 @@ describe("thread lifecycle", () => {
     // Deleting a Hermes session does not stop its runs.
     expect(mocks.client.stopRun).toHaveBeenCalledWith("run_live");
     expect(mocks.db.deleteCareerOpsThread).toHaveBeenCalledWith("thread-1", "user-a");
+  });
+
+  it("keeps the conversation when an active run could not be stopped", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "run_live",
+      status: "running",
+    });
+    mocks.client.stopRun.mockRejectedValue(new HermesError("upstream_error", "boom"));
+
+    await expect(deleteCareerOpsThread(SESSION_A, "thread-1")).rejects.toMatchObject({
+      code: "conflict",
+    });
+    // Deleting would have destroyed the last handle on a live privileged run.
+    expect(mocks.db.deleteCareerOpsThread).not.toHaveBeenCalled();
   });
 
   it("deletes the Nexus mapping even when the upstream session delete fails", async () => {
@@ -595,6 +613,23 @@ describe("startCareerOpsRun", () => {
     expect(args.instructions).not.toContain("application id 42");
   });
 
+  it("refuses a second concurrent run on the same thread", async () => {
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "run_inflight",
+      status: "running",
+    });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-second",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    expect(mocks.db.createCareerOpsRun).not.toHaveBeenCalled();
+  });
+
   it("refuses to start a run on a foreign thread", async () => {
     mocks.db.getCareerOpsThread.mockResolvedValue(null);
     await expect(
@@ -637,6 +672,21 @@ describe("run controls", () => {
   it("forwards an approval decision for an owned run", async () => {
     await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
     expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
+  });
+
+  it("records the decision for attribution after forwarding it", async () => {
+    await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
+    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenCalledWith(
+      "run-1",
+      "user-a",
+      "deny",
+    );
+  });
+
+  it("records nothing when the decision was not forwarded", async () => {
+    mocks.client.resolveApproval.mockRejectedValue(new HermesError("conflict", "not pending"));
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "once")).rejects.toBeTruthy();
+    expect(mocks.db.recordCareerOpsApprovalDecision).not.toHaveBeenCalled();
   });
 
   it("rejects an unsupported approval decision", async () => {
