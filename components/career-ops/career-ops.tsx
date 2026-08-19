@@ -77,8 +77,13 @@ export function CareerOps({
    * screen. Every state update from an async load checks its generation first.
    */
   const selectionRef = useRef(0);
-  /** Request id of a submission whose outcome the browser never learned. */
-  const pendingRequestIdRef = useRef<string | null>(null);
+  /**
+   * A submission whose outcome the browser never learned, with the text it
+   * carried. The id may only be reused for that same text: the server resolves
+   * it to the run that already exists, so reusing it for an edited draft would
+   * show the user one question while the agent answers another.
+   */
+  const pendingRequestRef = useRef<{ id: string; message: string } | null>(null);
   const [compact, setCompact] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -88,9 +93,11 @@ export function CareerOps({
 
   const onSettled = useCallback(
     (phase: RunPhase) => {
-      if (phase !== "completed") return;
-      // An approved Career Ops action may have changed Nexus data through the
-      // MCP server, so the workspace must not keep showing the pre-run state.
+      // Every terminal phase, not just success: a run that later failed or was
+      // cancelled may already have committed a CRM mutation through the MCP
+      // server, and nothing rolls that back. Showing pre-run data afterwards
+      // would be wrong in exactly the cases the user is most likely to check.
+      if (!["completed", "failed", "cancelled"].includes(phase)) return;
       void queryClient.invalidateQueries({ queryKey: ["applications"] });
       void queryClient.invalidateQueries({ queryKey: ["activity"] });
     },
@@ -384,7 +391,7 @@ export function CareerOps({
     setHistoryOpen(false);
     setThreadApplication(null);
     setTranscriptFailed(false);
-    pendingRequestIdRef.current = null;
+    pendingRequestRef.current = null;
     // Drop the previous conversation's transcript before its successor loads.
     // Keeping it on a failed load would show one conversation's history under
     // another's identity, while submissions went to the new one.
@@ -423,9 +430,11 @@ export function CareerOps({
     const previousAnswer = run.answer;
     // Keep the request id with the unsent draft. If the response was lost, the
     // run may exist upstream, and only the same id can resolve to it — a fresh
-    // one would be refused as a second concurrent run.
-    const requestId = pendingRequestIdRef.current ?? newClientRequestId();
-    pendingRequestIdRef.current = requestId;
+    // one would be refused as a second concurrent run. Reuse it only for the
+    // identical message, so an edited draft starts a genuinely new run.
+    const carried = pendingRequestRef.current;
+    const requestId = carried && carried.message === message ? carried.id : newClientRequestId();
+    pendingRequestRef.current = { id: requestId, message };
     const optimisticId = `local-${Date.now()}`;
     setMessages((current) => [
       ...current,
@@ -436,7 +445,7 @@ export function CareerOps({
     ]);
 
     const accepted = await start(activeThreadId, message, requestId);
-    if (accepted) pendingRequestIdRef.current = null;
+    if (accepted) pendingRequestRef.current = null;
     if (!accepted) {
       // Nothing was sent. Drop only the unsent message: `start` has already
       // reset the live run, so the previous turn's answer now exists only in

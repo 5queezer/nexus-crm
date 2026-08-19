@@ -89,9 +89,56 @@ function installFetch() {
     const url = typeof input === "string" ? input : String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     calls.push({ url, method, body: (init?.body as string) ?? null });
+    // Honour the abort signal the way the real fetch does. Without this the
+    // hook's cancellation paths — aborting a stream when a new run starts, and
+    // the unmount cleanup — are untestable: the fake would keep resolving after
+    // an abort and every such test would pass against broken code.
+    if (init?.signal?.aborted) {
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    }
     for (const [pattern, routeMethod, handler] of routes) {
       if (routeMethod === method && pattern.test(url)) {
         const response = await handler(url, init);
+        if (init?.signal && response.body) {
+          // Tie the body to the signal, as the platform does.
+          const source = response.body;
+          const tied = new ReadableStream<Uint8Array>({
+            async start(controller) {
+              const reader = source.getReader();
+              const onAbort = () => {
+                reader.cancel().catch(() => undefined);
+                try {
+                  controller.error(Object.assign(new Error("aborted"), { name: "AbortError" }));
+                } catch {
+                  // already settled
+                }
+              };
+              init.signal!.addEventListener("abort", onAbort, { once: true });
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  controller.enqueue(value);
+                }
+                controller.close();
+              } catch {
+                // aborted or upstream error; already surfaced above
+              } finally {
+                init.signal!.removeEventListener("abort", onAbort);
+              }
+            },
+          });
+          const mirrored = new Response(tied, {
+            status: response.status,
+            headers: response.headers,
+          });
+          if (method === "GET" && /\/api\/career-ops\/threads$/.test(url)) {
+            const clone = mirrored.clone();
+            const body = await clone.json().catch(() => null);
+            if (body?.threads) servedThreads = body.threads;
+          }
+          return mirrored;
+        }
         if (method === "GET" && /\/api\/career-ops\/threads$/.test(url)) {
           const clone = response.clone();
           const body = await clone.json().catch(() => null);
@@ -501,6 +548,86 @@ describe("application context", () => {
     );
 
     expect(second.clientRequestId).toBe(first.clientRequestId);
+  });
+
+  it("stops consuming the run stream when the drawer unmounts", async () => {
+    // The Hermes event stream is single-consumer, so a detached hook that keeps
+    // reading holds the only subscription: a drawer mounted later could never
+    // see that run's approval prompts while the invisible instance consumed
+    // them. Verifiable only because the fetch fake honours the abort signal.
+    const user = userEvent.setup();
+    let streamAborted = false;
+    route("GET", /\/runs\/[^/]+\/events$/, (_url, init) => {
+      init?.signal?.addEventListener("abort", () => {
+        streamAborted = true;
+      });
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode('data: {"type":"delta","text":"working"}\n\n'),
+          );
+          // stays open, like a run still in flight
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    });
+
+    const view = renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByRole("textbox"), "start something");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+    // The run is in flight once Stop is offered.
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: /stop/i })).toBeTruthy());
+
+    view.unmount();
+    await waitFor(() => expect(streamAborted).toBe(true));
+  });
+
+  it("does not reuse the retry id for an edited draft", async () => {
+    // The server resolves the id to the run that already exists, so reusing it
+    // for different text would show one question while the agent answers
+    // another.
+    const user = userEvent.setup();
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    const composer = within(dialog).getByRole("textbox");
+
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ error: "upstream_error" }, 503));
+    await user.type(composer, "original question");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+    const posts = () => calls.filter((c) => c.method === "POST" && /runs$/.test(c.url));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+
+    // Edit the restored draft, then retry.
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ run: { id: "run-1" } }, 202));
+    await user.clear(composer);
+    await user.type(composer, "different question");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+
+    const first = JSON.parse(posts()[0].body!);
+    const second = JSON.parse(posts()[1].body!);
+    expect(second.message).toBe("different question");
+    expect(second.clientRequestId).not.toBe(first.clientRequestId);
+  });
+
+  it("refreshes workspace data after a failed run, not only a successful one", async () => {
+    // A run that failed may already have committed a CRM mutation through MCP,
+    // and nothing rolls that back.
+    const user = userEvent.setup();
+    invalidated.length = 0;
+    route("GET", /\/runs\/[^/]+\/events$/, () =>
+      sse(['data: {"type":"failed","message":"boom"}\n\n']),
+    );
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByRole("textbox"), "do something");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+
+    await waitFor(() => expect(invalidated.length).toBeGreaterThan(0));
   });
 
   it("links the history disclosure to the panel it controls", async () => {
