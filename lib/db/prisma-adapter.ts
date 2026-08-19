@@ -1452,7 +1452,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     }
 
     // Sort
-    let orderBy: Prisma.ApplicationOrderByWithRelationInput = { createdAt: "desc" };
+    let orderBy: Prisma.ApplicationOrderByWithRelationInput[] = [
+      { createdAt: "desc" },
+      { id: "desc" },
+    ];
     if (filter.sort) {
       const desc = filter.sort.startsWith("-");
       const field = desc ? filter.sort.slice(1) : filter.sort;
@@ -1462,7 +1465,8 @@ export class PrismaAdapter implements DatabaseAdapter {
         "triageQuality",
       ];
       if (allowedSortFields.includes(field)) {
-        orderBy = { [field]: desc ? "desc" : "asc" };
+        const direction = desc ? "desc" : "asc";
+        orderBy = [{ [field]: direction }, { id: direction }];
       }
     }
 

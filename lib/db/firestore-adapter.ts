@@ -1629,7 +1629,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
     if (filter.cursor) {
       const cursorIndex = apps.findIndex((app) => app.id === filter.cursor);
-      if (cursorIndex >= 0) apps = apps.slice(cursorIndex + 1);
+      if (cursorIndex < 0) throw new Error("application_cursor_invalid");
+      apps = apps.slice(cursorIndex + 1);
     }
 
     // Limit

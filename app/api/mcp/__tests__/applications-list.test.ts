@@ -104,4 +104,36 @@ describe("MCP application list", () => {
       { id: "app-022", notes: "Note 22" },
     ]);
   });
+
+  it("treats an empty fields array as the default compact selection", async () => {
+    const result = await client.callTool({
+      name: "list_applications",
+      arguments: { fields: [], limit: 1 },
+    });
+
+    expect(JSON.parse(text(result))).toEqual([{
+      id: "app-000",
+      company: "Company 0",
+      role: "Engineer 0",
+      status: "applied",
+      currentStage: "screen",
+      rating: 4,
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    }]);
+    expect(mocks.listApplicationsFiltered).toHaveBeenCalledWith("owner-1", expect.objectContaining({
+      fields: ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+    }), { demoVisibility: "exclude" });
+  });
+
+  it("returns a stable MCP error for an invalid application cursor", async () => {
+    mocks.listApplicationsFiltered.mockRejectedValueOnce(new Error("application_cursor_invalid"));
+
+    const result = await client.callTool({
+      name: "list_applications",
+      arguments: { cursor: "deleted-app" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(text(result))).toEqual({ error: { code: "application_cursor_invalid" } });
+  });
 });

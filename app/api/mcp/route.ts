@@ -231,16 +231,28 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       q: z.string().optional().describe("Case-insensitive substring match on company and role"),
     },
     async ({ fields, limit, cursor, q }) => {
-      const apps = await getDb().listApplicationsFiltered(auth.readScopeUserId, {
-        search: q,
-        searchFields: ["company", "role"],
-        fields: fields ?? ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
-        limit,
-        cursor,
-      }, MACHINE_DEMO_READ);
-      return {
-        content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
-      };
+      try {
+        const apps = await getDb().listApplicationsFiltered(auth.readScopeUserId, {
+          search: q,
+          searchFields: ["company", "role"],
+          fields: fields?.length
+            ? fields
+            : ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+          limit,
+          cursor,
+        }, MACHINE_DEMO_READ);
+        return {
+          content: [{ type: "text", text: JSON.stringify(apps, null, 2) }],
+        };
+      } catch (error) {
+        if (error instanceof Error && error.message === "application_cursor_invalid") {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: { code: "application_cursor_invalid" } }) }],
+            isError: true,
+          };
+        }
+        throw error;
+      }
     }
   );
 
