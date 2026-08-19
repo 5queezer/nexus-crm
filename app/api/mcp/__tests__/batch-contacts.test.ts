@@ -150,5 +150,6 @@ describe("MCP batch_create_contacts", () => {
       { name: "Recruiter", email: null, phone: null, role: null, linkedIn: null },
     ]);
     expect(JSON.parse(textValue(result))).toEqual(expected);
+    expect((result as { structuredContent?: unknown }).structuredContent).toEqual(expected);
   });
 });
