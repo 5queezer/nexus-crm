@@ -145,22 +145,40 @@ function definitivelyNotSubmitted(reason: unknown): boolean {
  * not add an upstream round-trip per message while still noticing a redeploy.
  */
 const CAPABILITY_CACHE_TTL_MS = 60_000;
-let capabilityCache: { at: number; runStatus: boolean } | null = null;
+let capabilityCache: { at: number; supported: boolean } | null = null;
 
 export function resetCareerOpsCapabilityCacheForTests(): void {
   capabilityCache = null;
 }
 
-async function hasRunStatusSupport(
+/**
+ * Whether Hermes still advertises everything a run needs.
+ *
+ * Deliberately the same set the availability check uses. Gating submission on a
+ * narrower set let a partial downgrade through: with run status still
+ * advertised but run submission withdrawn, a stale tab or a direct request
+ * would submit to an endpoint that no longer exists and leave the conversation
+ * holding an ambiguous reservation for the whole run lifetime.
+ */
+function supportsCareerOpsRuns(capabilities: {
+  runs: boolean;
+  sessions: boolean;
+  runStatus: boolean;
+}): boolean {
+  return capabilities.runs && capabilities.sessions && capabilities.runStatus;
+}
+
+async function hasRunSupport(
   config: Extract<CareerOpsConfig, { enabled: true }>,
 ): Promise<boolean> {
   if (capabilityCache && Date.now() - capabilityCache.at < CAPABILITY_CACHE_TTL_MS) {
-    return capabilityCache.runStatus;
+    return capabilityCache.supported;
   }
   try {
     const capabilities = await client(config).capabilities();
-    capabilityCache = { at: Date.now(), runStatus: capabilities.runStatus };
-    return capabilities.runStatus;
+    const supported = supportsCareerOpsRuns(capabilities);
+    capabilityCache = { at: Date.now(), supported };
+    return supported;
   } catch {
     // An unreachable Hermes fails the run anyway; do not cache that verdict.
     return false;
@@ -207,7 +225,7 @@ export async function getCareerOpsStatus(
     // Run status is not optional: it is the only recovery path once the
     // single-consumer event stream disconnects. Without it a started run is
     // unobservable, so the honest answer is unavailable, not degraded.
-    if (!capabilities.runs || !capabilities.sessions || !capabilities.runStatus) {
+    if (!supportsCareerOpsRuns(capabilities)) {
       return {
         enabled: true,
         available: false,
@@ -429,10 +447,24 @@ export async function deleteCareerOpsThread(
       .catch(() => undefined);
   }
 
-  // Then remove the Nexus mapping unconditionally: leaving a mapping behind
-  // because Hermes failed would keep a reachable pointer alive, which is
-  // strictly worse than an orphaned upstream session that nothing can address.
-  await getDb().deleteCareerOpsThread(threadId, session.userId);
+  // The delete itself is the authority on whether the conversation is free.
+  // The check above stops a run that was already there, but a submission can
+  // claim and bind one in the window between that check and this call — so the
+  // adapter decides and acts in one transaction and refuses if it lost the
+  // race. The owner retries; nothing is left stranded.
+  const deletion = await getDb().deleteCareerOpsThread(threadId, session.userId);
+  if (deletion.outcome === "active_run") {
+    throw new CareerOpsServiceError(
+      "conflict",
+      "A run started while the conversation was being deleted; it was not deleted",
+    );
+  }
+  if (deletion.outcome === "not_found") {
+    throw new CareerOpsServiceError("not_found", "Not found");
+  }
+
+  // Only once the mapping is gone: an orphaned upstream session that nothing
+  // can address is strictly better than a reachable pointer to a live one.
   try {
     await client(config).deleteSession(thread.hermesSessionId);
   } catch (reason) {
@@ -492,7 +524,17 @@ async function threadInstructions(
     session.userId,
     AGENT_VISIBLE_READ,
   );
-  if (!application) return buildGlobalInstructions();
+  if (!application) {
+    // Falling back to global instructions here would silently widen the run's
+    // scope: the conversation still carries an application id and the surface
+    // still presents it as application context, so the user would believe the
+    // agent is confined to one opportunity while it could act across the whole
+    // CRM. Fail closed and require an explicit move to a global conversation.
+    throw new CareerOpsServiceError(
+      "conflict",
+      "This conversation's opportunity is no longer available; start a general conversation instead",
+    );
+  }
   return buildApplicationContextInstructions({
     id: thread.applicationId,
     company: application.company,
@@ -577,7 +619,7 @@ export async function startCareerOpsRun(
 
   // The status endpoint gates the UI, but a stale tab or a direct authenticated
   // request must not be able to start a run whose only recovery path is absent.
-  if (!(await hasRunStatusSupport(config))) {
+  if (!(await hasRunSupport(config))) {
     throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
   }
 

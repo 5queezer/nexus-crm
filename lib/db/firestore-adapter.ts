@@ -63,6 +63,7 @@ import type {
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
   CareerOpsRunClaim,
+  CareerOpsThreadDeletion,
 } from "./types";
 import {
   CAREER_OPS_ACTIVE_RUN_STATUSES,
@@ -2539,15 +2540,38 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return this.getCareerOpsThread(id, userId);
   }
 
-  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
-    const existing = await this.getCareerOpsThread(id, userId);
-    if (!existing) return null;
+  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadDeletion> {
+    const threadRef = this.careerOpsThreads.doc(id);
+    // The refusal and the removal of the parent happen in one transaction, so a
+    // submission cannot claim the conversation in a window between them and be
+    // left with a privileged run nothing can address. The run documents are
+    // cleaned up afterwards: once the parent is gone they resolve to nothing
+    // (ownership is always checked through the thread), and Firestore caps a
+    // transaction's writes, which a long conversation would exceed.
+    const result = await this.db.runTransaction<CareerOpsThreadDeletion>(async (tx) => {
+      const snapshot = await tx.get(threadRef);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) {
+        return { outcome: "not_found" };
+      }
+      const active = await tx.get(
+        this.careerOpsRuns
+          .where("threadId", "==", id)
+          .where("status", "in", [...CAREER_OPS_ACTIVE_RUN_STATUSES]),
+      );
+      if (!active.empty) return { outcome: "active_run" };
+      const thread = this.mapCareerOpsThread(snapshot.id, snapshot.data()!);
+      tx.delete(threadRef);
+      return { outcome: "deleted", thread };
+    });
+
+    if (result.outcome !== "deleted") return result;
+
     const runs = await this.careerOpsRuns
       .where("threadId", "==", id)
       .where("userId", "==", userId)
       .get();
-    // Firestore caps a batch at 500 writes, so a long-lived conversation would
-    // otherwise become undeletable. Chunk the runs, then remove the thread.
+    // Chunked: a long-lived conversation would otherwise exceed the batch cap
+    // and leave its runs behind forever.
     for (let offset = 0; offset < runs.docs.length; offset += 450) {
       const batch = this.db.batch();
       for (const document of runs.docs.slice(offset, offset + 450)) {
@@ -2555,8 +2579,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
       await batch.commit();
     }
-    await this.careerOpsThreads.doc(id).delete();
-    return existing;
+    return result;
   }
 
   async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
@@ -2609,6 +2632,9 @@ export class FirestoreAdapter implements DatabaseAdapter {
         updatedAt: now,
       };
       tx.create(ref, payload);
+      // Same ordering rule as the relational backend: activity, not creation
+      // time, decides where a conversation sits in history.
+      tx.update(threadRef, { updatedAt: now });
       return { outcome: "claimed", run: this.mapCareerOpsRun(ref.id, payload) };
     });
   }

@@ -39,6 +39,9 @@ import {
 } from "./types";
 import { useCareerOpsRun } from "./use-career-ops-run";
 
+/** Stable id linking the history disclosure button to the panel it controls. */
+const HISTORY_PANEL_ID = "career-ops-history";
+
 export function CareerOps({
   application,
   variant = "floating",
@@ -58,11 +61,21 @@ export function CareerOps({
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  /** True when the last transcript load failed, so the empty state is wrong. */
+  const [transcriptFailed, setTranscriptFailed] = useState(false);
   // The opportunity the *active* thread acts on, as resolved by the server.
   // Needed because that thread is often not the one whose page is on screen.
   const [threadApplication, setThreadApplication] = useState<CareerOpsApplicationContext | null>(
     null,
   );
+  /**
+   * Monotonic selection counter. Two thread selections can be in flight at
+   * once, and without this an older response can land after a newer selection
+   * and replace the transcript, the application context, or the run controls —
+   * so the user could stop or deny one conversation's run while another is on
+   * screen. Every state update from an async load checks its generation first.
+   */
+  const selectionRef = useRef(0);
   const [compact, setCompact] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -140,14 +153,21 @@ export function CareerOps({
       ? "named"
       : "other";
 
-  const loadMessages = useCallback(async (threadId: string) => {
+  const loadMessages = useCallback(async (threadId: string, generation: number) => {
     try {
       const result = await careerOpsJson<{ messages: CareerOpsMessage[] }>(
         `/api/career-ops/threads/${threadId}/messages`,
       );
+      if (selectionRef.current !== generation) return;
       setMessages(result.messages);
-    } catch {
-      setMessages([]);
+      setTranscriptFailed(false);
+    } catch (reason) {
+      if (selectionRef.current !== generation) return;
+      // A failed fetch is not an empty conversation. Clearing the transcript
+      // would show the "no messages yet" onboarding state for a thread that
+      // has history, so keep what is on screen and say the load failed.
+      setTranscriptFailed(true);
+      setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
     }
   }, []);
 
@@ -157,12 +177,13 @@ export function CareerOps({
    * cannot observe, stop or approve it, and could start a second one.
    */
   const rejoinActiveRun = useCallback(
-    async (threadId: string) => {
+    async (threadId: string, generation: number) => {
       try {
         const result = await careerOpsJson<{
           application: CareerOpsApplicationContext | null;
           activeRun: { id: string } | null;
         }>(`/api/career-ops/threads/${threadId}`);
+        if (selectionRef.current !== generation) return;
         setThreadApplication(result.application ?? null);
         if (!result.activeRun) {
           // The transcript just reloaded from Hermes and already contains the
@@ -177,6 +198,7 @@ export function CareerOps({
         if (runRef.current.runId === result.activeRun.id) return;
         await resume(result.activeRun.id);
       } catch {
+        if (selectionRef.current !== generation) return;
         // A thread that cannot be inspected simply stays idle. Its context is
         // unknown rather than absent, so fall back to the unnamed badge.
         setThreadApplication(null);
@@ -194,9 +216,11 @@ export function CareerOps({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      selectionRef.current += 1;
       setThreads((current) => [result.thread, ...current]);
       setActiveThreadId(result.thread.id);
       setThreadApplication(withApplication && application ? application : null);
+      setTranscriptFailed(false);
       setMessages([]);
       setHistoryOpen(false);
       reset();
@@ -232,8 +256,9 @@ export function CareerOps({
         : result.threads.find((thread) => thread.applicationId === null);
       if (preferred) {
         setActiveThreadId(preferred.id);
-        await loadMessages(preferred.id);
-        await rejoinActiveRun(preferred.id);
+        const generation = ++selectionRef.current;
+        await loadMessages(preferred.id, generation);
+        await rejoinActiveRun(preferred.id, generation);
       } else {
         const created = await createThread(Boolean(application));
         setActiveThreadId(created.id);
@@ -313,11 +338,16 @@ export function CareerOps({
 
   async function selectThread(threadId: string) {
     if (busy) return;
+    // Claim a generation up front: any load still in flight for the previously
+    // selected thread becomes stale here and will discard its own result.
+    const generation = ++selectionRef.current;
     setActiveThreadId(threadId);
     setHistoryOpen(false);
+    setThreadApplication(null);
+    setTranscriptFailed(false);
     reset();
-    await loadMessages(threadId);
-    await rejoinActiveRun(threadId);
+    await loadMessages(threadId, generation);
+    await rejoinActiveRun(threadId, generation);
   }
 
   async function removeThread(threadId: string) {
@@ -444,6 +474,7 @@ export function CareerOps({
                   onClick={() => setHistoryOpen((value) => !value)}
                   aria-label={historyOpen ? t("close_history") : t("open_history")}
                   aria-expanded={historyOpen}
+                  aria-controls={HISTORY_PANEL_ID}
                   className="nexus-target nexus-focus-ring flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
                 >
                   <History className="h-4 w-4" aria-hidden="true" />
@@ -489,7 +520,12 @@ export function CareerOps({
             </div>
 
             {historyOpen && (
-              <div className="max-h-64 shrink-0 overflow-y-auto border-b border-slate-200/80 px-2 py-2 dark:border-white/8">
+              <div
+                id={HISTORY_PANEL_ID}
+                role="region"
+                aria-label={t("open_history")}
+                className="max-h-64 shrink-0 overflow-y-auto border-b border-slate-200/80 px-2 py-2 dark:border-white/8"
+              >
                 <button
                   type="button"
                   onClick={() => void createThreadSafely(Boolean(application))}
@@ -569,7 +605,13 @@ export function CareerOps({
                     <p className="text-center text-xs text-slate-400">{t("loading")}</p>
                   )}
 
-                  {!loading && messages.length === 0 && !run.answer && (
+                  {!loading && transcriptFailed && messages.length === 0 && (
+                    <p className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                      {t("transcript_unavailable")}
+                    </p>
+                  )}
+
+                  {!loading && !transcriptFailed && messages.length === 0 && !run.answer && (
                     <div className="mx-auto max-w-sm py-8 text-center">
                       <p className="text-sm font-semibold text-slate-900 dark:text-white">
                         {t("empty_title")}

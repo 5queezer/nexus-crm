@@ -724,6 +724,17 @@ export interface CareerOpsRunRecord {
   updatedAt: Date;
 }
 
+/**
+ * Outcome of deleting a conversation. Deletion has to refuse an occupied
+ * conversation *in the same operation* that removes it: checking first and
+ * deleting afterwards leaves a window in which a submission can claim, start
+ * and bind a privileged run that the delete then strands.
+ */
+export type CareerOpsThreadDeletion =
+  | { outcome: "deleted"; thread: CareerOpsThreadRecord }
+  | { outcome: "active_run" }
+  | { outcome: "not_found" };
+
 export interface CreateCareerOpsRunInput {
   threadId: string;
   hermesRunId: string;

@@ -759,17 +759,23 @@ describe("startCareerOpsRun", () => {
     });
   });
 
-  it("falls back to global instructions when the linked application is not agent-visible", async () => {
+  it("refuses to run when the conversation's application is no longer agent-visible", async () => {
+    // Falling back to global instructions would silently widen the run's scope:
+    // the surface still shows application context, so the user would believe
+    // the agent is confined to one opportunity while it could act CRM-wide.
     mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
     mocks.db.getApplication.mockResolvedValue(null);
 
-    await startCareerOpsRun(SESSION_A, "thread-1", {
-      message: "hello",
-      clientRequestId: "client-id-1",
-    });
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
 
-    const [args] = mocks.client.createRun.mock.calls[0];
-    expect(args.instructions).not.toContain("application id 42");
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    // Nothing was submitted, so the conversation must not stay claimed.
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
   it("releases the reservation when resolving application context fails", async () => {
@@ -1020,6 +1026,30 @@ describe("run controls", () => {
     expect(error).toBeInstanceOf(CareerOpsServiceError);
     expect(error.code).toBe("conflict");
     expect(JSON.stringify({ message: error.message })).not.toContain(SECRET);
+  });
+
+  it("refuses to submit a run when Hermes withdrew run submission", async () => {
+    // A partial downgrade: run status still advertised, submission gone. A
+    // stale tab would otherwise submit to an endpoint that no longer exists and
+    // leave an ambiguous reservation holding the conversation.
+    resetCareerOpsCapabilityCacheForTests();
+    mocks.client.capabilities.mockResolvedValue({
+      runs: false,
+      runStatus: true,
+      runEvents: true,
+      stop: true,
+      approvals: true,
+      sessions: true,
+    });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-downgraded",
+      }),
+    ).rejects.toMatchObject({ code: "unavailable" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    expect(mocks.db.claimCareerOpsRun).not.toHaveBeenCalled();
   });
 
   it("refuses a granting decision that carries no challenge", async () => {

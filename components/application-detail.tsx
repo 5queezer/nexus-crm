@@ -272,8 +272,12 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
                 variant="inline"
                 application={{
                   id: String(application.id),
-                  company: form.company || application.company,
-                  role: form.role || application.role,
+                  // Persisted values only. The agent resolves this opportunity
+                  // from the database by id, so showing unsaved edits here
+                  // would name a target that differs from the one the run and
+                  // its approval prompts actually act on.
+                  company: application.company,
+                  role: application.role,
                 }}
               />
               <div className="flex shrink-0 items-center gap-3">

@@ -63,8 +63,12 @@ import type {
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
   CareerOpsRunClaim,
+  CareerOpsThreadDeletion,
 } from "./types";
-import { CAREER_OPS_TERMINAL_RUN_STATUSES } from "./types";
+import {
+  CAREER_OPS_ACTIVE_RUN_STATUSES,
+  CAREER_OPS_TERMINAL_RUN_STATUSES,
+} from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
 // ── Helpers: convert Prisma int IDs ↔ string IDs ────────────────────────────
@@ -2166,14 +2170,23 @@ export class PrismaAdapter implements DatabaseAdapter {
     return this.getCareerOpsThread(id, userId);
   }
 
-  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
-    const existing = await this.getCareerOpsThread(id, userId);
-    if (!existing) return null;
-    // Deleting the runs explicitly (rather than relying only on the database
-    // cascade) keeps the observable behavior identical to the Firestore path.
-    await prisma.careerOpsRun.deleteMany({ where: { threadId: id, userId } });
-    await prisma.careerOpsThread.deleteMany({ where: { id, userId } });
-    return existing;
+  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadDeletion> {
+    // One transaction decides and acts. Checking for an active run outside it
+    // leaves a window where a concurrent submission claims, starts and binds a
+    // privileged run that this delete then strands with no mapping to stop it.
+    // It also makes the two deletes atomic: a failure cannot leave the runs
+    // removed and the parent behind.
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.careerOpsThread.findFirst({ where: { id, userId } });
+      if (!existing) return { outcome: "not_found" as const };
+      const active = await tx.careerOpsRun.findFirst({
+        where: { threadId: id, userId, status: { in: [...CAREER_OPS_ACTIVE_RUN_STATUSES] } },
+      });
+      if (active) return { outcome: "active_run" as const };
+      await tx.careerOpsRun.deleteMany({ where: { threadId: id, userId } });
+      await tx.careerOpsThread.deleteMany({ where: { id, userId } });
+      return { outcome: "deleted" as const, thread: mapCareerOpsThread(existing) };
+    });
   }
 
   async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
@@ -2210,6 +2223,13 @@ export class PrismaAdapter implements DatabaseAdapter {
           clientRequestId: data.clientRequestId,
           status: data.status,
         },
+      });
+      // History is ordered by the thread's updatedAt, so without this a
+      // conversation the user is actively using stays buried under its
+      // creation or last-rename time.
+      await prisma.careerOpsThread.updateMany({
+        where: { id: data.threadId, userId },
+        data: { updatedAt: new Date() },
       });
       return { outcome: "claimed", run: mapCareerOpsRun(row) };
     } catch (error) {

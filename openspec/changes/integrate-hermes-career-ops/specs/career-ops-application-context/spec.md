@@ -73,6 +73,10 @@ The system SHALL display the linked application's company and role in the Career
 - **WHEN** the linked application has been deleted or is excluded from machine reads
 - **THEN** the surface states that the conversation is scoped to another opportunity rather than naming a record the agent cannot retrieve
 
+#### Scenario: Unsaved edits to the displayed opportunity
+- **WHEN** the opportunity's form holds edits that have not been persisted
+- **THEN** the surface shows the persisted company and role, because the agent resolves the opportunity from stored data and would otherwise act on values the user was not shown
+
 #### Scenario: Global conversation
 - **WHEN** a conversation has no application link
 - **THEN** the surface presents it as global context with no application badge
@@ -80,6 +84,14 @@ The system SHALL display the linked application's company and role in the Career
 #### Scenario: Localized context labels
 - **WHEN** the interface renders the application-context labels in English or German
 - **THEN** the labels come from the shared translation catalogs
+
+### Requirement: A conversation's scope never widens silently
+The system SHALL refuse to run an application-scoped conversation whose linked application can no longer be read by the agent, and SHALL NOT fall back to unscoped behavior while continuing to present the conversation as application-scoped.
+
+#### Scenario: Linked application became unreadable
+- **WHEN** a run is submitted in an application-scoped conversation whose application has been deleted or excluded from machine reads
+- **THEN** the system refuses the run with a controlled error and starts nothing upstream
+- **AND** the user is directed to start a general conversation explicitly rather than being given one silently
 
 ### Requirement: Application context is bounded and non-authoritative
 The system SHALL treat retrieved application text as untrusted content for display and SHALL NOT let application-derived text alter the Career Ops request boundary, the configured endpoint, or the ownership checks.

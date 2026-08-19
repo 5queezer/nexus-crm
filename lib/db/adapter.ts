@@ -44,6 +44,7 @@ import type {
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
   CareerOpsRunClaim,
+  CareerOpsThreadDeletion,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -144,7 +145,11 @@ export interface DatabaseAdapter {
   /** Rename a thread the user owns. Returns null when it is not theirs. */
   renameCareerOpsThread(id: string, userId: string, title: string): Promise<CareerOpsThreadRecord | null>;
   /** Delete a thread and its runs. Returns the removed record, or null when not owned. */
-  deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null>;
+  /**
+   * Delete a conversation, refusing atomically if it holds an active run.
+   * The refusal must be decided in the same transaction as the delete.
+   */
+  deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadDeletion>;
   /** Fetch one run, or null when it does not exist or belongs to someone else. */
   getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null>;
   /** Create a run, returning the existing one when (threadId, clientRequestId) is already used. */

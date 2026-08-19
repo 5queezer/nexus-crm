@@ -336,6 +336,63 @@ describe("application context", () => {
     );
   });
 
+  it("does not present a failed transcript load as an empty conversation", async () => {
+    const user = userEvent.setup();
+    route("GET", /\/threads\/[^/]+\/messages$/, () => json({ error: "upstream_error" }, 503));
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    // The onboarding empty state would tell the user this conversation has no
+    // history, which is a different claim from "the history did not load".
+    await waitFor(() =>
+      expect(within(dialog).getByText(/history could not be loaded/i)).toBeTruthy(),
+    );
+    expect(within(dialog).queryByText(/start by asking/i)).toBeNull();
+  });
+
+  it("ignores a stale thread load that lands after a newer selection", async () => {
+    const user = userEvent.setup();
+    const slow = { ...THREAD, id: "thread-slow", title: "Slow thread" };
+    const quick = { ...THREAD, id: "thread-quick", title: "Quick thread" };
+    // `quick` first so the drawer's initial load does not block on the slow one.
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [quick, slow] }));
+    route("GET", /\/threads\/thread-slow\/messages$/, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return json({ messages: [{ id: "m-slow", role: "assistant", content: "STALE ANSWER" }] });
+    });
+    route("GET", /\/threads\/thread-quick\/messages$/, () =>
+      json({ messages: [{ id: "m-quick", role: "assistant", content: "CURRENT ANSWER" }] }),
+    );
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Slow thread" }));
+
+    // Switch again before the first load resolves.
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Quick thread" }));
+    await waitFor(() => expect(within(dialog).getByText("CURRENT ANSWER")).toBeTruthy());
+
+    // The earlier request now completes. Letting it through would swap the
+    // visible transcript for another conversation's.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(within(dialog).queryByText("STALE ANSWER")).toBeNull();
+    expect(within(dialog).getByText("CURRENT ANSWER")).toBeTruthy();
+  });
+
+  it("links the history disclosure to the panel it controls", async () => {
+    const user = userEvent.setup();
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    const toggle = within(dialog).getByRole("button", { name: /show conversations/i });
+
+    await user.click(toggle);
+    const panelId = toggle.getAttribute("aria-controls");
+    expect(panelId).toBeTruthy();
+    expect(dialog.querySelector(`#${panelId}`)).not.toBeNull();
+  });
+
   it("creates an application-scoped conversation when none exists", async () => {
     const user = userEvent.setup();
     route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [] }));

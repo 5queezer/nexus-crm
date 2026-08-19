@@ -65,6 +65,13 @@ function matches(row: Row, where: Row): boolean {
       const excluded = (value as { notIn: unknown[] }).notIn;
       return !excluded.includes(row[key]);
     }
+    // The deletion guard selects active runs with `in`; without this the fake
+    // would match nothing and the guard would look effective while doing
+    // nothing.
+    if (value && typeof value === "object" && "in" in (value as Row)) {
+      const included = (value as { in: unknown[] }).in;
+      return included.includes(row[key]);
+    }
     return row[key] === value;
   });
 }
@@ -143,16 +150,22 @@ function makeTable(
   };
 }
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
+vi.mock("@/lib/prisma", () => {
+  const client: Record<string, unknown> = {
     careerOpsThread: makeTable("careerOpsThread", ["userId", "hermesSessionId"]),
     careerOpsRun: makeTable("careerOpsRun", ["threadId", "clientRequestId"], {
       activeRunIndex: true,
       parent: "careerOpsThread",
     }),
     shareLink: { deleteMany: vi.fn() },
-  },
-}));
+  };
+  // The callback runs against the same stores. That models an atomic
+  // *decision* — the guard and the write see one consistent state, which is
+  // what the deletion contract depends on — not rollback.
+  client.$transaction = async <T,>(callback: (tx: unknown) => Promise<T>): Promise<T> =>
+    callback(client);
+  return { prisma: client };
+});
 
 // ── Firestore fake ──────────────────────────────────────────────────────────
 
@@ -434,7 +447,9 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
     await expect(db.getCareerOpsThread(thread.id, "user-b")).resolves.toBeNull();
     await expect(db.renameCareerOpsThread(thread.id, "user-b", "hijack")).resolves.toBeNull();
-    await expect(db.deleteCareerOpsThread(thread.id, "user-b")).resolves.toBeNull();
+    await expect(db.deleteCareerOpsThread(thread.id, "user-b")).resolves.toMatchObject({
+      outcome: "not_found",
+    });
 
     const listed = await db.listCareerOpsThreads("user-b");
     expect(listed.map((item) => item.id)).not.toContain(thread.id);
@@ -784,11 +799,53 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       status: "queued",
     });
 
+    // Settle it first: an active run now blocks deletion by design.
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+
     const removed = await db.deleteCareerOpsThread(thread.id, "user-a");
-    expect(removed?.id).toBe(thread.id);
+    expect(removed).toMatchObject({ outcome: "deleted" });
+    if (removed.outcome !== "deleted") throw new Error("unreachable");
+    expect(removed.thread.id).toBe(thread.id);
     await expect(db.getCareerOpsThread(thread.id, "user-a")).resolves.toBeNull();
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toBeNull();
-    await expect(db.deleteCareerOpsThread(thread.id, "user-a")).resolves.toBeNull();
+    await expect(db.deleteCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
+      outcome: "not_found",
+    });
+  });
+
+  it("moves a conversation to the top of history when a run is claimed", async () => {
+    const older = await seedThread("user-a", { title: "Older" });
+    await seedThread("user-a", { title: "Newer" });
+
+    await claimRun("user-a", {
+      threadId: older.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-bump",
+      status: "queued",
+    });
+
+    const listed = await db.listCareerOpsThreads("user-a");
+    expect(listed[0]?.id).toBe(older.id);
+  });
+
+  it("refuses to delete a conversation that still holds an active run", async () => {
+    // The refusal is decided by the delete itself, not by a prior read: a
+    // submission that claims the conversation in between must not be stranded
+    // with a privileged run and no mapping to stop it.
+    const thread = await seedThread("user-a");
+    await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_live",
+      clientRequestId: "client-id-live",
+      status: "running",
+    });
+
+    await expect(db.deleteCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
+      outcome: "active_run",
+    });
+    await expect(db.getCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
+      id: thread.id,
+    });
   });
 
   it("records who decided an approval and when, and nothing else", async () => {
