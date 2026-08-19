@@ -26,6 +26,7 @@ import { DocumentsSection } from "./application-form/documents-section";
 import { ResumeSection } from "./application-form/resume-section";
 import { ApplicationTimeline } from "./application-timeline";
 import { DemoBadge } from "./demo-badge";
+import { CareerOps } from "./career-ops/career-ops";
 
 interface ApplicationDetailProps {
   user: {
@@ -267,6 +268,14 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
               >
                 {copied ? td("link_copied") : td("copy_link")}
               </button>
+              <CareerOps
+                variant="inline"
+                application={{
+                  id: String(application.id),
+                  company: form.company || application.company,
+                  role: form.role || application.role,
+                }}
+              />
               <div className="flex shrink-0 items-center gap-3">
                 <span
                   aria-live="polite"

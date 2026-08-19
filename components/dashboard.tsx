@@ -24,6 +24,7 @@ import { BulkActionBar } from "./bulk-action-bar";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
 import { AiOperator } from "./ai-operator/ai-operator";
+import { CareerOps } from "./career-ops/career-ops";
 import { WorkspaceToolbar, type WorkspaceViewMode } from "./workspace-toolbar";
 import { FocusQueue } from "./focus-queue";
 import { OverdueFollowUpsBanner } from "./overdue-followups-banner";
@@ -809,6 +810,7 @@ export function Dashboard({
           <DashboardLoadingState message={t("loading")} />
         </main>
         <AiOperator key="ai-operator" />
+        <CareerOps key="career-ops" />
       </div>
     );
   }
@@ -829,6 +831,7 @@ export function Dashboard({
           />
         </main>
         <AiOperator key="ai-operator" />
+        <CareerOps key="career-ops" />
       </div>
     );
   }
@@ -1112,6 +1115,7 @@ export function Dashboard({
         key="ai-operator"
         hideCompactLauncher={scopedSelectedIds.size > 0}
       />
+      <CareerOps key="career-ops" />
     </div>
   );
 }

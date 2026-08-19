@@ -39,13 +39,13 @@
 
 ## 5. Career Ops UI (RED → GREEN)
 
-- [ ] 5.1 Add the English and German `career_ops` message catalogs and a test asserting key parity.
-- [ ] 5.2 Write failing component tests for `components/career-ops/career-ops-drawer.tsx`: open/close, focus trap and restoration, Escape behavior, mobile sheet state, thread create/switch/delete, send and stream, tool progress rendering, stop, approval approve/reject, disabled/unconfigured state, connection failure and retry, ARIA labelling, and non-color status encoding.
-- [ ] 5.3 Implement `components/career-ops/types.ts` and the streaming client hook (`use-career-ops-run.ts`) with duplicate-submit locking, client request ID generation, and poll-based reconnection.
-- [ ] 5.4 Implement the drawer, thread list, message list, composer, tool/run progress, stop control, and approval prompt using the existing Tailwind/Lucide design language.
-- [ ] 5.5 Write a failing test asserting application queries are invalidated after an approved run completes; implement the invalidation.
-- [ ] 5.6 Mount the global trigger in `components/dashboard.tsx` and the application-scoped trigger in `components/application-detail.tsx`, gated on the status endpoint; add tests for global vs application context and for returning to global context.
-- [ ] 5.7 Run the focused UI suites green.
+- [x] 5.1 Add the English and German `career_ops` message catalogs and a test asserting key parity.
+- [x] 5.2 Write failing component tests for `components/career-ops/career-ops-drawer.tsx`: open/close, focus trap and restoration, Escape behavior, mobile sheet state, thread create/switch/delete, send and stream, tool progress rendering, stop, approval approve/reject, disabled/unconfigured state, connection failure and retry, ARIA labelling, and non-color status encoding.
+- [x] 5.3 Implement `components/career-ops/types.ts` and the streaming client hook (`use-career-ops-run.ts`) with duplicate-submit locking, client request ID generation, and poll-based reconnection.
+- [x] 5.4 Implement the drawer, thread list, message list, composer, tool/run progress, stop control, and approval prompt using the existing Tailwind/Lucide design language.
+- [x] 5.5 Write a failing test asserting application queries are invalidated after an approved run completes; implement the invalidation.
+- [x] 5.6 Mount the global trigger in `components/dashboard.tsx` and the application-scoped trigger in `components/application-detail.tsx`, gated on the status endpoint; add tests for global vs application context and for returning to global context.
+- [x] 5.7 Run the focused UI suites green.
 
 ## 6. Documentation and developer tooling
 
