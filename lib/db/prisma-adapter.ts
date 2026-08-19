@@ -1660,12 +1660,12 @@ export class PrismaAdapter implements DatabaseAdapter {
         const contact = await this.createContact(applicationId, userId, contacts[index]);
         results.push({ index, id: contact.id, operation: "created" });
         succeeded += 1;
-      } catch (error) {
+      } catch {
         results.push({
           index,
           id: "",
           operation: "created",
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: "contact_create_failed",
         });
       }
     }

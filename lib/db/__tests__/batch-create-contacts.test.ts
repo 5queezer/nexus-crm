@@ -42,7 +42,7 @@ describe.each([
       failed: 1,
       results: [
         { index: 0, id: "contact-1", operation: "created" },
-        { index: 1, id: "", operation: "created", error: "write_failed" },
+        { index: 1, id: "", operation: "created", error: "contact_create_failed" },
       ],
     });
   });
