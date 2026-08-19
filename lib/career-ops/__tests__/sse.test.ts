@@ -275,6 +275,31 @@ describe("credential stripping in assistant output", () => {
     expect(out).toContain("end");
   });
 
+  it("strips the key from every field of every event shape", () => {
+    // A rule, not a per-field judgement: deciding case by case which upstream
+    // text could carry a credential is exactly how assistant output was missed.
+    const frames = [
+      { event: "message.delta", delta: `x ${KEY}` },
+      { event: "tool.started", tool: `tool ${KEY}` },
+      { event: "tool.completed", tool: `tool ${KEY}`, duration: 1 },
+      {
+        event: "approval.request",
+        pattern_key: `op ${KEY}`,
+        description: `why ${KEY}`,
+        command: `cmd ${KEY}`,
+        choices: ["once", "deny"],
+      },
+      { event: "approval.responded", choice: `once ${KEY}` },
+      { event: "run.completed", output: `done ${KEY}` },
+      { event: "run.failed", error: `boom ${KEY}` },
+    ];
+
+    for (const frame of frames) {
+      const event = normalizeHermesEvent(JSON.stringify(frame));
+      expect(JSON.stringify(event ?? {}), `leaked in ${frame.event}`).not.toContain(KEY);
+    }
+  });
+
   it("passes ordinary text through unchanged once flushed", () => {
     const redactor = new SecretBoundaryRedactor();
     const out = redactor.push("the quick brown fox") + redactor.flush();

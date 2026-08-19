@@ -161,6 +161,11 @@ function asString(value: unknown, maximum: number): string {
 
 /**
  * Map one raw Hermes frame onto the closed set of events the browser sees.
+ *
+ * Every string taken from the frame passes through secret stripping without
+ * exception. Deciding field by field which upstream text "could" carry a
+ * credential is how the assistant output was missed for eighteen review
+ * rounds, so the rule here is unconditional.
  * Anything unknown, noisy, or unparseable yields `null` so a hostile or newer
  * Hermes cannot push arbitrary shapes into the client.
  */
@@ -186,11 +191,11 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       return text ? { type: "delta", text } : null;
     }
     case "tool.started": {
-      const tool = asString(event.tool, 120);
+      const tool = redactSecrets(asString(event.tool, 120));
       return tool ? { type: "tool_started", tool } : null;
     }
     case "tool.completed": {
-      const tool = asString(event.tool, 120);
+      const tool = redactSecrets(asString(event.tool, 120));
       if (!tool) return null;
       const duration = typeof event.duration === "number" && Number.isFinite(event.duration)
         ? Math.max(0, Math.round(event.duration * 1000))
@@ -224,7 +229,7 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
         grantable.length > 0 ? [...grantable, "deny"] : ["deny"];
       return {
         type: "approval_required",
-        operation: asString(event.pattern_key, 120),
+        operation: redactSecrets(asString(event.pattern_key, 120)),
         summary: redactUpstreamError(asString(event.description, APPROVAL_TEXT_LIMIT)),
         details: redactUpstreamError(asString(event.command, APPROVAL_TEXT_LIMIT)),
         choices: truncated ? ["deny"] : offered,
@@ -232,7 +237,7 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       };
     }
     case "approval.responded": {
-      const choice = asString(event.choice, 32);
+      const choice = redactSecrets(asString(event.choice, 32));
       return choice ? { type: "approval_resolved", choice } : null;
     }
     case "run.completed":

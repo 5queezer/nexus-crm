@@ -463,3 +463,22 @@ describe("stopping a run", () => {
     await expect(createHermesClient(enabledConfig()).stopRun("run_7")).resolves.toBeUndefined();
   });
 });
+
+describe("stored transcript redaction", () => {
+  it("strips the key from messages replayed out of a session", async () => {
+    // The transcript is re-served on every reload, so it needs the same
+    // stripping as the live stream rather than less.
+    const config = enabledConfig();
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        data: [
+          { id: "m1", role: "assistant", content: `here: ${SECRET}`, timestamp: 1 },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+
+    const messages = await createHermesClient(config).listSessionMessages("sess-1");
+    expect(messages).toHaveLength(1);
+    expect(JSON.stringify(messages)).not.toContain(SECRET);
+  });
+});

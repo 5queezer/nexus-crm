@@ -301,10 +301,19 @@ export function createHermesClient(config: EnabledConfig) {
         const record = entry as Record<string, unknown>;
         const role = record.role;
         if (role !== "user" && role !== "assistant") continue;
-        const content = text(record.content, 200_000);
+        // The stored transcript is assistant output too, and it is re-served on
+        // every reload — so it needs the same credential stripping as the live
+        // stream, not less. Nothing arriving from Hermes reaches the browser
+        // without passing through here.
+        const content = redactSecrets(text(record.content, 200_000));
         if (!content) continue;
         messages.push({
-          id: String(record.id ?? messages.length),
+          // Ids may arrive as numbers; bounded either way, and never used as
+          // authority — the browser addresses conversations by Nexus ids.
+          id:
+            typeof record.id === "string" || typeof record.id === "number"
+              ? String(record.id).slice(0, 128)
+              : String(messages.length),
           role,
           content,
           createdAt: typeof record.timestamp === "number" ? record.timestamp : null,
