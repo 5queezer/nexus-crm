@@ -558,6 +558,18 @@ export interface BatchUpsertResult {
   }>;
 }
 
+export interface BatchCreateContactsResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{
+    index: number;
+    id: string;
+    operation: "created";
+    error?: string;
+  }>;
+}
+
 export interface BatchDeleteResult {
   total: number;
   succeeded: number;
