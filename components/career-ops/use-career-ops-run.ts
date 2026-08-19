@@ -270,7 +270,7 @@ export function useCareerOpsRun(
    * whether the message it optimistically rendered actually went anywhere.
    */
   const start = useCallback(
-    async (threadId: string, message: string): Promise<boolean> => {
+    async (threadId: string, message: string, clientRequestId?: string): Promise<boolean> => {
       // A second submit while one is starting must never create a second run.
       if (startingRef.current) return false;
       startingRef.current = true;
@@ -287,7 +287,10 @@ export function useCareerOpsRun(
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message, clientRequestId: newClientRequestId() }),
+            // The caller may supply the id so a retry after a lost response
+            // reuses it — that is what makes the server's idempotent recovery
+            // reachable instead of hitting an active-run conflict.
+            body: JSON.stringify({ message, clientRequestId: clientRequestId ?? newClientRequestId() }),
           },
         );
         runId = created.run.id;

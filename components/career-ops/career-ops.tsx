@@ -31,6 +31,7 @@ import {
 import {
   CareerOpsRequestError,
   careerOpsJson,
+  newClientRequestId,
   type CareerOpsApplicationContext,
   type CareerOpsMessage,
   type CareerOpsStatus,
@@ -76,6 +77,8 @@ export function CareerOps({
    * screen. Every state update from an async load checks its generation first.
    */
   const selectionRef = useRef(0);
+  /** Request id of a submission whose outcome the browser never learned. */
+  const pendingRequestIdRef = useRef<string | null>(null);
   const [compact, setCompact] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -381,6 +384,7 @@ export function CareerOps({
     setHistoryOpen(false);
     setThreadApplication(null);
     setTranscriptFailed(false);
+    pendingRequestIdRef.current = null;
     // Drop the previous conversation's transcript before its successor loads.
     // Keeping it on a failed load would show one conversation's history under
     // another's identity, while submissions went to the new one.
@@ -417,6 +421,11 @@ export function CareerOps({
     // Move the finished answer of the previous turn into the transcript before
     // the next run resets the live buffer, so earlier replies stay visible.
     const previousAnswer = run.answer;
+    // Keep the request id with the unsent draft. If the response was lost, the
+    // run may exist upstream, and only the same id can resolve to it — a fresh
+    // one would be refused as a second concurrent run.
+    const requestId = pendingRequestIdRef.current ?? newClientRequestId();
+    pendingRequestIdRef.current = requestId;
     const optimisticId = `local-${Date.now()}`;
     setMessages((current) => [
       ...current,
@@ -426,7 +435,8 @@ export function CareerOps({
       { id: optimisticId, role: "user" as const, content: message },
     ]);
 
-    const accepted = await start(activeThreadId, message);
+    const accepted = await start(activeThreadId, message, requestId);
+    if (accepted) pendingRequestIdRef.current = null;
     if (!accepted) {
       // Nothing was sent. Drop only the unsent message: `start` has already
       // reset the live run, so the previous turn's answer now exists only in

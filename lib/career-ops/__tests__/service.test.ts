@@ -44,6 +44,7 @@ import {
   CareerOpsServiceError,
   createCareerOpsThread,
   deleteCareerOpsThread,
+  getActiveCareerOpsRun,
   getCareerOpsStatus,
   listCareerOpsThreadMessages,
   listCareerOpsThreads,
@@ -834,6 +835,21 @@ describe("startCareerOpsRun", () => {
     expect(mocks.client.createRun).not.toHaveBeenCalled();
     // Not yet past the reservation lifetime, so it must not be settled away.
     expect(mocks.db.updateCareerOpsRunStatus).not.toHaveBeenCalled();
+  });
+
+  it("settles an expired reservation when it is read, not only on the next submission", async () => {
+    // The adapters enforce the active-run invariant on the stored status, so a
+    // row this call treats as inactive while the database still counts it as
+    // active leaves the conversation impossible to delete.
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "",
+      status: "queued",
+      createdAt: new Date(Date.now() - 60 * 60_000),
+    });
+
+    await expect(getActiveCareerOpsRun(SESSION_A, "thread-1")).resolves.toBeNull();
+    expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith("run-1", "user-a", "failed");
   });
 
   it("settles an expired ambiguous reservation so the conversation is usable again", async () => {

@@ -349,7 +349,17 @@ export async function getActiveCareerOpsRun(
   const run = await getDb().getLatestCareerOpsRun(threadId, session.userId);
   if (!run || !ACTIVE_RUN_STATUSES.includes(run.status)) return null;
   // A reservation nothing can settle stops counting as active once it expires.
-  if (isStaleUnboundReservation(run, config)) return null;
+  // Settle it here rather than merely ignoring it: the adapters enforce the
+  // active-run invariant on the stored status, so a row this function treats as
+  // inactive while the database still counts it as active leaves the
+  // conversation impossible to delete — and impossible to escape without
+  // submitting again to trigger the cleanup elsewhere.
+  if (isStaleUnboundReservation(run, config)) {
+    await getDb()
+      .updateCareerOpsRunStatus(run.id, session.userId, "failed")
+      .catch(() => undefined);
+    return null;
+  }
   return run;
 }
 

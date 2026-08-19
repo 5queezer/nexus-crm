@@ -476,6 +476,33 @@ describe("application context", () => {
     await waitFor(() => expect(within(dialog).getByText(/global context/i)).toBeTruthy());
   });
 
+  it("reuses the request id when a submission's outcome was never learned", async () => {
+    const user = userEvent.setup();
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    // The run may exist upstream; only the same id can resolve to it, so a
+    // fresh one would be refused as a second concurrent run.
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ error: "upstream_error" }, 503));
+    await user.type(within(dialog).getByRole("textbox"), "try this");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "POST" && /runs$/.test(c.url))).toHaveLength(1),
+    );
+    const first = JSON.parse(calls.find((c) => c.method === "POST" && /runs$/.test(c.url))!.body!);
+
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ run: { id: "run-1" } }, 202));
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "POST" && /runs$/.test(c.url))).toHaveLength(2),
+    );
+    const second = JSON.parse(
+      calls.filter((c) => c.method === "POST" && /runs$/.test(c.url))[1].body!,
+    );
+
+    expect(second.clientRequestId).toBe(first.clientRequestId);
+  });
+
   it("links the history disclosure to the panel it controls", async () => {
     const user = userEvent.setup();
     renderCareerOps();
