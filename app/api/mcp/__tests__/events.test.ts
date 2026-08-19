@@ -148,6 +148,43 @@ describe("MCP application event contracts", () => {
     expect(text(result)).toMatchObject({ error: { code: "lifecycle_event_required", fields: ["status"] } });
   });
 
+  it("describes the accepted event metadata schema", async () => {
+    const tools = await client.listTools();
+    const tool = tools.tools.find(({ name }) => name === "record_application_event");
+
+    expect(tool?.description).toContain("Metadata is a JSON object with event-specific keys");
+    expect(tool?.description).toContain("stage_changed {toStage: string, fromStage?, toStatus?}");
+    expect(tool?.description).toContain("interview_scheduled {interviewType: string, scheduledAt: ISO 8601 date-time");
+    expect(tool?.description).toContain("Unknown keys are rejected");
+  });
+
+  it("returns actionable diagnostics for invalid event metadata", async () => {
+    mocks.getApplication.mockResolvedValue({ id: "app-1" });
+    const result = await client.callTool({
+      name: "record_application_event",
+      arguments: {
+        applicationId: "app-1",
+        type: "interview_scheduled",
+        metadata: {
+          interviewType: "technical",
+          scheduledAt: "2026-07-28T12:30:00.000Z",
+          durationMinutes: "sixty",
+        },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(text(result)).toEqual({
+      error: {
+        code: "event_metadata_invalid",
+        path: "metadata.durationMinutes",
+        expected: "integer from 1 to 1440",
+        reason: "durationMinutes must be an integer from 1 to 1440",
+      },
+    });
+    expect(mocks.recordApplicationEvent).not.toHaveBeenCalled();
+  });
+
   it("does not expose the workflow-reserved submission event through the generic tool", async () => {
     const result = await client.callTool({
       name: "record_application_event",

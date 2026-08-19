@@ -15,6 +15,7 @@ import {
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
 import {
   APPLICATION_EVENT_TYPES,
+  EventMetadataValidationError,
   parseApplicationEventCommand,
   parseEventQuery,
 } from "@/lib/applications/events";
@@ -568,7 +569,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
 
   server.tool(
     "record_application_event",
-    "Atomically append a canonical immutable application event and update the current-state projection when the event changes lifecycle state.",
+    "Atomically append a canonical immutable application event and update the current-state projection when the event changes lifecycle state. Metadata is a JSON object with event-specific keys: opportunity_discovered {channel?, nextAction?}; recruiter_contacted {contactId?, outcome?, nextAction?, channel?, followUpAt?, toStage?}; stage_changed {toStage: string, fromStage?, toStatus?}; interview_invited {contactId?, outcome?, nextAction?, interviewType?, scheduledAt?, durationMinutes?, followUpAt?, toStage?}; interview_scheduled {interviewType: string, scheduledAt: ISO 8601 date-time, contactId?, outcome?, nextAction?, durationMinutes?: integer 1..1440, toStage?}; interview_completed {contactId?, outcome?, nextAction?, interviewType?, followUpAt?, toStage?}; feedback_received {contactId?, outcome?, nextAction?, followUpAt?, toStage?}; follow_up_scheduled {followUpAt: ISO 8601 date-time, contactId?, nextAction?}; offer_received {contactId?, outcome?, nextAction?, followUpAt?}; application_rejected {contactId?, outcome?, reason?, fromStage?}; document_attached {documentId: string, documentType?}; note_added {note: string}. Unknown keys are rejected.",
     {
       applicationId: z.string().min(1),
       type: z.enum(APPLICATION_EVENT_TYPES),
@@ -593,7 +594,10 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         const code = controlledErrorCode(error, EVENT_ERROR_CODES, "event_failed");
-        return { content: [{ type: "text", text: JSON.stringify({ error: { code } }) }], isError: true };
+        const details = error instanceof EventMetadataValidationError
+          ? { path: error.path, expected: error.expected, reason: error.reason }
+          : {};
+        return { content: [{ type: "text", text: JSON.stringify({ error: { code, ...details } }) }], isError: true };
       }
     },
   );
