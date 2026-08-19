@@ -280,7 +280,18 @@ const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
  * in-flight submission is never mistaken for a stale one.
  */
 function unboundReservationTtlMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
-  return Math.max(60_000, config.connectTimeoutMs * 4);
+  // The full run lifetime, not a short grace period. If Hermes accepted the
+  // submission and only the response was lost, a legitimate run can still be
+  // executing for as long as any run may run — and Nexus holds no id for it, so
+  // it cannot check. Expiring sooner would let a fresh request id start a
+  // SECOND privileged agent against the same session.
+  //
+  // The cost is that a submission which genuinely failed blocks the
+  // conversation for that long. That is the safer side of the trade: a stalled
+  // conversation is recoverable, two concurrent agents mutating the same CRM
+  // data are not. A real fix needs Hermes to support looking a run up by client
+  // key, which it does not — see design.md D10.
+  return Math.max(60_000, config.runTimeoutMs);
 }
 
 function isStaleUnboundReservation(
@@ -386,6 +397,15 @@ export async function deleteCareerOpsThread(
   // privileged run executing with nothing left to observe or stop it, so stop
   // it while it is still addressable.
   const active = await getActiveCareerOpsRun(session, threadId);
+  if (active && !active.hermesRunId) {
+    // An ambiguous submission: a privileged run may be executing and Nexus has
+    // no id to stop it with. Deleting would drop the only mapping and leave it
+    // running unreachable — deleting the Hermes session does not stop its runs.
+    throw new CareerOpsServiceError(
+      "conflict",
+      "A run may still be starting; the conversation was not deleted",
+    );
+  }
   if (active && active.hermesRunId) {
     try {
       await client(config).stopRun(active.hermesRunId);

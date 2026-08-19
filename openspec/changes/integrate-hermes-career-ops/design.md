@@ -110,6 +110,10 @@ The window is small — the check immediately precedes the insert — and the UI
 
 Closing it properly needs a database-level invariant: a partial unique index on `threadId` over non-terminal statuses in PostgreSQL, and a deterministic per-thread "active slot" document in Firestore. That is a schema and adapter change on both backends and is deliberately **not** in this change; the spec states the guarantee that is actually implemented rather than the one that is wanted.
 
+### D11. Approval audit keeps the latest decision per run, not every decision
+
+Attribution lives in two columns on `CareerOpsRun`, so a run that resolves several approval gates retains only its most recent decision. An append-only decision log would keep them all; that is a new entity on both backends and is deliberately not in this change. The spec states the guarantee the storage model actually gives rather than the one an audit trail ideally provides, and the follow-up that designs the run lifecycle should carry it.
+
 ## Risks / Trade-offs
 
 - **Bearer-token disclosure** → the token is read only in `lib/career-ops/config.ts` (server module, never imported by a client component), never serialized into props, responses, or logs; a unit test asserts no response or thrown error contains it; a repository secret scan runs in verification.

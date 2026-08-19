@@ -82,7 +82,12 @@ The system SHALL record only the minimal metadata needed to attribute an approva
 
 #### Scenario: Decision recorded minimally
 - **WHEN** an approval decision is forwarded
-- **THEN** Nexus retains only the owning user, run, decision, and timestamp
+- **THEN** Nexus retains only the owning user, run, most recent decision, and its timestamp
+
+#### Scenario: A run with several gates
+- **WHEN** one run resolves more than one approval gate
+- **THEN** the record reflects the most recent decision on that run
+- **AND** earlier decisions on the same run are not separately retained
 
 #### Scenario: Undelivered decision is not recorded
 - **WHEN** an approval decision fails to reach the agent

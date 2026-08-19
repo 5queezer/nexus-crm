@@ -397,6 +397,23 @@ describe("thread lifecycle", () => {
     expect(mocks.db.deleteCareerOpsThread).toHaveBeenCalledWith("thread-1", "user-a");
   });
 
+  it("refuses to delete a conversation whose run has no stoppable id", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "",
+      status: "queued",
+      createdAt: new Date(),
+    });
+
+    await expect(deleteCareerOpsThread(SESSION_A, "thread-1")).rejects.toMatchObject({
+      code: "conflict",
+    });
+    // Deleting the Hermes session would not stop the run, and no id remains.
+    expect(mocks.db.deleteCareerOpsThread).not.toHaveBeenCalled();
+    expect(mocks.client.deleteSession).not.toHaveBeenCalled();
+  });
+
   it("keeps the conversation when an active run could not be stopped", async () => {
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
     mocks.db.getLatestCareerOpsRun.mockResolvedValue({
@@ -672,6 +689,25 @@ describe("startCareerOpsRun", () => {
 
     const [args] = mocks.client.createRun.mock.calls[0];
     expect(args.instructions).not.toContain("application id 42");
+  });
+
+  it("holds an ambiguous reservation for the whole run lifetime, not a grace period", async () => {
+    // A run Hermes accepted may still be executing; expiring early would let a
+    // fresh request id start a second privileged agent on the same session.
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      ...RESERVATION,
+      hermesRunId: "",
+      status: "queued",
+      createdAt: new Date(Date.now() - 3 * 60_000),
+    });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-still-held",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
   });
 
   it("lets the conversation recover after an ambiguous submission expires", async () => {
