@@ -285,27 +285,38 @@ export function CareerOps({
   );
 
   const loadThreads = useCallback(async () => {
+    // Closing and reopening the drawer starts another load while the first is
+    // still in flight. Both would see no matching conversation and both would
+    // create one — two Hermes sessions and two Nexus conversations for a user
+    // who opened a drawer twice. The generation makes the later load the only
+    // one allowed to create or select.
+    const generation = ++selectionRef.current;
+    const current = () => selectionRef.current === generation;
+
     setLoading(true);
     setErrorCode(null);
     try {
       const result = await careerOpsJson<{ threads: CareerOpsThread[] }>("/api/career-ops/threads");
+      if (!current()) return;
       setThreads(result.threads);
       const preferred = application
         ? result.threads.find((thread) => thread.applicationId === application.id)
         : result.threads.find((thread) => thread.applicationId === null);
       if (preferred) {
         setActiveThreadId(preferred.id);
-        const generation = ++selectionRef.current;
         await loadMessages(preferred.id, generation);
+        if (!current()) return;
         await rejoinActiveRun(preferred.id, generation);
       } else {
         const created = await createThread(Boolean(application));
+        if (!current()) return;
         setActiveThreadId(created.id);
       }
     } catch (reason) {
+      if (!current()) return;
       setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [application, createThread, loadMessages, rejoinActiveRun]);
 
@@ -847,7 +858,11 @@ export function CareerOps({
                       disabled={!activeThreadId}
                       className="nexus-focus-ring min-h-[44px] w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-white"
                     />
-                    {busy && status.capabilities.stop ? (
+                    {/* Only once a run id exists. During `starting` the run has
+                        no id yet, so Stop would render enabled and do nothing —
+                        the user would believe they had stopped an agent that
+                        went on to run. */}
+                    {busy && status.capabilities.stop && run.runId ? (
                       <button
                         type="button"
                         onClick={() => void stop()}

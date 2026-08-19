@@ -679,6 +679,72 @@ describe("application context", () => {
     }
   });
 
+  it("creates only one conversation when the drawer is reopened mid-load", async () => {
+    // Two loads in flight would each see no conversation and each create one —
+    // two Hermes sessions and two Nexus threads for a user who opened a drawer
+    // twice.
+    const user = userEvent.setup();
+    let releaseList: (() => void) | null = null;
+    route("GET", /\/api\/career-ops\/threads$/, async () => {
+      if (!releaseList) {
+        await new Promise<void>((resolve) => {
+          releaseList = resolve;
+        });
+      }
+      return json({ threads: [] });
+    });
+    renderCareerOps();
+
+    const trigger = await screen.findByRole("button", { name: /open career ops/i });
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    await user.click(trigger);
+
+    await waitFor(() => expect(releaseList).not.toBeNull());
+    releaseList!();
+
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.method === "POST" && c.url.endsWith("/api/career-ops/threads")).length,
+      ).toBeGreaterThan(0),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(
+      calls.filter((c) => c.method === "POST" && c.url.endsWith("/api/career-ops/threads")),
+    ).toHaveLength(1);
+  });
+
+  it("offers Stop only once the run has an id", async () => {
+    // During `starting` the handler would return without making a request, so
+    // the user would believe they stopped an agent that went on to run.
+    const user = userEvent.setup();
+    let releaseRun: (() => void) | null = null;
+    route("POST", /\/threads\/[^/]+\/runs$/, async () => {
+      await new Promise<void>((resolve) => {
+        releaseRun = resolve;
+      });
+      return json({ run: { id: "run-1" } }, 202);
+    });
+    // Keep the run in flight after it starts, or it settles and Stop is gone
+    // again for a different reason.
+    const live = openSse(['data: {"type":"delta","text":"working"}\n\n']);
+    route("GET", /\/runs\/[^/]+\/events$/, () => live.response);
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByRole("textbox"), "go");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+
+    await waitFor(() => expect(releaseRun).not.toBeNull());
+    expect(within(dialog).queryByRole("button", { name: /stop/i })).toBeNull();
+
+    releaseRun!();
+    await waitFor(() =>
+      expect(within(dialog).queryByRole("button", { name: /stop/i })).not.toBeNull(),
+    );
+    live.close();
+  });
+
   it("links the history disclosure to the panel it controls", async () => {
     const user = userEvent.setup();
     renderCareerOps();
