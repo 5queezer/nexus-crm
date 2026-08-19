@@ -76,13 +76,29 @@ function route(method: string, pattern: RegExp, handler: Handler) {
   routes.unshift([pattern, method, handler]);
 }
 
+/**
+ * Threads the fake has served from the list endpoint. The single-thread
+ * endpoint echoes from here so a test's own thread (with its application link)
+ * survives the drawer re-reading it — the real API returns the same record.
+ */
+let servedThreads: CareerOpsThread[] = [];
+
 function installFetch() {
+  servedThreads = [];
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : String(input);
     const method = (init?.method ?? "GET").toUpperCase();
     calls.push({ url, method, body: (init?.body as string) ?? null });
     for (const [pattern, routeMethod, handler] of routes) {
-      if (routeMethod === method && pattern.test(url)) return handler(url, init);
+      if (routeMethod === method && pattern.test(url)) {
+        const response = await handler(url, init);
+        if (method === "GET" && /\/api\/career-ops\/threads$/.test(url)) {
+          const clone = response.clone();
+          const body = await clone.json().catch(() => null);
+          if (body?.threads) servedThreads = body.threads;
+        }
+        return response;
+      }
     }
     return json({ error: "not_found" }, 404);
   }) as unknown as typeof fetch;
@@ -113,9 +129,11 @@ beforeEach(() => {
   route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD] }));
   route("POST", /\/api\/career-ops\/threads$/, () => json({ thread: THREAD }, 201));
   route("GET", /\/threads\/[^/]+\/messages$/, () => json({ messages: [] }));
-  route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
-    json({ thread: THREAD, application: null, activeRun: null }),
-  );
+  route("GET", /\/api\/career-ops\/threads\/[^/]+$/, (url) => {
+    const id = url.split("/").pop() ?? THREAD.id;
+    const thread = servedThreads.find((item) => item.id === id) ?? { ...THREAD, id };
+    return json({ thread, application: null, activeRun: null });
+  });
   route("DELETE", /\/api\/career-ops\/threads\/[^/]+$/, () => json({ deleted: true }));
   route("POST", /\/threads\/[^/]+\/runs$/, () => json({ run: { id: "run-1" } }, 202));
   route("POST", /\/runs\/[^/]+\/stop$/, () => json({ stopping: true }));
@@ -425,6 +443,37 @@ describe("application context", () => {
       expect(within(dialog).getByText(/history could not be loaded/i)).toBeTruthy(),
     );
     expect(within(dialog).queryByText("FIRST HISTORY")).toBeNull();
+  });
+
+  it("stops naming an opportunity the server has detached", async () => {
+    const user = userEvent.setup();
+    const scoped = { ...THREAD, id: "thread-scoped", applicationId: "42", title: "Acme — Engineer" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [scoped] }));
+    route("GET", /\/threads\/thread-scoped$/, () =>
+      json({
+        thread: scoped,
+        application: { id: "42", company: "Acme", role: "Engineer" },
+        activeRun: null,
+      }),
+    );
+    renderCareerOps({ application });
+
+    const dialog = await openDrawer(user);
+    await waitFor(() =>
+      expect(within(dialog).getAllByText(/Acme — Engineer/).length).toBeGreaterThan(0),
+    );
+
+    // The application is deleted: the server detaches the conversation, and a
+    // run would now use global instructions. The badge must follow.
+    route("GET", /\/threads\/thread-scoped$/, () =>
+      json({ thread: { ...scoped, applicationId: null }, application: null, activeRun: null }),
+    );
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ run: { id: "run-1" } }, 202));
+
+    await user.type(within(dialog).getByRole("textbox"), "carry on");
+    await user.click(within(dialog).getByRole("button", { name: /send/i }));
+
+    await waitFor(() => expect(within(dialog).getByText(/global context/i)).toBeTruthy());
   });
 
   it("links the history disclosure to the panel it controls", async () => {

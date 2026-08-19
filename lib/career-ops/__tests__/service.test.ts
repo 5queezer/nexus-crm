@@ -781,6 +781,21 @@ describe("startCareerOpsRun", () => {
     expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
+  it("releases the claim when Hermes explicitly refuses the submission", async () => {
+    // A stated refusal means no run was accepted, so holding the claim would
+    // block the conversation for the whole run lifetime over a request that
+    // provably did nothing.
+    mocks.client.createRun.mockRejectedValue(new HermesError("conflict", "already running"));
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-refused",
+      }),
+    ).rejects.toBeInstanceOf(CareerOpsServiceError);
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
+  });
+
   it("releases the reservation when resolving application context fails", async () => {
     // The failure is provably before submission: nothing reached Hermes. Holding
     // the claim would stall the conversation for the whole reservation lifetime
@@ -1128,6 +1143,23 @@ describe("run controls", () => {
       "",
       "outcome_unknown",
     );
+  });
+
+  it("returns the challenge when the decision could not be recorded", async () => {
+    // Nothing was sent upstream, so restoring it is not a replay risk — and
+    // the prompt came from a single-consumer stream that cannot reissue it.
+    const challenge = await challengeFor("run-1", ["once"]);
+    mocks.db.recordCareerOpsApprovalDecision.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toMatchObject({ code: "upstream_error" });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+
+    // The retry succeeds because the challenge is outstanding again.
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).resolves.toBeUndefined();
   });
 
   it("refuses a granting decision that carries no challenge", async () => {

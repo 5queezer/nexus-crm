@@ -181,7 +181,14 @@ async function streamRun(res, run) {
   res.end();
 }
 
+/** Request log, so the order of upstream calls is observable while verifying. */
+const VERBOSE = process.env.MOCK_HERMES_VERBOSE !== "false";
+
 const server = createServer(async (req, res) => {
+  if (VERBOSE) {
+    const at = new Date().toISOString().slice(11, 23);
+    console.log(`${at} ${req.method} ${req.url}`);
+  }
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const path = url.pathname.startsWith(PREFIX) ? url.pathname.slice(PREFIX.length) : url.pathname;
 

@@ -180,10 +180,18 @@ export function CareerOps({
     async (threadId: string, generation: number) => {
       try {
         const result = await careerOpsJson<{
+          thread: CareerOpsThread;
           application: CareerOpsApplicationContext | null;
           activeRun: { id: string } | null;
         }>(`/api/career-ops/threads/${threadId}`);
         if (selectionRef.current !== generation) return;
+        // Refresh the stored record too. The scope badge is derived from it,
+        // and deleting an application detaches the conversation server-side —
+        // so a stale snapshot would keep naming an opportunity the agent is no
+        // longer scoped to.
+        setThreads((current) =>
+          current.map((thread) => (thread.id === threadId ? result.thread : thread)),
+        );
         setThreadApplication(result.application ?? null);
         if (!result.activeRun) {
           // The transcript just reloaded from Hermes and already contains the
@@ -206,6 +214,27 @@ export function CareerOps({
     },
     [reset, resume],
   );
+
+  /**
+   * Re-read a conversation's stored record. The scope badge is derived from it,
+   * and the server can detach a conversation from its opportunity — deleting an
+   * application clears the link — so a snapshot taken when the drawer opened
+   * would keep naming an opportunity the agent is no longer scoped to.
+   */
+  const refreshThreadScope = useCallback(async (threadId: string) => {
+    try {
+      const result = await careerOpsJson<{
+        thread: CareerOpsThread;
+        application: CareerOpsApplicationContext | null;
+      }>(`/api/career-ops/threads/${threadId}`);
+      setThreads((current) =>
+        current.map((thread) => (thread.id === threadId ? result.thread : thread)),
+      );
+      setThreadApplication(result.application ?? null);
+    } catch {
+      // Leave the last known scope in place; the next selection re-reads it.
+    }
+  }, []);
 
   const createThread = useCallback(
     async (withApplication: boolean) => {
@@ -325,6 +354,13 @@ export function CareerOps({
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end" });
   }, [messages, run.answer, run.tools.length]);
+
+  // A settled run may have changed what the conversation is scoped to.
+  useEffect(() => {
+    if (!open || !activeThreadId) return;
+    if (!["completed", "failed", "cancelled"].includes(run.phase)) return;
+    void refreshThreadScope(activeThreadId);
+  }, [open, activeThreadId, run.phase, refreshThreadScope]);
 
   // A run awaiting a human decision is still in flight. Leaving the composer
   // and thread controls live would let a new run abort the pending one's stream

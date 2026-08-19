@@ -138,7 +138,16 @@ function toServiceError(reason: unknown): CareerOpsServiceError {
  */
 function definitivelyNotSubmitted(reason: unknown): boolean {
   if (!(reason instanceof HermesError)) return false;
-  return reason.kind === "unauthorized" || reason.kind === "rate_limited";
+  // Each of these is a refusal Hermes stated, so no run was accepted: the claim
+  // must be released or the conversation stays blocked for the whole run
+  // lifetime over a request that provably did nothing. A timeout or transport
+  // error is different — there the run may be executing.
+  return (
+    reason.kind === "unauthorized" ||
+    reason.kind === "rate_limited" ||
+    reason.kind === "conflict" ||
+    reason.kind === "not_found"
+  );
 }
 
 /**
@@ -951,6 +960,12 @@ export async function resolveCareerOpsApproval(
       "pending",
     );
   } catch {
+    // Nothing was sent upstream, so returning the challenge is not a replay
+    // risk — and without it the prompt came from a single-consumer stream that
+    // cannot reissue it, leaving denial as the user's only remaining action.
+    await getDb()
+      .setCareerOpsPendingApprovalChallenge(run.id, session.userId, consumedChallengeId)
+      .catch(() => undefined);
     throw new CareerOpsServiceError(
       "upstream_error",
       "The decision could not be recorded, so it was not sent",
