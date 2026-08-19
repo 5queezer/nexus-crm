@@ -16,6 +16,12 @@ export type CareerOpsThread = {
   updatedAt: string;
 };
 
+export type CareerOpsApplicationContext = {
+  id: string;
+  company: string;
+  role: string;
+};
+
 export type CareerOpsMessage = {
   id: string;
   role: "user" | "assistant";

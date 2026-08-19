@@ -65,6 +65,14 @@ The system SHALL display the linked application's company and role in the Career
 - **WHEN** an application-scoped conversation is open
 - **THEN** the surface shows the linked application's company and role
 
+#### Scenario: Conversation scoped to a different application than the page
+- **WHEN** the open conversation is scoped to an application other than the one whose page is displayed, or no application page is displayed
+- **THEN** the surface shows the linked application's own company and role, never the displayed page's
+
+#### Scenario: Link no longer readable by the agent
+- **WHEN** the linked application has been deleted or is excluded from machine reads
+- **THEN** the surface states that the conversation is scoped to another opportunity rather than naming a record the agent cannot retrieve
+
 #### Scenario: Global conversation
 - **WHEN** a conversation has no application link
 - **THEN** the surface presents it as global context with no application badge

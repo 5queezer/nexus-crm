@@ -48,6 +48,7 @@ import {
   requireOwnedRun,
   requireOwnedThread,
   resetCareerOpsCapabilityCacheForTests,
+  resolveCareerOpsThreadApplication,
   resolveCareerOpsApproval,
   startCareerOpsRun,
   stopCareerOpsRun,
@@ -691,6 +692,24 @@ describe("startCareerOpsRun", () => {
     expect(args.instructions).not.toContain("application id 42");
   });
 
+  it("releases the reservation when resolving application context fails", async () => {
+    // The failure is provably before submission: nothing reached Hermes. Holding
+    // the claim would stall the conversation for the whole reservation lifetime
+    // over a transient read error.
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getApplication.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toBeInstanceOf(CareerOpsServiceError);
+
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
+  });
+
   it("holds an ambiguous reservation for the whole run lifetime, not a grace period", async () => {
     // A run Hermes accepted may still be executing; expiring early would let a
     // fresh request id start a second privileged agent on the same session.
@@ -877,5 +896,38 @@ describe("run controls", () => {
       code: "unavailable",
     });
     await expect(listCareerOpsThreads(SESSION_A)).rejects.toMatchObject({ code: "unavailable" });
+  });
+});
+
+describe("resolveCareerOpsThreadApplication", () => {
+  it("resolves the linked opportunity through the agent-visible read", async () => {
+    mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
+    const resolved = await resolveCareerOpsThreadApplication(SESSION_A, {
+      ...THREAD,
+      applicationId: "42",
+    });
+    expect(mocks.db.getApplication).toHaveBeenCalledWith("42", "user-a", {
+      demoVisibility: "exclude",
+    });
+    expect(resolved).toEqual({ id: "42", company: "Acme", role: "Engineer" });
+  });
+
+  it("returns null when the link is gone or no longer agent-visible", async () => {
+    mocks.db.getApplication.mockResolvedValue(null);
+    expect(
+      await resolveCareerOpsThreadApplication(SESSION_A, { ...THREAD, applicationId: "42" }),
+    ).toBeNull();
+  });
+
+  it("returns null for a global thread without reading applications", async () => {
+    expect(await resolveCareerOpsThreadApplication(SESSION_A, THREAD)).toBeNull();
+    expect(mocks.db.getApplication).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the integration is disabled", async () => {
+    disable();
+    await expect(
+      resolveCareerOpsThreadApplication(SESSION_A, { ...THREAD, applicationId: "42" }),
+    ).rejects.toMatchObject({ code: "unavailable" });
   });
 });

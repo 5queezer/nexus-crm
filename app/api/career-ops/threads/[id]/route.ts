@@ -3,6 +3,7 @@ import {
   deleteCareerOpsThread,
   getActiveCareerOpsRun,
   requireOwnedThread,
+  resolveCareerOpsThreadApplication,
 } from "@/lib/career-ops/service";
 import {
   careerOpsErrorResponse,
@@ -20,9 +21,13 @@ export async function GET(_request: Request, context: Context) {
     const { id } = await context.params;
     const thread = await requireOwnedThread(session, id);
     const activeRun = await getActiveCareerOpsRun(session, thread.id);
+    // The opportunity this conversation acts on, so the drawer can name it
+    // instead of showing an unidentified "other opportunity" badge.
+    const application = await resolveCareerOpsThreadApplication(session, thread);
     return NextResponse.json(
       {
         thread: serializeThread(thread),
+        application,
         activeRun: activeRun ? serializeRun(activeRun) : null,
       },
       { headers: { "Cache-Control": "no-store" } },

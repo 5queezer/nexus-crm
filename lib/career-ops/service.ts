@@ -21,6 +21,7 @@ import {
   buildGlobalInstructions,
 } from "./instructions";
 import type { CareerOpsApprovalChoice } from "./sse";
+import type { CareerOpsApplicationView } from "./serialize";
 
 /**
  * The single choke point between the browser-facing routes and Hermes.
@@ -444,6 +445,32 @@ export async function listCareerOpsThreadMessages(
   }
 }
 
+/**
+ * The opportunity a thread is scoped to, as the agent can currently see it, or
+ * null when the link is gone or no longer agent-visible. Resolved per active
+ * thread rather than for every row in the list: the badge describes the
+ * conversation in front of the user, and a read per listed thread would be an
+ * unbounded fan-out.
+ */
+export async function resolveCareerOpsThreadApplication(
+  session: CareerOpsSession,
+  thread: CareerOpsThreadRecord,
+): Promise<CareerOpsApplicationView | null> {
+  enabledConfig(session);
+  if (!thread.applicationId) return null;
+  const application = await getDb().getApplication(
+    thread.applicationId,
+    session.userId,
+    AGENT_VISIBLE_READ,
+  );
+  if (!application) return null;
+  return {
+    id: thread.applicationId,
+    company: application.company,
+    role: application.role,
+  };
+}
+
 async function threadInstructions(
   session: CareerOpsSession,
   thread: CareerOpsThreadRecord,
@@ -523,7 +550,18 @@ export async function startCareerOpsRun(
   });
   if (!created) return reservation;
 
-  const instructions = await threadInstructions(session, thread);
+  let instructions: string;
+  try {
+    instructions = await threadInstructions(session, thread);
+  } catch (reason) {
+    // Still provably before submission: nothing has been sent to Hermes, so the
+    // claim must be released. Holding it would strand the conversation for the
+    // whole reservation lifetime over a transient read failure — retries with
+    // the same request id would return the unbound row and fresh ids would
+    // conflict with it.
+    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    throw toServiceError(reason);
+  }
 
   let runId: string;
   try {

@@ -220,6 +220,31 @@ describe("threads", () => {
     expect((await getMessages(new Request("http://test"), threadContext)).status).toBe(404);
   });
 
+  it("names the opportunity an application-scoped thread acts on", async () => {
+    // The drawer cannot label the target from the thread row alone, and a
+    // stored label could name a record the agent can no longer read.
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
+
+    const response = await getThread(new Request("http://test"), threadContext);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.application).toEqual({ id: "42", company: "Acme", role: "Engineer" });
+    expect(mocks.db.getApplication).toHaveBeenCalledWith("42", "user-a", {
+      demoVisibility: "exclude",
+    });
+    expect(JSON.stringify(body)).not.toContain("sess-1");
+  });
+
+  it("reports no opportunity when the link is no longer agent-visible", async () => {
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getApplication.mockResolvedValue(null);
+
+    const body = await (await getThread(new Request("http://test"), threadContext)).json();
+    expect(body.application).toBeNull();
+  });
+
   it("rejects malformed JSON with 400", async () => {
     const request = new Request("http://test", {
       method: "POST",

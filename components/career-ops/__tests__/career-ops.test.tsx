@@ -114,7 +114,7 @@ beforeEach(() => {
   route("POST", /\/api\/career-ops\/threads$/, () => json({ thread: THREAD }, 201));
   route("GET", /\/threads\/[^/]+\/messages$/, () => json({ messages: [] }));
   route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
-    json({ thread: THREAD, activeRun: null }),
+    json({ thread: THREAD, application: null, activeRun: null }),
   );
   route("DELETE", /\/api\/career-ops\/threads\/[^/]+$/, () => json({ deleted: true }));
   route("POST", /\/threads\/[^/]+\/runs$/, () => json({ run: { id: "run-1" } }, 202));
@@ -296,6 +296,44 @@ describe("application context", () => {
       expect(within(dialog).getByText(/another opportunity/i)).toBeTruthy(),
     );
     expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
+  });
+
+  it("names the opportunity a differently-scoped thread actually acts on", async () => {
+    const user = userEvent.setup();
+    const mine = { ...THREAD, id: "thread-mine", applicationId: "42", title: "Acme — Engineer" };
+    const other = { ...THREAD, id: "thread-other", applicationId: "99", title: "Other opportunity" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [mine, other] }));
+    route("GET", /\/threads\/thread-other$/, () =>
+      json({
+        thread: other,
+        application: { id: "99", company: "Globex", role: "Designer" },
+        activeRun: null,
+      }),
+    );
+    renderCareerOps({ application });
+
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Other opportunity" }));
+
+    // With history closed the badge is the only thing identifying the target,
+    // so it must name the opportunity the agent will actually act on.
+    await waitFor(() => expect(within(dialog).getByText(/Globex — Designer/)).toBeTruthy());
+    expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
+  });
+
+  it("surfaces a failure to start a new conversation instead of doing nothing", async () => {
+    const user = userEvent.setup();
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+
+    route("POST", /\/api\/career-ops\/threads$/, () => json({ error: "unavailable" }, 503));
+    await user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole("alert").textContent).toMatch(/something went wrong/i),
+    );
   });
 
   it("creates an application-scoped conversation when none exists", async () => {

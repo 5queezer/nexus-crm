@@ -31,6 +31,7 @@ import {
 import {
   CareerOpsRequestError,
   careerOpsJson,
+  type CareerOpsApplicationContext,
   type CareerOpsMessage,
   type CareerOpsStatus,
   type CareerOpsThread,
@@ -38,13 +39,11 @@ import {
 } from "./types";
 import { useCareerOpsRun } from "./use-career-ops-run";
 
-type ApplicationContext = { id: string; company: string; role: string };
-
 export function CareerOps({
   application,
   variant = "floating",
 }: {
-  application?: ApplicationContext;
+  application?: CareerOpsApplicationContext;
   variant?: "floating" | "inline";
 }) {
   const t = useTranslations("career_ops");
@@ -59,6 +58,11 @@ export function CareerOps({
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  // The opportunity the *active* thread acts on, as resolved by the server.
+  // Needed because that thread is often not the one whose page is on screen.
+  const [threadApplication, setThreadApplication] = useState<CareerOpsApplicationContext | null>(
+    null,
+  );
   const [compact, setCompact] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -155,9 +159,11 @@ export function CareerOps({
   const rejoinActiveRun = useCallback(
     async (threadId: string) => {
       try {
-        const result = await careerOpsJson<{ activeRun: { id: string } | null }>(
-          `/api/career-ops/threads/${threadId}`,
-        );
+        const result = await careerOpsJson<{
+          application: CareerOpsApplicationContext | null;
+          activeRun: { id: string } | null;
+        }>(`/api/career-ops/threads/${threadId}`);
+        setThreadApplication(result.application ?? null);
         if (!result.activeRun) {
           // The transcript just reloaded from Hermes and already contains the
           // finished reply; leaving the hook's completed answer in place would
@@ -171,7 +177,9 @@ export function CareerOps({
         if (runRef.current.runId === result.activeRun.id) return;
         await resume(result.activeRun.id);
       } catch {
-        // A thread that cannot be inspected simply stays idle.
+        // A thread that cannot be inspected simply stays idle. Its context is
+        // unknown rather than absent, so fall back to the unnamed badge.
+        setThreadApplication(null);
       }
     },
     [reset, resume],
@@ -188,12 +196,29 @@ export function CareerOps({
       });
       setThreads((current) => [result.thread, ...current]);
       setActiveThreadId(result.thread.id);
+      setThreadApplication(withApplication && application ? application : null);
       setMessages([]);
       setHistoryOpen(false);
       reset();
       return result.thread;
     },
     [application, reset],
+  );
+
+  /**
+   * `createThread` rejects on upstream or persistence failure. The direct
+   * controls discard its promise, so without this the rejection is unhandled
+   * and the button just appears dead; the initial load has its own catch.
+   */
+  const createThreadSafely = useCallback(
+    async (withApplication: boolean) => {
+      try {
+        await createThread(withApplication);
+      } catch (reason) {
+        setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
+      }
+    },
+    [createThread],
   );
 
   const loadThreads = useCallback(async () => {
@@ -309,6 +334,7 @@ export function CareerOps({
     if (activeThreadId === threadId) {
       setActiveThreadId(null);
       setMessages([]);
+      setThreadApplication(null);
       reset();
     }
   }
@@ -441,11 +467,13 @@ export function CareerOps({
                     {t("context_application")}:{" "}
                     {contextScope === "named" && application
                       ? `${application.company} — ${application.role}`
-                      : t("context_application_other")}
+                      : threadApplication
+                        ? `${threadApplication.company} — ${threadApplication.role}`
+                        : t("context_application_other")}
                   </span>
                   <button
                     type="button"
-                    onClick={() => void createThread(false)}
+                    onClick={() => void createThreadSafely(false)}
                     disabled={busy}
                     className="nexus-focus-ring rounded-full px-2 py-1 font-medium text-slate-500 underline-offset-2 hover:underline disabled:opacity-40"
                   >
@@ -464,7 +492,7 @@ export function CareerOps({
               <div className="max-h-64 shrink-0 overflow-y-auto border-b border-slate-200/80 px-2 py-2 dark:border-white/8">
                 <button
                   type="button"
-                  onClick={() => void createThread(Boolean(application))}
+                  onClick={() => void createThreadSafely(Boolean(application))}
                   disabled={busy}
                   className="nexus-focus-ring mb-2 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-950"
                 >

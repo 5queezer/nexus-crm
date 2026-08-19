@@ -16,6 +16,18 @@ export type CareerOpsThreadView = {
   updatedAt: string;
 };
 
+/**
+ * The linked opportunity, resolved live through the same agent-visible read the
+ * run instructions use. Showing a stored label instead could name a record the
+ * agent can no longer see, so a caller approving privileged work would be
+ * verifying a target that is not the one in play.
+ */
+export type CareerOpsApplicationView = {
+  id: string;
+  company: string;
+  role: string;
+};
+
 export type CareerOpsRunView = {
   id: string;
   threadId: string;
