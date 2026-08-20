@@ -1,4 +1,10 @@
-import { configuredSecrets, redactSecrets, redactUpstreamError } from "./config";
+import {
+  CREDENTIAL_CANDIDATES,
+  CREDENTIAL_TOKEN_CHAR,
+  configuredSecrets,
+  redactSecrets,
+  redactUpstreamError,
+} from "./config";
 
 /**
  * Hermes `/v1/runs/{id}/events` framing.
@@ -55,21 +61,44 @@ export class SseStreamTooLargeError extends Error {
   }
 }
 
+/** Smallest tail held back, even when no exact secret is configured. */
+const MIN_BOUNDARY_WINDOW = 32;
+
+/**
+ * Largest tail withheld before a credential-shaped run is cut off outright.
+ *
+ * Holding until a token run ends is what keeps a credential intact for
+ * matching, but an upstream streaming an endless token would grow the carry
+ * without limit. Nothing legitimate is this long.
+ */
+const MAX_BOUNDARY_CARRY = 4096;
+
 /**
  * Strips secrets from a stream of text where a secret may straddle two chunks.
  *
- * Redacting each delta in isolation cannot see a key whose first half arrived in
- * one frame and whose second half arrives in the next, so a short tail is held
- * back until enough following text exists to match across the seam. The tail is
- * sized to the longest configured secret, so nothing is withheld when none is
- * configured and the delay is otherwise a few dozen characters.
+ * Redacting each delta in isolation cannot see a credential whose first half
+ * arrived in one frame and whose second half arrives in the next, so a tail is
+ * held back until enough following text exists to match across the seam.
+ *
+ * Two distinct hazards decide where the buffer may be cut:
+ *
+ *  - an **exact configured secret** straddling the boundary, and
+ *  - a **generic credential shape** straddling it. This one is easy to miss:
+ *    `SECRET_PATTERNS` needs eight token characters after the keyword, so a cut
+ *    a few characters into the token emits a prefix that matches nothing and
+ *    retains a suffix that no longer carries `Bearer` — the credential reaches
+ *    the browser in two innocuous-looking halves. It applies to any
+ *    credential-shaped text, not only this deployment's own keys, so the tail
+ *    is held even when no secret is configured at all.
  */
 export class SecretBoundaryRedactor {
   private carry = "";
   private readonly window: number;
+  /** True while dropping the continuation of a run already cut off above. */
+  private suppressing = false;
 
-  constructor(window = Math.max(0, (configuredSecrets()[0]?.length ?? 1) - 1)) {
-    this.window = Math.min(window, 512);
+  constructor(window = (configuredSecrets()[0]?.length ?? 1) - 1) {
+    this.window = Math.min(Math.max(window, MIN_BOUNDARY_WINDOW), 512);
   }
 
   push(text: string): string {
@@ -78,26 +107,40 @@ export class SecretBoundaryRedactor {
     // replaced by a placeholder — the generic `Bearer <prefix>` rule does
     // exactly that — the reassembled text no longer contains the secret and its
     // remainder is emitted intact.
-    const combined = this.carry + text;
-    if (this.window === 0) {
-      this.carry = "";
-      return redactSecrets(combined);
+    let combined = this.carry + text;
+
+    if (this.suppressing) {
+      let i = 0;
+      while (i < combined.length && CREDENTIAL_TOKEN_CHAR.test(combined[i])) i++;
+      combined = combined.slice(i);
+      if (combined.length === 0) {
+        this.carry = "";
+        return "";
+      }
+      this.suppressing = false;
     }
+
     if (combined.length <= this.window) {
       this.carry = combined;
       return "";
     }
 
-    // Never cut through a secret. If one straddles the boundary, hold the whole
-    // occurrence back so the next chunk (or flush) redacts it intact; otherwise
-    // its leading half would be emitted before anything could match it.
+    // Moving the cut earlier can bring it inside a region that did not straddle
+    // the previous position, so settle rather than pass once.
     let cut = combined.length - this.window;
-    for (const secret of configuredSecrets()) {
-      let at = combined.indexOf(secret);
-      while (at !== -1) {
-        if (at < cut && at + secret.length > cut) cut = at;
-        at = combined.indexOf(secret, at + 1);
-      }
+    for (let pass = 0; pass < 8; pass++) {
+      const moved = safeCut(combined, cut);
+      if (moved === cut) break;
+      cut = moved;
+    }
+
+    if (combined.length - cut > MAX_BOUNDARY_CARRY) {
+      // A credential-shaped run longer than any real credential. Refuse to hold
+      // it: the region is redacted as a unit and its continuation is dropped,
+      // because emitting any part of it is what leaks.
+      this.carry = "";
+      this.suppressing = true;
+      return `${redactSecrets(combined.slice(0, cut))}[redacted]`;
     }
 
     this.carry = combined.slice(cut);
@@ -106,10 +149,46 @@ export class SecretBoundaryRedactor {
 
   /** Emit whatever is still held back, once no more text can arrive. */
   flush(): string {
-    const rest = redactSecrets(this.carry);
+    const rest = this.suppressing ? "" : redactSecrets(this.carry);
     this.carry = "";
+    this.suppressing = false;
     return rest;
   }
+}
+
+/**
+ * The latest position at or before `cut` that does not split a secret or a
+ * credential candidate, and does not emit a candidate that may still be
+ * growing at the end of the buffer.
+ */
+function safeCut(combined: string, cut: number): number {
+  let earliest = cut;
+
+  for (const secret of configuredSecrets()) {
+    let at = combined.indexOf(secret);
+    while (at !== -1) {
+      if (at < cut && at + secret.length > cut) earliest = Math.min(earliest, at);
+      at = combined.indexOf(secret, at + 1);
+    }
+  }
+
+  for (const pattern of CREDENTIAL_CANDIDATES) {
+    pattern.lastIndex = 0;
+    let match = pattern.exec(combined);
+    while (match) {
+      const start = match.index;
+      const end = start + match[0].length;
+      // `end === combined.length`: the token may continue in the next chunk, so
+      // the candidate is not finished and cannot be judged yet.
+      if (start < cut && (end > cut || end === combined.length)) {
+        earliest = Math.min(earliest, start);
+      }
+      if (pattern.lastIndex === match.index) pattern.lastIndex += 1;
+      match = pattern.exec(combined);
+    }
+  }
+
+  return earliest;
 }
 
 /** Incremental SSE frame reader. Feed it decoded text chunks in arrival order. */

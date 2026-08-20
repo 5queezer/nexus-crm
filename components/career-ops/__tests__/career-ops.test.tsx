@@ -8,6 +8,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import messages from "@/messages/en.json";
 import { CareerOps } from "../career-ops";
 
+const { routerRefresh } = vi.hoisted(() => ({ routerRefresh: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: routerRefresh, push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/",
+}));
+
 type Handler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 
 const invalidated: unknown[] = [];
@@ -380,6 +386,55 @@ describe("application context", () => {
     await waitFor(() =>
       expect(within(dialog).getByText(/another opportunity/i)).toBeTruthy(),
     );
+    expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
+  });
+
+  it("discards a scope refresh for a conversation that is no longer selected", async () => {
+    // A settled run re-reads its own conversation's scope. That read can land
+    // after the user has selected a different conversation, and applying it
+    // then names one opportunity in the badge while messages and approvals go
+    // to another.
+    const user = userEvent.setup();
+    const mine = { ...THREAD, id: "thread-mine", applicationId: "42", title: "Acme — Engineer" };
+    const other = { ...THREAD, id: "thread-other", applicationId: "99", title: "Other opportunity" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [mine, other] }));
+
+    let releaseRefresh: () => void = () => {};
+    const refreshHeld = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let mineReads = 0;
+    route("GET", /\/threads\/thread-mine$/, async () => {
+      mineReads += 1;
+      // The initial selection resolves; the post-run refresh is held open.
+      if (mineReads > 1) await refreshHeld;
+      return json({
+        thread: mine,
+        application: { id: "42", company: "Acme", role: "Engineer" },
+        activeRun: null,
+      });
+    });
+    route("GET", /\/threads\/thread-other$/, () =>
+      json({
+        thread: other,
+        application: { id: "99", company: "Globex", role: "Designer" },
+        activeRun: null,
+      }),
+    );
+
+    renderCareerOps({ application });
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "go");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(mineReads).toBeGreaterThan(1));
+
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Other opportunity" }));
+    await waitFor(() => expect(within(dialog).getByText(/Globex/)).toBeTruthy());
+
+    releaseRefresh();
+    await waitFor(() => expect(within(dialog).getByText(/Globex/)).toBeTruthy());
+    expect(within(dialog).queryByText(/Designer/)).toBeTruthy();
     expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
   });
 
@@ -890,21 +945,25 @@ describe("sending and streaming", () => {
     await waitFor(() => expect(within(dialog).getByText(/answer complete/i)).toBeTruthy());
   });
 
-  it("invalidates application queries after a run completes", async () => {
+  it("refreshes every surface a run can change, by the key each one uses", async () => {
+    // Invalidating a plausible-looking prefix nothing subscribes to is the same
+    // as not invalidating at all: the timeline and the activity feed kept
+    // rendering pre-run data, and the detail facts come from a server prop that
+    // no cache invalidation reaches.
     const user = userEvent.setup();
     renderCareerOps();
     const dialog = await openDrawer(user);
     await user.type(within(dialog).getByLabelText(/message career ops/i), "update the pipeline");
     await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
-    await waitFor(() =>
-      expect(
-        invalidated.some(
-          (entry) =>
-            JSON.stringify((entry as { queryKey: unknown }).queryKey) ===
-            JSON.stringify(["applications"]),
-        ),
-      ).toBe(true),
-    );
+
+    const invalidatedKeys = () =>
+      invalidated.map((entry) =>
+        JSON.stringify((entry as { queryKey: unknown[] }).queryKey?.[0]),
+      );
+    for (const key of ["applications", "application-events", "application-activity"]) {
+      await waitFor(() => expect(invalidatedKeys()).toContain(JSON.stringify(key)));
+    }
+    await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
   });
 
   it("disables send while a run is starting so a retry cannot start two runs", async () => {

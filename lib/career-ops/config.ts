@@ -134,6 +134,28 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bsk-[A-Za-z0-9._-]{8,}/gi,
 ];
 
+/** A character that can appear inside a credential token. */
+export const CREDENTIAL_TOKEN_CHAR = /[A-Za-z0-9._~+/=-]/;
+
+/**
+ * The same credential shapes as `SECRET_PATTERNS`, but in their *incomplete*
+ * form: the keyword plus however much of the token has arrived so far.
+ *
+ * `SECRET_PATTERNS` needs eight token characters before it matches — which is
+ * exactly the state a partially-arrived credential is not yet in. Streaming
+ * code cutting a buffer has to reason about the candidate, not the completed
+ * match, or it emits a prefix too short to match and retains a suffix that no
+ * longer carries the keyword.
+ *
+ * Keep in step with `SECRET_PATTERNS`: a shape added there without a candidate
+ * here is protected in whole text and split-able across a stream seam.
+ */
+export const CREDENTIAL_CANDIDATES: RegExp[] = [
+  /\bbearer\s*[A-Za-z0-9._~+/=-]*/gi,
+  /\b(?:api[_-]?key|apikey|token|secret|authorization)\b\s*[:=]?\s*"?[A-Za-z0-9._~+/=-]*/gi,
+  /\bsk-[A-Za-z0-9._-]*/gi,
+];
+
 /**
  * Conservative redaction for text that came from (or names) the upstream.
  * Applied to everything derived from a Hermes response before it can reach a

@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -52,6 +53,7 @@ export function CareerOps({
 }) {
   const t = useTranslations("career_ops");
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const [status, setStatus] = useState<CareerOpsStatus | null>(null);
   const [open, setOpen] = useState(false);
@@ -99,9 +101,16 @@ export function CareerOps({
       // would be wrong in exactly the cases the user is most likely to check.
       if (!["completed", "failed", "cancelled"].includes(phase)) return;
       void queryClient.invalidateQueries({ queryKey: ["applications"] });
-      void queryClient.invalidateQueries({ queryKey: ["activity"] });
+      // The keys the affected surfaces actually use. `["activity"]` reads like
+      // the right prefix but nothing subscribes to it, so invalidating it left
+      // the timeline and the activity feed showing pre-run data.
+      void queryClient.invalidateQueries({ queryKey: ["application-events"] });
+      void queryClient.invalidateQueries({ queryKey: ["application-activity"] });
+      // The detail page's facts come from a server prop, not a query, so no
+      // amount of cache invalidation refreshes them.
+      router.refresh();
     },
-    [queryClient],
+    [queryClient, router],
   );
 
   const { state: run, start, resume, stop, decideApproval, reset } = useCareerOpsRun({
@@ -232,14 +241,21 @@ export function CareerOps({
    * would keep naming an opportunity the agent is no longer scoped to.
    */
   const refreshThreadScope = useCallback(async (threadId: string) => {
+    const generation = selectionRef.current;
     try {
       const result = await careerOpsJson<{
         thread: CareerOpsThread;
         application: CareerOpsApplicationContext | null;
       }>(`/api/career-ops/threads/${threadId}`);
+      // Safe whichever conversation is on screen: this row is keyed by id.
       setThreads((current) =>
         current.map((thread) => (thread.id === threadId ? result.thread : thread)),
       );
+      // The scope badge is not. A refresh started for the conversation that
+      // just settled can land after the user has selected another one, and
+      // applying it then names one opportunity while messages and approvals go
+      // to a different one.
+      if (selectionRef.current !== generation) return;
       setThreadApplication(result.application ?? null);
     } catch {
       // Leave the last known scope in place; the next selection re-reads it.

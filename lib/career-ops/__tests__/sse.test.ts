@@ -357,6 +357,53 @@ describe("credential stripping in assistant output", () => {
     }
   });
 
+  it("keeps a generic credential intact across the cut when no secret is configured", () => {
+    // The window is sized from the configured secrets, so with none configured
+    // there was no hold-back at all and any credential split across two deltas
+    // went straight through. It is not this deployment's key that leaks here —
+    // it is a Nexus token the agent happened to print.
+    delete process.env.HERMES_CAREER_OPS_API_KEY;
+    const token = "jt_9f3a1c7d5e2b4a6c8d0f1e3a5b7c9d1f";
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`${"filler ".repeat(20)}Bearer ${token.slice(0, 4)}`);
+    out += redactor.push(`${token.slice(4)} trailing`);
+    out += redactor.flush();
+
+    expect(out).not.toContain(token);
+    expect(out).not.toContain(token.slice(4));
+    expect(out).toContain("trailing");
+  });
+
+  it("keeps a generic credential intact when the cut lands mid-token", () => {
+    // With a secret configured the window exists, but it was only ever moved
+    // for that exact secret. A generic candidate straddling the boundary was
+    // still cut: the prefix carried too few token characters to match, and the
+    // suffix no longer carried the keyword.
+    const token = "jt_" + "abcdefgh".repeat(12);
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`${"filler ".repeat(20)}Bearer ${token}`);
+    out += redactor.push(" and then some ordinary words follow here");
+    out += redactor.flush();
+
+    expect(out).not.toContain(token);
+    expect(out).not.toContain(token.slice(-24));
+    expect(out).toContain("ordinary words");
+  });
+
+  it("cuts off a credential run too long to hold rather than emitting it", () => {
+    // A hostile upstream can stream an endless token to make the hold-back grow
+    // without limit. The run is redacted as a unit and its continuation dropped.
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`start Bearer ${"a".repeat(6000)}`);
+    out += redactor.push(`${"a".repeat(6000)} end`);
+    out += redactor.flush();
+
+    expect(out).toContain("start");
+    expect(out).toContain("[redacted]");
+    expect(out).not.toContain("aaaaaaaaaaaaaaaa");
+    expect(out).toContain("end");
+  });
+
   it("passes ordinary text through unchanged once flushed", () => {
     const redactor = new SecretBoundaryRedactor();
     const out = redactor.push("the quick brown fox") + redactor.flush();
