@@ -249,11 +249,16 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       const grantable = choices.filter((choice) => choice === "once");
       const offered: CareerOpsApprovalChoice[] =
         grantable.length > 0 ? [...grantable, "deny"] : ["deny"];
+      // `redactSecrets`, never `redactUpstreamError`: the latter clips at its own
+      // 300-character error bound, which is shorter than the bound `truncated`
+      // was computed against. A 301-400 character command would then be clipped
+      // while the prompt still offered `once` — exactly the silent truncation the
+      // check above exists to prevent. Redaction here must not shorten anything.
       return {
         type: "approval_required",
         operation: redactSecrets(asString(event.pattern_key, 120)),
-        summary: redactUpstreamError(asString(event.description, APPROVAL_TEXT_LIMIT)),
-        details: redactUpstreamError(asString(event.command, APPROVAL_TEXT_LIMIT)),
+        summary: redactSecrets(asString(event.description, APPROVAL_TEXT_LIMIT)),
+        details: redactSecrets(asString(event.command, APPROVAL_TEXT_LIMIT)),
         choices: truncated ? ["deny"] : offered,
         truncated,
       };

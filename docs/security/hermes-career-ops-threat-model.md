@@ -24,7 +24,8 @@ Scope: the Nexus code under `lib/career-ops/`, `app/api/career-ops/`, `component
 - The token is read only in `lib/career-ops/config.ts`, a server module never imported by a client component.
 - It is stored as a **non-enumerable** property, so `JSON.stringify(config)` and `{...config}` cannot carry it into a log line or a response.
 - No `NEXT_PUBLIC_` variable exists for it, so it cannot enter a client bundle.
-- `redactUpstreamError()` strips bearer tokens, `api_key`/`token`/`secret` assignments, `sk-` prefixed strings, and the configured key itself from any text derived from the upstream, and bounds the result to 300 characters.
+- `redactSecrets()` strips bearer tokens, `api_key`/`token`/`secret` assignments, `sk-` prefixed strings, and the configured key itself from any text derived from the upstream. `redactUpstreamError()` adds a 300-character bound for error text.
+- Approval prompts deliberately use the **non-truncating** variant. Their text is already bounded at the display bound that decides whether the prompt is rejection-only, and a second, shorter clip there would hide a consequential suffix from an action the human is being asked to authorize.
 - Route tests assert that no response body or thrown error contains the configured key, across success, 401/403/404/409/429/5xx, and stream-failure paths.
 
 *Residual:* an operator who puts the key in a shell history, a process listing, or a world-readable env file. Deployment guidance covers this; Nexus cannot enforce it.

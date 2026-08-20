@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  APPROVAL_TEXT_LIMIT,
   SecretBoundaryRedactor,
   SseFrameParser,
   SseStreamTooLargeError,
@@ -191,6 +192,36 @@ describe("approval prompts that do not fit the display bound", () => {
       }),
     );
     expect(event).toMatchObject({ type: "approval_required", truncated: true, choices: ["deny"] });
+  });
+
+  it("displays the whole action whenever it offers a grant", () => {
+    // The bound that decides `truncated` and the bound the text is actually cut
+    // at have to be the same one. When they diverge, a command between the two
+    // is clipped while the prompt still offers `once`, and the human authorizes
+    // a suffix they were never shown.
+    for (const length of [350, APPROVAL_TEXT_LIMIT]) {
+      const command = `nexus update ${"a".repeat(length - 21)} --force`;
+      const description = `Run ${"b".repeat(length - 8)} now`;
+      expect(command).toHaveLength(length);
+      expect(description).toHaveLength(length);
+      const event = normalizeHermesEvent(
+        JSON.stringify({
+          event: "approval.request",
+          pattern_key: "shell",
+          description,
+          command,
+          choices: ["once", "deny"],
+        }),
+      );
+      expect(event).toEqual({
+        type: "approval_required",
+        operation: "shell",
+        summary: description,
+        details: command,
+        choices: ["once", "deny"],
+        truncated: false,
+      });
+    }
   });
 
   it("keeps the offered choices when the whole action fits", () => {
