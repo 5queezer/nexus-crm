@@ -999,9 +999,24 @@ describe("run controls", () => {
 
   /** Mirrors the run's outstanding-approval slot the way the adapters do. */
   let outstandingChallenge: string | null = null;
+  /** The run's own status, which is the other signal that a gate is open. */
+  let runStatus: string = RUN.status;
+
+  /**
+   * Put the run at a gate with no recoverable prompt: the event route records
+   * `waiting_for_approval` when it emits the prompt, and the challenge may
+   * never have landed or may already have been claimed. This is the state the
+   * "denial is always available" requirement is about — a run that is merely
+   * executing is not at a gate at all.
+   */
+  function atGateWithoutPrompt() {
+    runStatus = "waiting_for_approval";
+    outstandingChallenge = null;
+  }
 
   beforeEach(() => {
     outstandingChallenge = null;
+    runStatus = RUN.status;
     mocks.db.setCareerOpsPendingApprovalChallenge.mockImplementation(
       async (_id: string, _userId: string, challengeId: string | null) => {
         outstandingChallenge = challengeId;
@@ -1023,6 +1038,7 @@ describe("run controls", () => {
     });
     mocks.db.getCareerOpsRun.mockImplementation(async () => ({
       ...RUN,
+      status: runStatus,
       pendingApprovalChallengeId: outstandingChallenge,
     }));
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
@@ -1061,11 +1077,13 @@ describe("run controls", () => {
   });
 
   it("forwards an approval decision for an owned run", async () => {
+    atGateWithoutPrompt();
     await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
     expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
   });
 
   it("records the decision for attribution after forwarding it", async () => {
+    atGateWithoutPrompt();
     await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
     // Intent first, outcome second: a decision Hermes accepted must never be
     // invisible to Nexus just because the later write failed.
@@ -1106,6 +1124,7 @@ describe("run controls", () => {
     // Recording first exists so a privileged action is never taken without
     // attribution. Forwarding anyway when the record fails would defeat that.
     mocks.db.recordCareerOpsApprovalDecision.mockRejectedValue(new Error("db down"));
+    atGateWithoutPrompt();
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
       code: "upstream_error",
     });
@@ -1165,6 +1184,7 @@ describe("run controls", () => {
     // A transport failure does not say whether Hermes applied the decision, so
     // the record must not claim it did — nor silently disappear.
     mocks.client.resolveApproval.mockRejectedValue(new HermesError("timeout", "gone quiet"));
+    atGateWithoutPrompt();
 
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toBeTruthy();
     expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
@@ -1312,8 +1332,30 @@ describe("run controls", () => {
     // After the single-consumer stream drops, the prompt cannot be reissued.
     // Denial grants nothing, so requiring proof of disclosure for it would take
     // away the safe option in exactly the case that needs it.
+    atGateWithoutPrompt();
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).resolves.toBeUndefined();
     expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
+  });
+
+  it("refuses a decision for a run that is not at a gate", async () => {
+    // A stale or direct decision for a run that is merely executing answers
+    // nothing. It used to be recorded and forwarded anyway, and since this run
+    // holds a single approval audit slot, the `not_applied` that came back
+    // overwrote the record of the decision the user actually made.
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
+      code: "conflict",
+    });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+    expect(mocks.db.recordCareerOpsApprovalDecision).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision for a run that has already finished", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "completed" });
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
+      code: "conflict",
+    });
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+    expect(mocks.db.recordCareerOpsApprovalDecision).not.toHaveBeenCalled();
   });
 
   it("rejects every operation when the integration is disabled", async () => {

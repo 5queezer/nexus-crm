@@ -824,6 +824,13 @@ export async function openCareerOpsRunEvents(
   if (isUnbound(run)) {
     throw new CareerOpsServiceError("conflict", "The run has not started yet");
   }
+  // A decision only means anything while a gate is open. A finished run has no
+  // gate, and this run holds a single approval audit slot — so forwarding a
+  // stale decision here would overwrite the record of the decision the user
+  // actually made with an unrelated `not_applied`.
+  if (TERMINAL_RUN_STATUSES.includes(run.status)) {
+    throw new CareerOpsServiceError("conflict", "That run has already finished");
+  }
   try {
     const upstream = await client(config).openRunEvents(run.hermesRunId, signal);
     return {
@@ -946,6 +953,15 @@ export async function resolveCareerOpsApproval(
       (await getDb()
         .takeCareerOpsPendingApprovalChallenge(run.id, session.userId)
         .catch(() => null)) ?? "";
+    // Two independent signals that a gate is open, because either write can
+    // fail on its own: an outstanding challenge, or the run recorded as
+    // waiting. Neither means the run is merely executing, and a decision then
+    // answers nothing — it only overwrites the audit slot and puts a forward on
+    // the wire that a later gate could absorb. Stop stays available, and is the
+    // stronger action in that situation anyway.
+    if (!consumedChallengeId && run.status !== "waiting_for_approval") {
+      throw new CareerOpsServiceError("conflict", "No approval is awaiting a decision");
+    }
   } else {
     const verified = verifyApprovalChallenge(config, challenge, {
       runId: run.id,

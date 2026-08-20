@@ -66,6 +66,14 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** the owner rejects a gated action, including when the prompt could not be recovered after a disconnect
 - **THEN** the system forwards the rejection, because rejection grants nothing and must remain available exactly when disclosure could not be reproduced
 
+#### Scenario: Decision for a run that is not at a gate
+- **WHEN** any decision, including a rejection, arrives for a run that is executing without a gate awaiting a decision, or that has already reached a terminal state
+- **THEN** the system refuses it and neither records nor forwards it, because it answers nothing and would otherwise overwrite the record of the decision the owner actually made
+
+#### Scenario: Two rejections race for the same gate
+- **WHEN** two rejections for the same outstanding approval are submitted concurrently
+- **THEN** at most one is forwarded, because the decision belongs to whichever claim the database accepts, not to whichever request read the gate first
+
 ### Requirement: An action that cannot be shown in full is not approvable
 The system SHALL treat an approval prompt whose disclosed action does not fit the display bound as rejection-only, and SHALL NOT offer approval for an action the human cannot have seen in full.
 

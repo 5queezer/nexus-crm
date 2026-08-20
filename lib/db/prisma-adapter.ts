@@ -2338,11 +2338,16 @@ export class PrismaAdapter implements DatabaseAdapter {
     return prisma.$transaction(async (tx) => {
       const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
       if (!run?.pendingApprovalChallengeId) return null;
-      await tx.careerOpsRun.updateMany({
+      const cleared = await tx.careerOpsRun.updateMany({
         where: { id, userId, pendingApprovalChallengeId: run.pendingApprovalChallengeId },
         data: { pendingApprovalChallengeId: null },
       });
-      return run.pendingApprovalChallengeId;
+      // The conditional write decides, not the read. Two overlapping denials
+      // both see the same pending challenge; without this both are handed the
+      // id and both get forwarded, so the second can answer a gate the agent
+      // has already advanced to. Firestore gets this from transaction retry —
+      // the loser re-reads and finds nothing pending.
+      return cleared.count === 1 ? run.pendingApprovalChallengeId : null;
     });
   }
 

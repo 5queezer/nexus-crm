@@ -928,6 +928,50 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
   });
 
+  it("hands an outstanding challenge to exactly one denial", async () => {
+    // Two overlapping denials both read the same pending challenge before
+    // either conditional write commits. Returning the id to the loser as well
+    // put two decisions on the wire, and the second could answer a gate the
+    // agent had already advanced to. The conditional write decides, not the
+    // read.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-take",
+      status: "waiting_for_approval",
+    });
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
+
+    const taken = await Promise.all([
+      db.takeCareerOpsPendingApprovalChallenge(run.id, "user-a"),
+      db.takeCareerOpsPendingApprovalChallenge(run.id, "user-a"),
+    ]);
+    expect(taken.filter((value) => value === "gate-a")).toHaveLength(1);
+    expect(taken.filter((value) => value === null)).toHaveLength(1);
+
+    // The slot is empty afterwards, and a later denial finds nothing pending.
+    await expect(db.takeCareerOpsPendingApprovalChallenge(run.id, "user-a")).resolves.toBeNull();
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: null,
+    });
+  });
+
+  it("refuses to take a challenge for another user's run", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-take-foreign",
+      status: "waiting_for_approval",
+    });
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
+    await expect(db.takeCareerOpsPendingApprovalChallenge(run.id, "user-b")).resolves.toBeNull();
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: "gate-a",
+    });
+  });
+
   it("deletes a conversation whose history exceeds one write batch", async () => {
     // Firestore caps a batch at 500 writes. A long-lived conversation would be
     // undeletable if the cleanup were not chunked, and the fake now rejects an

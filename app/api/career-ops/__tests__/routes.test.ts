@@ -474,6 +474,9 @@ describe("run controls", () => {
   });
 
   it("forwards a valid approval decision", async () => {
+    // A decision only means something while the run is at a gate; the event
+    // route records `waiting_for_approval` when it discloses the prompt.
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "waiting_for_approval" });
     const response = await approveRun(post({ choice: "deny" }), runContext);
     expect(response.status).toBe(200);
     expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
