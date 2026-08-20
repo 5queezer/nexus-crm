@@ -363,7 +363,9 @@ describe("credential stripping in assistant output", () => {
     // went straight through. It is not this deployment's key that leaks here —
     // it is a Nexus token the agent happened to print.
     delete process.env.HERMES_CAREER_OPS_API_KEY;
-    const token = "jt_9f3a1c7d5e2b4a6c8d0f1e3a5b7c9d1f";
+    // Deliberately low-entropy and self-describing: a random-looking literal
+    // here trips secret scanners in CI, which is noise, not a finding.
+    const token = `jt_${"not-a-real-token-".repeat(2)}`;
     const redactor = new SecretBoundaryRedactor();
     let out = redactor.push(`${"filler ".repeat(20)}Bearer ${token.slice(0, 4)}`);
     out += redactor.push(`${token.slice(4)} trailing`);
