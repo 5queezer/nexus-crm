@@ -714,6 +714,30 @@ describe("application context", () => {
     ).toHaveLength(1);
   });
 
+  it("leaves the loading state after creating a first conversation", async () => {
+    // The generation guard treated the load's own createThread as a newer
+    // selection, so the finally block skipped clearing `loading` and a
+    // first-time drawer sat on the loading state until it was reopened.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [] }));
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.method === "POST" && c.url.endsWith("/api/career-ops/threads")),
+      ).toBe(true),
+    );
+    // The composer is only enabled once loading has cleared and a conversation
+    // is active, so this is the user-visible form of the same property.
+    // The composer is enabled only once a conversation is active and loading
+    // has cleared, so this is the user-visible form of the same property.
+    await waitFor(() =>
+      expect((within(dialog).getByRole("textbox") as HTMLTextAreaElement).disabled).toBe(false),
+    );
+    expect(within(dialog).queryByText(/loading/i)).toBeNull();
+  });
+
   it("offers Stop only once the run has an id", async () => {
     // During `starting` the handler would return without making a request, so
     // the user would believe they stopped an agent that went on to run.

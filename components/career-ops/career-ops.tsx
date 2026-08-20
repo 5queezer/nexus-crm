@@ -290,7 +290,7 @@ export function CareerOps({
     // create one — two Hermes sessions and two Nexus conversations for a user
     // who opened a drawer twice. The generation makes the later load the only
     // one allowed to create or select.
-    const generation = ++selectionRef.current;
+    let generation = ++selectionRef.current;
     const current = () => selectionRef.current === generation;
 
     setLoading(true);
@@ -308,8 +308,15 @@ export function CareerOps({
         if (!current()) return;
         await rejoinActiveRun(preferred.id, generation);
       } else {
+        // `createThread` starts a new selection of its own, so adopt that
+        // generation rather than treating this load's own creation as stale —
+        // otherwise the guard below never runs and the drawer stays on the
+        // loading state forever for a first-time user. A concurrent load would
+        // have bumped it further, which this still detects.
+        const before = selectionRef.current;
         const created = await createThread(Boolean(application));
-        if (!current()) return;
+        if (selectionRef.current !== before + 1) return;
+        generation = selectionRef.current;
         setActiveThreadId(created.id);
       }
     } catch (reason) {
