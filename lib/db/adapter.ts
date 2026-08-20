@@ -203,6 +203,13 @@ export interface DatabaseAdapter {
     challengeId: string,
   ): Promise<boolean>;
 
+  /**
+   * Atomically clear whatever approval challenge is outstanding and report what
+   * it was. Used by denial, which carries no challenge of its own but must
+   * still win the gate so a concurrent grant cannot also proceed.
+   */
+  takeCareerOpsPendingApprovalChallenge(id: string, userId: string): Promise<string | null>;
+
   recordCareerOpsApprovalDecision(
     id: string,
     userId: string,

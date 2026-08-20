@@ -2763,6 +2763,21 @@ export class FirestoreAdapter implements DatabaseAdapter {
     });
   }
 
+  async takeCareerOpsPendingApprovalChallenge(
+    id: string,
+    userId: string,
+  ): Promise<string | null> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<string | null>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
+      const pending = snapshot.data()!.pendingApprovalChallengeId;
+      if (typeof pending !== "string" || !pending) return null;
+      tx.update(ref, { pendingApprovalChallengeId: null });
+      return pending;
+    });
+  }
+
   async recordCareerOpsApprovalDecision(
     id: string,
     userId: string,

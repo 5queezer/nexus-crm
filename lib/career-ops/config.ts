@@ -149,11 +149,15 @@ const SECRET_PATTERNS: RegExp[] = [
 export function redactSecrets(input: unknown): string {
   if (input === undefined || input === null) return "";
   let text = input instanceof Error ? input.message : String(input);
-  for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, "[redacted]");
 
+  // Exact configured secrets first. The generic patterns below match things
+  // like `Bearer <prefix>`, and running them first would replace a prefix of
+  // the real key with a placeholder — after which the exact key is no longer
+  // present to match and its remainder survives.
   for (const secret of configuredSecrets()) {
     text = text.split(secret).join("[redacted]");
   }
+  for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, "[redacted]");
   return text;
 }
 

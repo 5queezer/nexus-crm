@@ -674,7 +674,20 @@ export async function startCareerOpsRun(
     clientRequestId: input.clientRequestId,
     status: "queued",
   });
-  if (claim.outcome === "existing") return claim.run;
+  if (claim.outcome === "existing") {
+    // An unbound reservation is an ambiguous earlier submission: Hermes may be
+    // executing it, and Nexus has no id to observe or stop it with. Returning
+    // it as an accepted run would have the client subscribe to events that 409
+    // and poll a status that stays `queued` for the whole run lifetime. Say it
+    // is uncertain instead.
+    if (isUnbound(claim.run)) {
+      throw new CareerOpsServiceError(
+        "conflict",
+        "An earlier attempt may still be starting; wait before retrying",
+      );
+    }
+    return claim.run;
+  }
   if (claim.outcome === "thread_gone") {
     throw new CareerOpsServiceError("not_found", "Not found");
   }
@@ -919,13 +932,20 @@ export async function resolveCareerOpsApproval(
   // dropped. Denial stays available to the owner unconditionally.
   let consumedChallengeId = "";
   if (choice === "deny") {
-    // Denial needs no proof of disclosure, but it must still invalidate the
-    // outstanding challenge. Otherwise a denial can reach Hermes first, the run
-    // can advance to the next gate, and a grant still carrying the previous
-    // gate's token would be applied to the new action.
-    await getDb()
-      .setCareerOpsPendingApprovalChallenge(run.id, session.userId, null)
-      .catch(() => undefined);
+    // Denial needs no proof of disclosure — it grants nothing, and demanding
+    // proof would remove the safe option exactly when the prompt could not be
+    // recovered. But it must still *claim* the gate, atomically, or a denial
+    // and a grant racing on the same gate could both be forwarded.
+    //
+    // A null result means no gate was outstanding: either none was ever
+    // disclosed (the recovered-prompt case, where denial must still work) or a
+    // grant has just claimed it. Denial proceeds either way, because it cannot
+    // authorize anything; Hermes refuses a decision for a gate that is no
+    // longer pending.
+    consumedChallengeId =
+      (await getDb()
+        .takeCareerOpsPendingApprovalChallenge(run.id, session.userId)
+        .catch(() => null)) ?? "";
   } else {
     const verified = verifyApprovalChallenge(config, challenge, {
       runId: run.id,

@@ -73,18 +73,35 @@ export class SecretBoundaryRedactor {
   }
 
   push(text: string): string {
-    const combined = redactSecrets(this.carry + text);
+    // The carry is kept RAW. Holding the redacted tail instead destroys the
+    // seam this class exists to inspect: once a leading fragment has been
+    // replaced by a placeholder — the generic `Bearer <prefix>` rule does
+    // exactly that — the reassembled text no longer contains the secret and its
+    // remainder is emitted intact.
+    const combined = this.carry + text;
     if (this.window === 0) {
       this.carry = "";
-      return combined;
+      return redactSecrets(combined);
     }
     if (combined.length <= this.window) {
       this.carry = combined;
       return "";
     }
-    const emitted = combined.slice(0, combined.length - this.window);
-    this.carry = combined.slice(combined.length - this.window);
-    return emitted;
+
+    // Never cut through a secret. If one straddles the boundary, hold the whole
+    // occurrence back so the next chunk (or flush) redacts it intact; otherwise
+    // its leading half would be emitted before anything could match it.
+    let cut = combined.length - this.window;
+    for (const secret of configuredSecrets()) {
+      let at = combined.indexOf(secret);
+      while (at !== -1) {
+        if (at < cut && at + secret.length > cut) cut = at;
+        at = combined.indexOf(secret, at + 1);
+      }
+    }
+
+    this.carry = combined.slice(cut);
+    return redactSecrets(combined.slice(0, cut));
   }
 
   /** Emit whatever is still held back, once no more text can arrive. */
@@ -183,11 +200,16 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
 
   switch (name) {
     case "message.delta": {
-      // Assistant output is upstream-derived text like any other, so it gets
-      // the same credential stripping — a broken or compromised Hermes echoing
-      // the bearer key would otherwise forward it straight to the browser.
-      // Splits across delta boundaries are handled by SecretBoundaryRedactor.
-      const text = redactSecrets(asString(event.delta, 16_000));
+      // Deliberately NOT redacted here. Redacting each frame first destroys the
+      // seam the boundary redactor exists to inspect: if the first half of a key
+      // independently matches the generic bearer pattern it becomes
+      // "[redacted]", and the reassembled text no longer contains the secret to
+      // match — so the second half is emitted verbatim.
+      //
+      // Delta text is therefore raw at this layer and MUST pass through
+      // SecretBoundaryRedactor before it reaches a client. The run event route
+      // is the only consumer and does exactly that.
+      const text = asString(event.delta, 16_000);
       return text ? { type: "delta", text } : null;
     }
     case "tool.started": {

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
     setCareerOpsPendingApprovalChallenge: vi.fn(),
+    takeCareerOpsPendingApprovalChallenge: vi.fn(),
     consumeCareerOpsApprovalChallenge: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
@@ -1014,6 +1015,12 @@ describe("run controls", () => {
         return true;
       },
     );
+    // Denial claims whatever gate is outstanding, atomically.
+    mocks.db.takeCareerOpsPendingApprovalChallenge.mockImplementation(async () => {
+      const previous = outstandingChallenge;
+      outstandingChallenge = null;
+      return previous;
+    });
     mocks.db.getCareerOpsRun.mockImplementation(async () => ({
       ...RUN,
       pendingApprovalChallengeId: outstandingChallenge,
@@ -1285,6 +1292,20 @@ describe("run controls", () => {
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
     ).rejects.toMatchObject({ code: "conflict" });
     expect(mocks.client.resolveApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets only one of a racing grant and denial reach the agent", async () => {
+    // Both used to be forwarded: the grant consumed the gate atomically while
+    // the denial cleared it unconditionally, so neither excluded the other.
+    const challenge = await challengeFor("run-1", ["once"]);
+    await Promise.all([
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge).catch(() => undefined),
+      resolveCareerOpsApproval(SESSION_A, "run-1", "deny").catch(() => undefined),
+    ]);
+    // The gate is claimed once; a later decision for it finds nothing pending.
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 
   it("always lets the owner deny, even with no recoverable prompt", async () => {

@@ -246,12 +246,36 @@ describe("credential stripping in assistant output", () => {
     delete process.env.HERMES_CAREER_OPS_API_KEY;
   });
 
-  it("strips the configured key from a streamed delta", () => {
+  it("strips the configured key from a streamed delta once reassembled", () => {
+    // Delta frames are raw at the normalizer, by design: redacting each frame
+    // first would destroy the seam the boundary redactor inspects. The
+    // guarantee is on the reassembled output.
     const event = normalizeHermesEvent(
       JSON.stringify({ event: "message.delta", delta: `here it is: ${KEY} ok` }),
     );
     expect(event).toMatchObject({ type: "delta" });
-    expect(JSON.stringify(event)).not.toContain(KEY);
+
+    const redactor = new SecretBoundaryRedactor();
+    const out = redactor.push((event as { text: string }).text) + redactor.flush();
+    expect(out).not.toContain(KEY);
+  });
+
+  it("catches a key whose first half matches the bearer pattern on its own", () => {
+    // The case that made per-frame redaction wrong: the leading fragment
+    // matches the generic `Bearer <prefix>` rule by itself. Redacted in
+    // isolation it becomes "[redacted]", the reassembled text no longer holds
+    // the secret, and the trailing half would be emitted verbatim.
+    const redactor = new SecretBoundaryRedactor();
+    const half = Math.floor(KEY.length / 2);
+    // The filler matters: without it the first chunk is shorter than the
+    // hold-back window and would be retained whole regardless, so the test
+    // would pass against a redactor that mishandles the seam.
+    let out = redactor.push(`${"filler ".repeat(20)}Bearer ${KEY.slice(0, half)}`);
+    out += redactor.push(`${KEY.slice(half)} trailing`);
+    out += redactor.flush();
+
+    expect(out).not.toContain(KEY);
+    expect(out).not.toContain(KEY.slice(half));
   });
 
   it("strips the configured key from completed output", () => {
@@ -279,7 +303,9 @@ describe("credential stripping in assistant output", () => {
     // A rule, not a per-field judgement: deciding case by case which upstream
     // text could carry a credential is exactly how assistant output was missed.
     const frames = [
-      { event: "message.delta", delta: `x ${KEY}` },
+      // message.delta is deliberately raw here and is covered separately: it
+      // must pass through SecretBoundaryRedactor, which needs the seam intact.
+
       { event: "tool.started", tool: `tool ${KEY}` },
       { event: "tool.completed", tool: `tool ${KEY}`, duration: 1 },
       {

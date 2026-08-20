@@ -2331,6 +2331,21 @@ export class PrismaAdapter implements DatabaseAdapter {
     return updated.count === 1;
   }
 
+  async takeCareerOpsPendingApprovalChallenge(
+    id: string,
+    userId: string,
+  ): Promise<string | null> {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
+      if (!run?.pendingApprovalChallengeId) return null;
+      await tx.careerOpsRun.updateMany({
+        where: { id, userId, pendingApprovalChallengeId: run.pendingApprovalChallengeId },
+        data: { pendingApprovalChallengeId: null },
+      });
+      return run.pendingApprovalChallengeId;
+    });
+  }
+
   async recordCareerOpsApprovalDecision(
     id: string,
     userId: string,
