@@ -551,6 +551,7 @@ const RESERVATION = {
 describe("startCareerOpsRun", () => {
   beforeEach(() => {
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.client.listSessionMessages.mockResolvedValue([]);
     mocks.client.createRun.mockResolvedValue({ runId: "run_1" });
     mocks.db.claimCareerOpsRun.mockResolvedValue({ outcome: "claimed", run: { ...RESERVATION } });
     mocks.db.bindCareerOpsRunHermesId.mockResolvedValue({ ...RESERVATION });
@@ -565,6 +566,74 @@ describe("startCareerOpsRun", () => {
     const [args] = mocks.client.createRun.mock.calls[0];
     expect(args.sessionId).toBe("sess-1");
     expect(args.input).toBe("hello");
+  });
+
+  it("carries the earlier turns into the next one", async () => {
+    // The Runs API assembles model history from explicit request fields; it
+    // does not hydrate stored messages from `session_id`. Sending the session
+    // id alone gave a drawer that displayed a continuous conversation while
+    // every turn started from nothing — and no mock caught it, because the mock
+    // answered whatever contract this client sent.
+    mocks.client.listSessionMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "my target is a staff role", createdAt: 1 },
+      { id: "m2", role: "assistant", content: "noted, staff level", createdAt: 2 },
+    ]);
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "which of my applications match it?",
+      clientRequestId: "client-id-turn-two",
+    });
+
+    const [args] = mocks.client.createRun.mock.calls[0];
+    // Turn two must be able to answer "it" — the referent is only in turn one.
+    expect(args.history).toEqual([
+      { role: "user", content: "my target is a staff role" },
+      { role: "assistant", content: "noted, staff level" },
+    ]);
+  });
+
+  it("bounds the replayed history by turns and by size, keeping the newest", async () => {
+    // This text is assistant output, so it is attacker-influenced and shares
+    // the request-body limits of everything else on this path. A follow-up
+    // refers to the newest turns, so those are the ones worth the budget.
+    mocks.client.listSessionMessages.mockResolvedValue(
+      Array.from({ length: 60 }, (_, index) => ({
+        id: `m${index}`,
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `turn ${index}`,
+        createdAt: index,
+      })),
+    );
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "and now?",
+      clientRequestId: "client-id-bounded-history",
+    });
+
+    const [args] = mocks.client.createRun.mock.calls[0];
+    expect(args.history.length).toBeLessThanOrEqual(20);
+    // Oldest first within what was kept, and the newest turn is present.
+    expect(args.history.at(-1)).toEqual({ role: "assistant", content: "turn 59" });
+    expect(args.history.map((m: { content: string }) => m.content)).not.toContain("turn 0");
+  });
+
+  it("refuses to start a turn whose earlier turns it could not read", async () => {
+    // Failing closed: a conversation that silently forgets is the defect this
+    // history exists to fix, so an unreadable transcript is reported rather
+    // than papered over with a run that starts from nothing.
+    mocks.client.listSessionMessages.mockRejectedValue(
+      new HermesError("upstream_error", "transcript unavailable"),
+    );
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "continue",
+        clientRequestId: "client-id-no-history",
+      }),
+    ).rejects.toBeTruthy();
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    // Nothing was sent upstream, so the conversation must not stay reserved.
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
   it("claims the client request id before starting anything upstream", async () => {

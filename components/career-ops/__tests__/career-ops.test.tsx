@@ -389,6 +389,49 @@ describe("application context", () => {
     expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
   });
 
+  it("never shows one conversation while the composer addresses another", async () => {
+    // Reopening commits the selected thread id before its transcript arrives.
+    // With the previous conversation's messages still rendered and `loading`
+    // outside `busy`, the user could read one conversation and submit to the
+    // other.
+    const user = userEvent.setup();
+    const first = { ...THREAD, id: "thread-first", applicationId: null, title: "First" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [first] }));
+
+    let releaseMessages: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseMessages = resolve;
+    });
+    let loads = 0;
+    route("GET", /\/threads\/[^/]+\/messages$/, async () => {
+      loads += 1;
+      // The reopen's transcript load is held open.
+      if (loads > 1) await held;
+      return json({ messages: [{ id: "m1", role: "assistant", content: "earlier answer" }] });
+    });
+
+    renderCareerOps();
+    let dialog = await openDrawer(user);
+    await waitFor(() => expect(within(dialog).getByText(/earlier answer/)).toBeTruthy());
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "next question");
+
+    await user.keyboard("{Escape}");
+    dialog = await openDrawer(user);
+    await waitFor(() => expect(loads).toBeGreaterThan(1));
+
+    // Mid-load the previous transcript must be gone, and the composer must not
+    // accept a submission for a conversation whose messages are not on screen.
+    expect(within(dialog).queryByText(/earlier answer/)).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    releaseMessages();
+    await waitFor(() =>
+      expect(within(dialog).getByText(/earlier answer/)).toBeTruthy(),
+    );
+  });
+
   it("discards a scope refresh for a conversation that is no longer selected", async () => {
     // A settled run re-reads its own conversation's scope. That read can land
     // after the user has selected a different conversation, and applying it

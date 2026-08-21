@@ -356,6 +356,16 @@ export function createHermesClient(config: EnabledConfig) {
       sessionId: string;
       instructions?: string;
       memoryScope?: string;
+      /**
+       * Prior turns, oldest first.
+       *
+       * The Runs API assembles model history from explicit request fields; it
+       * does not hydrate stored messages from `session_id`. Sending the session
+       * id alone produced a conversation that forgot everything between turns
+       * while the drawer presented a continuous thread — and no mock could
+       * catch it, because the mock answered the contract this client sent.
+       */
+      history?: readonly { role: "user" | "assistant"; content: string }[];
     }): Promise<{ runId: string }> {
       const body = await json(
         await request(
@@ -365,6 +375,14 @@ export function createHermesClient(config: EnabledConfig) {
             body: {
               input: input.input,
               session_id: input.sessionId,
+              ...(input.history && input.history.length > 0
+                ? {
+                    conversation_history: input.history.map((message) => ({
+                      role: message.role,
+                      content: message.content,
+                    })),
+                  }
+                : {}),
               ...(input.instructions ? { instructions: input.instructions } : {}),
             },
             memoryScope: input.memoryScope,

@@ -319,6 +319,15 @@ export function CareerOps({
         ? result.threads.find((thread) => thread.applicationId === application.id)
         : result.threads.find((thread) => thread.applicationId === null);
       if (preferred) {
+        // Commit the identity and the state that belongs to it together. React
+        // batches these into one render, so the drawer never shows the previous
+        // conversation's transcript, run controls or scope badge under the newly
+        // selected conversation's id.
+        setMessages([]);
+        setThreadApplication(null);
+        setTranscriptFailed(false);
+        pendingRequestRef.current = null;
+        reset();
         setActiveThreadId(preferred.id);
         await loadMessages(preferred.id, generation);
         if (!current()) return;
@@ -341,7 +350,7 @@ export function CareerOps({
     } finally {
       if (current()) setLoading(false);
     }
-  }, [application, createThread, loadMessages, rejoinActiveRun]);
+  }, [application, createThread, loadMessages, rejoinActiveRun, reset]);
 
   useEffect(() => {
     if (!open || !status?.available) return;
@@ -415,11 +424,24 @@ export function CareerOps({
   // and thread controls live would let a new run abort the pending one's stream
   // while the first privileged action is still undecided, or discard the only
   // visible approval prompt. Only the approval controls stay operable.
-  const busy =
+  /** A run is actually in flight — what the spinner and Stop control describe. */
+  const running =
     run.phase === "starting" ||
     run.phase === "streaming" ||
     run.phase === "reconnecting" ||
     run.phase === "waiting_approval";
+
+  /**
+   * When the drawer must refuse input, which is wider than `running`.
+   *
+   * A selection commits the active thread id before its transcript arrives, so
+   * during the load the composer would be addressing one conversation while
+   * another's messages are still on screen — the user reads B and submits to A.
+   * Blocking submission until the selected thread's load finishes is what makes
+   * the two agree. The label stays "send" though: nothing is being sent, and
+   * saying otherwise would describe a run that does not exist.
+   */
+  const busy = running || loading;
 
   async function selectThread(threadId: string) {
     if (busy) return;
@@ -455,6 +477,8 @@ export function CareerOps({
       setActiveThreadId(null);
       setMessages([]);
       setThreadApplication(null);
+      setTranscriptFailed(false);
+      pendingRequestRef.current = null;
       reset();
     }
   }
@@ -855,7 +879,7 @@ export function CareerOps({
                     aria-live="polite"
                     className="mb-2 flex items-center gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400"
                   >
-                    {busy && (
+                    {running && (
                       <Loader2
                         className="h-3 w-3 animate-spin motion-reduce:animate-none"
                         aria-hidden="true"
@@ -885,7 +909,7 @@ export function CareerOps({
                         no id yet, so Stop would render enabled and do nothing —
                         the user would believe they had stopped an agent that
                         went on to run. */}
-                    {busy && status.capabilities.stop && run.runId ? (
+                    {running && status.capabilities.stop && run.runId ? (
                       <button
                         type="button"
                         onClick={() => void stop()}
@@ -900,7 +924,7 @@ export function CareerOps({
                         disabled={busy || !draft.trim() || !activeThreadId}
                         className="nexus-target nexus-focus-ring flex shrink-0 items-center gap-1.5 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-950"
                       >
-                        {busy ? (
+                        {running ? (
                           <Loader2
                             className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
                             aria-hidden="true"
@@ -908,11 +932,11 @@ export function CareerOps({
                         ) : (
                           <Send className="h-3.5 w-3.5" aria-hidden="true" />
                         )}
-                        {busy ? t("sending") : t("send")}
+                        {running ? t("sending") : t("send")}
                       </button>
                     )}
                   </form>
-                  {busy && !status.capabilities.stop && (
+                  {running && !status.capabilities.stop && (
                     <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
                       <Wrench className="h-3 w-3" aria-hidden="true" />
                       {t("stop_unsupported")}

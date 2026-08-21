@@ -319,6 +319,43 @@ const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
  * in-flight submission is never mistaken for a stale one.
  */
 /**
+ * How much prior conversation is replayed to Hermes on each turn.
+ *
+ * Bounded twice — by turns and by characters — because this text is
+ * attacker-influenced (it is assistant output) and goes into a request body
+ * that must stay within the same limits as everything else on this path. The
+ * most recent turns are kept: those are the ones a follow-up refers to.
+ */
+const HISTORY_MAX_MESSAGES = 20;
+const HISTORY_MAX_CHARS = 24_000;
+
+/**
+ * The prior turns of a conversation, oldest first and bounded.
+ *
+ * Necessary because the Runs API builds model history from explicit request
+ * fields and does not hydrate stored messages from `session_id`. Passing the
+ * session id alone produced a drawer that showed a continuous conversation
+ * while every turn started from nothing.
+ */
+function boundedHistory(
+  messages: readonly { role: "user" | "assistant"; content: string }[],
+): { role: "user" | "assistant"; content: string }[] {
+  const kept: { role: "user" | "assistant"; content: string }[] = [];
+  let budget = HISTORY_MAX_CHARS;
+  // Walk backwards: a follow-up refers to the newest turns, so those are the
+  // ones worth spending the budget on.
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (kept.length >= HISTORY_MAX_MESSAGES) break;
+    const message = messages[i];
+    if (!message.content) continue;
+    if (message.content.length > budget) break;
+    budget -= message.content.length;
+    kept.push({ role: message.role, content: message.content });
+  }
+  return kept.reverse();
+}
+
+/**
  * Grace beyond the run lifetime before a reservation is given up on.
  *
  * The lifetime is what Nexus watches for; Hermes may still be finishing when it
@@ -753,12 +790,27 @@ export async function startCareerOpsRun(
     throw toServiceError(reason);
   }
 
+  // Read the prior turns before submitting. Fails closed: a conversation that
+  // silently forgets what was said is the defect being fixed here, so a
+  // transcript this call cannot read is reported rather than papered over with
+  // a run that starts from nothing.
+  let history: { role: "user" | "assistant"; content: string }[];
+  try {
+    history = boundedHistory(await client(config).listSessionMessages(thread.hermesSessionId));
+  } catch (reason) {
+    // Provably before submission, so the claim must be released — the same
+    // reasoning as the instructions read above.
+    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    throw toServiceError(reason);
+  }
+
   let runId: string;
   try {
     ({ runId } = await client(config).createRun({
       input: message,
       sessionId: thread.hermesSessionId,
       instructions,
+      history,
       memoryScope: careerOpsMemoryScope(config, session.userId),
     }));
   } catch (reason) {

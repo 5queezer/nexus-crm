@@ -128,6 +128,8 @@ beforeEach(() => {
     sessions: true,
   });
   mocks.client.stopRun.mockResolvedValue(undefined);
+  // Prior turns are read before every submission; empty is the first-turn case.
+  mocks.client.listSessionMessages.mockResolvedValue([]);
   mocks.client.resolveApproval.mockResolvedValue(undefined);
   mocks.client.deleteSession.mockResolvedValue(undefined);
   mocks.db.getCareerOpsThread.mockResolvedValue(null);

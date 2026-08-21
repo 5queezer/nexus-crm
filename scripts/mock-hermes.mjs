@@ -72,7 +72,7 @@ function scenarioFor(input) {
   return "plain";
 }
 
-function startRun(runId, input) {
+function startRun(runId, input, remembered = []) {
   const run = {
     runId,
     status: "running",
@@ -82,6 +82,8 @@ function startRun(runId, input) {
     waiters: [],
     approval: null,
     stopped: false,
+    /** What this turn can actually see of earlier ones. */
+    remembered,
     scenario: scenarioFor(input),
   };
   runs.set(runId, run);
@@ -101,7 +103,14 @@ function startRun(runId, input) {
   };
 
   void (async () => {
-    const words = ["Here", " is", " a", " mock", " Career", " Ops", " answer."];
+    // Say what this turn can see of the conversation, so a caller that stops
+    // sending history produces a visibly amnesiac reply instead of a plausible
+    // one. `recall N` lets a smoke test assert continuity end to end.
+    const recall =
+      run.remembered.length > 0
+        ? ` I recall ${run.remembered.length} earlier message(s).`
+        : " I recall nothing earlier.";
+    const words = ["Here", " is", " a", " mock", " Career", " Ops", " answer.", recall];
     if (run.scenario === "fail") {
       run.status = "failed";
       run.error = "mock failure";
@@ -274,8 +283,20 @@ const server = createServer(async (req, res) => {
         timestamp: Date.now() / 1000,
       });
     }
+    // Deliberately models the real constraint: `session_id` scopes the run and
+    // persists the turn, but it does NOT hydrate model history. Only what the
+    // caller sends in `conversation_history` is visible to this turn.
+    //
+    // The mock used to ignore this and simply echo, which is exactly why a
+    // client that sent no history looked correct in every test: the mock agreed
+    // with whatever contract it was given. It now answers with what it can
+    // actually see, so a caller that stops sending history fails visibly.
+    const history = Array.isArray(body.conversation_history) ? body.conversation_history : [];
+    const remembered = history
+      .filter((entry) => entry && typeof entry.content === "string")
+      .map((entry) => entry.content);
     const runId = `run_${randomUUID().replace(/-/g, "")}`;
-    startRun(runId, body.input);
+    startRun(runId, body.input, remembered);
     return send(res, 202, { run_id: runId, status: "started" });
   }
 
