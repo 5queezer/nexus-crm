@@ -1334,6 +1334,37 @@ describe("stop control", () => {
     stream.close();
   });
 
+  it("stays uncertain rather than declaring failure when polling times out", async () => {
+    // The deadline bounds how long Nexus watches, not how long Hermes may
+    // execute. Declaring the run failed removes Stop, runs the terminal cache
+    // handling and re-enables submission while the agent may still be working
+    // — and the next submission is then refused by the one-active-run
+    // invariant.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/status$/, () =>
+      // A run lifetime short enough that the polling deadline elapses at once.
+      json({ ...AVAILABLE, runTimeoutMs: 1 }),
+    );
+    // Break the stream so the hook falls back to status recovery.
+    route("GET", /\/runs\/[^/]+\/events$/, () => json({ error: "upstream_error" }, 503));
+    route("GET", /\/runs\/[^/]+$/, () =>
+      json({ status: "running", output: "", error: null }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "long task");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    // It says it lost track, and keeps Stop rather than claiming the run ended.
+    await waitFor(
+      () => expect(within(dialog).getByText(/still be working/i)).toBeTruthy(),
+      { timeout: 3000 },
+    );
+    // Still offering Stop rather than claiming the run ended.
+    expect(within(dialog).getByRole("button", { name: /^stop$/i })).toBeTruthy();
+  });
+
   it("says so when the agent could not be stopped", async () => {
     // A swallowed stop failure leaves the drawer looking exactly as it does on
     // success, so the user walks away believing they stopped a privileged agent

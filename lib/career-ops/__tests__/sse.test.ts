@@ -527,6 +527,29 @@ describe("credential stripping in assistant output", () => {
     }
   });
 
+  it("holds a seam wide enough for the longest secret configuration accepts", () => {
+    // Configuration sets no maximum key length, so a window capped below the
+    // configured secret would emit its prefix before the whole value existed
+    // to match — the exact seam this class exists to close.
+    // Long enough that half of it exceeds the old 512-character cap: that is
+    // the only split where a short window actually emits part of the secret.
+    const long = `hermes-${"k".repeat(2_000)}`;
+    process.env.HERMES_CAREER_OPS_API_KEY = long;
+    try {
+      const redactor = new SecretBoundaryRedactor();
+      const half = Math.floor(long.length / 2);
+      let out = redactor.push(`${"filler ".repeat(20)}${long.slice(0, half)}`);
+      out += redactor.push(`${long.slice(half)} trailing`);
+      out += redactor.flush();
+
+      expect(out).not.toContain(long);
+      expect(out).not.toContain(long.slice(half));
+      expect(out).toContain("trailing");
+    } finally {
+      process.env.HERMES_CAREER_OPS_API_KEY = KEY;
+    }
+  });
+
   it("leaves ordinary prose alone", () => {
     // The standalone patterns are anchored on fixed prefixes so that normal
     // text — including dotted words and capitalised acronyms — is untouched.

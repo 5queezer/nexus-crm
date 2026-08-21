@@ -944,6 +944,7 @@
     "error_rate_limited": "Zu viele Anfragen. Warte einen Moment und versuche es erneut.",
     "error_conflict": "Der Agent wartet nicht mehr auf diese Aktion.",
     "error_stop_failed": "Der Agent konnte nicht gestoppt werden. Er läuft möglicherweise noch — bitte erneut versuchen.",
+    "error_status_unknown": "Nexus verfolgt diesen Lauf nicht mehr. Er arbeitet möglicherweise noch — nutze Stopp, wenn er enden soll.",
     "loading": "Wird geladen …",
     "you": "Du",
     "assistant": "Career Ops",

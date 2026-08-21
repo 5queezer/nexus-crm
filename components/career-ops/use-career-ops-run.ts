@@ -13,6 +13,20 @@ import {
 
 type RunSnapshot = { status: string; output: string; error: string | null };
 
+/** A delay that ends immediately when the caller is torn down. */
+function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
 export type RunState = {
   phase: RunPhase;
   runId: string | null;
@@ -157,7 +171,12 @@ export function useCareerOpsRun(
         if (signal?.aborted) return;
         let snapshot: RunSnapshot;
         try {
-          snapshot = await careerOpsJson<RunSnapshot>(`/api/career-ops/runs/${runId}`);
+          snapshot = await careerOpsJson<RunSnapshot>(`/api/career-ops/runs/${runId}`, {
+            // Abort the request itself, not merely the next loop iteration. A
+            // stalled poll would otherwise outlive the drawer and the recovery
+            // task that started it.
+            signal,
+          });
         } catch (reason) {
           // One failed poll says nothing about the run: it may still be
           // executing tools. Treating it as terminal would re-enable
@@ -166,7 +185,7 @@ export function useCareerOpsRun(
             settle("failed", "error_generic");
             return;
           }
-          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          await sleepUnlessAborted(POLL_INTERVAL_MS, signal);
           continue;
         }
         if (snapshot.status === "completed") {
@@ -206,9 +225,19 @@ export function useCareerOpsRun(
                 },
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        await sleepUnlessAborted(POLL_INTERVAL_MS, signal);
       }
-      settle("failed", "error_generic");
+      // The deadline bounds how long *Nexus* watches, not how long Hermes may
+      // execute. Declaring the run failed here removes Stop, invokes the
+      // terminal cache handling and re-enables submission, while the agent may
+      // still be working — and the next submission is then refused by the
+      // one-active-run invariant. Stay uncertain instead, keeping Stop and
+      // recovery available, and say why.
+      setState((current) =>
+        TERMINAL_PHASES.includes(current.phase)
+          ? current
+          : { ...current, phase: "reconnecting", errorCode: "error_status_unknown" },
+      );
     },
     [onSettled, runLifetimeMs, settle],
   );

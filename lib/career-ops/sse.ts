@@ -98,7 +98,14 @@ export class SecretBoundaryRedactor {
   private suppressing = false;
 
   constructor(window = (configuredSecrets()[0]?.length ?? 1) - 1) {
-    this.window = Math.min(Math.max(window, MIN_BOUNDARY_WINDOW), 512);
+    // The cap must not sit below the longest secret this deployment actually
+    // accepts, or a long key split across two deltas would have its prefix
+    // emitted before the whole value existed to match — the very seam this
+    // class exists to close. Configuration sets no maximum key length, so the
+    // ceiling is the carry limit instead of an arbitrary 512, and a secret
+    // longer than that is documented as outside the guarantee rather than
+    // silently unprotected.
+    this.window = Math.min(Math.max(window, MIN_BOUNDARY_WINDOW), MAX_BOUNDARY_CARRY);
   }
 
   push(text: string): string {

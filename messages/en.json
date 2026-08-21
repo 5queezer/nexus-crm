@@ -944,6 +944,7 @@
     "error_rate_limited": "Too many requests. Wait a moment and try again.",
     "error_conflict": "The agent is no longer waiting for that action.",
     "error_stop_failed": "The agent could not be stopped. It may still be running — try again.",
+    "error_status_unknown": "Nexus stopped tracking this run. It may still be working — use Stop if you want it to end.",
     "loading": "Loading…",
     "you": "You",
     "assistant": "Career Ops",
