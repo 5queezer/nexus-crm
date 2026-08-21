@@ -83,6 +83,12 @@ function matches(row: Row, where: Row): boolean {
       }
       return false;
     }
+    // Postgres has only NULL for "no value"; this fake leaves an unset column
+    // `undefined`. Without treating them alike, a `field: null` filter matches
+    // nothing here while matching real rows in production — so a guard could
+    // look effective in tests and be inert against the database, or the
+    // reverse.
+    if (value === null) return row[key] === null || row[key] === undefined;
     return row[key] === value;
   });
 }
@@ -1102,6 +1108,69 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.claimCareerOpsApprovalGate(run.id, "user-b", null)).resolves.toBeNull();
     // Still open: another user's decision is never this gate's to close.
     await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.not.toBeNull();
+  });
+
+  it("recovers a denial-only gate, but never one a decision already took", async () => {
+    // Polling may be the first thing to see a gate: the event stream is
+    // single-consumer and Hermes need not support it at all. Recovery has no
+    // prompt and so no challenge, but the owner must still be able to refuse.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-recovered-gate",
+      status: "running",
+    });
+
+    expect(await db.recoverCareerOpsApprovalGate(run.id, "user-a")).toBe(true);
+    const recovered = await db.getCareerOpsRun(run.id, "user-a");
+    expect(recovered?.approvalGateOpenedAt).not.toBeNull();
+    // Denial-only by construction: no challenge was disclosed, so nothing can
+    // be granted against it.
+    expect(recovered?.pendingApprovalChallengeId).toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.not.toBeNull();
+
+    // While a decision is unresolved it must decline: `pending` means one is in
+    // flight, `outcome_unknown` that one may already have landed. Reopening
+    // then would let a second decision answer the first's action.
+    for (const state of ["pending", "outcome_unknown"] as const) {
+      await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "", state);
+      await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+    }
+
+    // Once resolved, a gate Hermes still reports may be recovered again.
+    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "", "effect_completed");
+    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(true);
+
+    // And never on a finished run.
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+  });
+
+  it("closes an open gate when the run reaches a terminal status", async () => {
+    // A run can finish while a prompt is still on screen. Leaving the gate open
+    // lets a delayed or direct denial claim it afterwards: the decision would
+    // overwrite the finished run's approval audit and be forwarded upstream for
+    // an action nobody is waiting on.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-terminal-gate",
+      status: "running",
+    });
+    await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      status: "completed",
+      approvalGateOpenedAt: null,
+      pendingApprovalChallengeId: null,
+    });
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).resolves.toBeNull();
   });
 
   it("does not let a status write reopen a claimed gate", async () => {

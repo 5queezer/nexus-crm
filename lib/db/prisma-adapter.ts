@@ -2287,7 +2287,18 @@ export class PrismaAdapter implements DatabaseAdapter {
           ? {}
           : { status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] } }),
       },
-      data: { status },
+      data: {
+        status,
+        // A terminal run has no gate. Leaving one open lets a delayed or direct
+        // denial claim it long after the run finished: the decision would
+        // overwrite the terminal run's approval audit and be forwarded upstream
+        // for an action nobody is waiting on.
+        ...(CAREER_OPS_TERMINAL_RUN_STATUSES.includes(
+          status as (typeof CAREER_OPS_TERMINAL_RUN_STATUSES)[number],
+        )
+          ? { approvalGateOpenedAt: null, pendingApprovalChallengeId: null }
+          : {}),
+      },
     });
   }
 
@@ -2379,6 +2390,26 @@ export class PrismaAdapter implements DatabaseAdapter {
       // the same open gate; only one update matches.
       return claimed.count === 1 ? { challengeId: outstanding } : null;
     });
+  }
+
+  async recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean> {
+    const opened = await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        // Never on a finished run, and never while one is already open.
+        status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+        approvalGateOpenedAt: null,
+        // Never while a decision is unresolved: `pending` means one is in
+        // flight and `outcome_unknown` means one may already have landed, so
+        // opening a gate would let a second decision answer the first's action.
+        approvalState: { notIn: ["pending", "outcome_unknown"] },
+      },
+      // No challenge: nothing was disclosed, so nothing may be granted. The
+      // prompt this recovers is denial-only by construction.
+      data: { approvalGateOpenedAt: new Date(), pendingApprovalChallengeId: null },
+    });
+    return opened.count === 1;
   }
 
   async releaseCareerOpsApprovalGate(

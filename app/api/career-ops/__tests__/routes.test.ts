@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     openCareerOpsApprovalGate: vi.fn(),
     claimCareerOpsApprovalGate: vi.fn(),
     releaseCareerOpsApprovalGate: vi.fn(),
+    recoverCareerOpsApprovalGate: vi.fn(),
     getApplication: vi.fn(),
   },
   client: {
@@ -144,6 +145,7 @@ beforeEach(() => {
   mocks.db.openCareerOpsApprovalGate.mockResolvedValue(undefined);
   mocks.db.claimCareerOpsApprovalGate.mockResolvedValue({ challengeId: "" });
   mocks.db.releaseCareerOpsApprovalGate.mockResolvedValue(undefined);
+  mocks.db.recoverCareerOpsApprovalGate.mockResolvedValue(false);
 });
 
 describe("authentication", () => {

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     openCareerOpsApprovalGate: vi.fn(),
     claimCareerOpsApprovalGate: vi.fn(),
     releaseCareerOpsApprovalGate: vi.fn(),
+    recoverCareerOpsApprovalGate: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
@@ -47,6 +48,7 @@ import {
   createCareerOpsThread,
   deleteCareerOpsThread,
   getActiveCareerOpsRun,
+  getCareerOpsRunStatus,
   getCareerOpsStatus,
   listCareerOpsThreadMessages,
   listCareerOpsThreads,
@@ -133,6 +135,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
+  mocks.db.recoverCareerOpsApprovalGate.mockResolvedValue(false);
   mocks.db.openCareerOpsApprovalGate.mockResolvedValue(undefined);
 });
 
@@ -1483,6 +1486,37 @@ describe("run controls", () => {
     atGateWithoutPrompt();
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).resolves.toBeUndefined();
     expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
+  });
+
+  it("recovers a gate that only polling ever saw", async () => {
+    // The event stream is single-consumer and Hermes need not support it at
+    // all, so `waiting_for_approval` is sometimes first observed by status
+    // recovery. Without opening a gate there, the browser shows the recovered
+    // denial-only prompt while every decision is refused for having none, and
+    // Hermes waits forever.
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "running" });
+    mocks.client.getRun.mockResolvedValue({
+      runId: "run_1",
+      status: "waiting_for_approval",
+      output: "",
+      error: null,
+    });
+
+    await getCareerOpsRunStatus(SESSION_A, "run-1");
+    expect(mocks.db.recoverCareerOpsApprovalGate).toHaveBeenCalledWith("run-1", "user-a");
+  });
+
+  it("does not try to recover a gate for a run that is not waiting", async () => {
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "running" });
+    mocks.client.getRun.mockResolvedValue({
+      runId: "run_1",
+      status: "running",
+      output: "",
+      error: null,
+    });
+
+    await getCareerOpsRunStatus(SESSION_A, "run-1");
+    expect(mocks.db.recoverCareerOpsApprovalGate).not.toHaveBeenCalled();
   });
 
   it("reopens the gate when Hermes refused the decision outright", async () => {

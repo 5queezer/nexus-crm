@@ -887,6 +887,18 @@ export async function getCareerOpsRunStatus(
   try {
     const upstream = await client(config).getRun(run.hermesRunId);
     await getDb().updateCareerOpsRunStatus(run.id, session.userId, upstream.status);
+    // Polling may be the first thing to see a gate: the event stream is
+    // single-consumer and Hermes need not support it at all. Recovery has no
+    // prompt to disclose and so no challenge, but the owner must still be able
+    // to refuse — otherwise the browser shows the recovered denial-only prompt
+    // while every decision is refused for having no gate, and Hermes waits
+    // forever. The adapter declines while a decision is unresolved, so this can
+    // never reopen a gate another decision already took.
+    if (upstream.status === "waiting_for_approval") {
+      await getDb()
+        .recoverCareerOpsApprovalGate(run.id, session.userId)
+        .catch(() => false);
+    }
     return upstream;
   } catch (reason) {
     // Hermes retains run status for a bounded window. Once it has forgotten a

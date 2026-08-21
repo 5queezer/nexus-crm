@@ -2716,7 +2716,15 @@ export class FirestoreAdapter implements DatabaseAdapter {
       ) {
         return;
       }
-      tx.update(ref, { status, updatedAt: Timestamp.now() });
+      tx.update(ref, {
+        status,
+        updatedAt: Timestamp.now(),
+        // A terminal run has no gate. Leaving one open lets a delayed or direct
+        // denial claim it long after the run finished: the decision would
+        // overwrite the terminal run's approval audit and be forwarded upstream
+        // for an action nobody is waiting on.
+        ...(terminal ? { approvalGateOpenedAt: null, pendingApprovalChallengeId: null } : {}),
+      });
     });
   }
 
@@ -2814,6 +2822,34 @@ export class FirestoreAdapter implements DatabaseAdapter {
         updatedAt: Timestamp.now(),
       });
       return { challengeId: outstanding };
+    });
+  }
+
+  async recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return false;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return false;
+      // Never on a finished run, and never while one is already open.
+      if ((CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(data.status)) {
+        return false;
+      }
+      if (data.approvalGateOpenedAt) return false;
+      // Never while a decision is unresolved: `pending` means one is in flight
+      // and `outcome_unknown` means one may already have landed, so opening a
+      // gate would let a second decision answer the first's action.
+      if (data.approvalState === "pending" || data.approvalState === "outcome_unknown") {
+        return false;
+      }
+      // No challenge: nothing was disclosed, so nothing may be granted.
+      tx.update(ref, {
+        approvalGateOpenedAt: Timestamp.now(),
+        pendingApprovalChallengeId: null,
+        updatedAt: Timestamp.now(),
+      });
+      return true;
     });
   }
 

@@ -239,6 +239,21 @@ export interface DatabaseAdapter {
   ): Promise<CareerOpsApprovalGateClaim | null>;
 
   /**
+   * Open a gate that only polling ever saw, so it can at least be denied.
+   *
+   * The event stream is single-consumer and Hermes need not support it at all,
+   * so `waiting_for_approval` is sometimes first observed by status recovery —
+   * which has no prompt to disclose and therefore no challenge. Without this
+   * the browser renders the recovered denial-only prompt while every decision
+   * is refused for having no gate, and Hermes waits forever.
+   *
+   * Conditional, so it can never reopen a gate a decision already took: it
+   * declines while a decision is unresolved (`pending` or `outcome_unknown`),
+   * and on a terminal run. Returns true only when it actually opened one.
+   */
+  recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean>;
+
+  /**
    * Put a claimed gate back, for a caller that claimed it and then sent
    * nothing. Conditional on the run still being as the claim left it, so a
    * gate the agent has since moved on to is never overwritten.
