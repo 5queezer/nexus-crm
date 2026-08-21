@@ -10,12 +10,13 @@ const mocks = vi.hoisted(() => ({
     getCareerOpsRun: vi.fn(),
     claimCareerOpsRun: vi.fn(),
     updateCareerOpsRunStatus: vi.fn(),
+    expireCareerOpsRunReservation: vi.fn(),
     getLatestCareerOpsRun: vi.fn(),
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
     setCareerOpsPendingApprovalChallenge: vi.fn(),
-    takeCareerOpsPendingApprovalChallenge: vi.fn(),
-    consumeCareerOpsApprovalChallenge: vi.fn(),
+    claimCareerOpsApprovalGate: vi.fn(),
+    releaseCareerOpsApprovalGate: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
     deleteCareerOpsRun: vi.fn(),
     getApplication: vi.fn(),
@@ -112,6 +113,21 @@ beforeEach(() => {
   mocks.client.deleteSession.mockResolvedValue(undefined);
   mocks.db.deleteCareerOpsRun.mockResolvedValue(undefined);
   mocks.db.updateCareerOpsRunStatus.mockResolvedValue(undefined);
+  // Models the adapters' single conditional transition rather than answering
+  // yes to everything: unbound, still active, and created before the cutoff.
+  // A fake that ignored those would let a test pass while the production write
+  // matched nothing — or worse, matched a live bound run.
+  mocks.db.expireCareerOpsRunReservation.mockImplementation(
+    async (id: string, userId: string, cutoff: Date) => {
+      const run = await mocks.db.getLatestCareerOpsRun();
+      if (!run || run.id !== id || run.userId !== userId) return false;
+      if (run.hermesRunId !== "") return false;
+      if (!["queued", "running", "waiting_for_approval", "stopping"].includes(run.status)) {
+        return false;
+      }
+      return run.createdAt.getTime() < cutoff.getTime();
+    },
+  );
   mocks.db.getCareerOpsThread.mockResolvedValue(null);
   mocks.db.getCareerOpsRun.mockResolvedValue(null);
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
@@ -834,7 +850,10 @@ describe("startCareerOpsRun", () => {
       }),
     ).rejects.toMatchObject({ code: "conflict" });
     expect(mocks.client.createRun).not.toHaveBeenCalled();
-    // Not yet past the reservation lifetime, so it must not be settled away.
+    // Not yet past the cutoff, so the conditional transition matches nothing.
+    await expect(
+      mocks.db.expireCareerOpsRunReservation.mock.results.at(-1)?.value,
+    ).resolves.toBe(false);
     expect(mocks.db.updateCareerOpsRunStatus).not.toHaveBeenCalled();
   });
 
@@ -850,7 +869,15 @@ describe("startCareerOpsRun", () => {
     });
 
     await expect(getActiveCareerOpsRun(SESSION_A, "thread-1")).resolves.toBeNull();
-    expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith("run-1", "user-a", "failed");
+    // `abandoned`, never `failed`: Nexus holds no upstream id for this run, so
+    // it never observed an outcome and must not assert one. And the decision is
+    // the database's — one conditional transition that binding cannot race.
+    expect(mocks.db.expireCareerOpsRunReservation).toHaveBeenCalledWith(
+      "run-1",
+      "user-a",
+      expect.any(Date),
+    );
+    expect(mocks.db.updateCareerOpsRunStatus).not.toHaveBeenCalled();
   });
 
   it("settles an expired ambiguous reservation so the conversation is usable again", async () => {
@@ -871,7 +898,12 @@ describe("startCareerOpsRun", () => {
         clientRequestId: "client-id-after-expiry",
       }),
     ).rejects.toMatchObject({ code: "conflict" });
-    expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith("run-1", "user-a", "failed");
+    expect(mocks.db.expireCareerOpsRunReservation).toHaveBeenCalledWith(
+      "run-1",
+      "user-a",
+      expect.any(Date),
+    );
+    expect(mocks.db.updateCareerOpsRunStatus).not.toHaveBeenCalled();
   });
 
   it("lets the conversation recover after an ambiguous submission expires", async () => {
@@ -943,8 +975,10 @@ describe("startCareerOpsRun", () => {
       }),
     ).rejects.toMatchObject({ code: "conflict" });
     expect(mocks.client.createRun).not.toHaveBeenCalled();
-    // A bound run is still live; it must never be settled away to free the slot.
+    // A bound run is still live; it must never be settled away to free the
+    // slot, and expiry is not even attempted for one that carries an upstream id.
     expect(mocks.db.updateCareerOpsRunStatus).not.toHaveBeenCalled();
+    expect(mocks.db.expireCareerOpsRunReservation).not.toHaveBeenCalled();
   });
 
   it("reports a claim against a deleted conversation as not found", async () => {
@@ -1020,22 +1054,34 @@ describe("run controls", () => {
     mocks.db.setCareerOpsPendingApprovalChallenge.mockImplementation(
       async (_id: string, _userId: string, challengeId: string | null) => {
         outstandingChallenge = challengeId;
+        // Disclosing a prompt means the run *is* at a gate: the event route
+        // records `waiting_for_approval` as it emits. Leaving the fixture at
+        // `running` is what made the old race test pass for the wrong reason —
+        // denial was refused for having no gate, not for losing one.
+        if (challengeId) runStatus = "waiting_for_approval";
       },
     );
-    // Models the conditional clear the adapters perform in one statement.
-    mocks.db.consumeCareerOpsApprovalChallenge.mockImplementation(
-      async (_id: string, _userId: string, challengeId: string) => {
-        if (outstandingChallenge !== challengeId) return false;
+    // Models the adapters' single conditional claim. Crucially it also moves
+    // the run out of `waiting_for_approval`, the way both backends do — a fake
+    // that only cleared the challenge would let a denial keep reading an open
+    // gate that a grant had already taken, which is the bug this replaced.
+    mocks.db.claimCareerOpsApprovalGate.mockImplementation(
+      async (_id: string, _userId: string, challengeId: string | null) => {
+        if (runStatus !== "waiting_for_approval") return null;
+        const outstanding = outstandingChallenge ?? "";
+        if (challengeId !== null && outstanding !== challengeId) return null;
         outstandingChallenge = null;
-        return true;
+        runStatus = "running";
+        return { challengeId: outstanding };
       },
     );
-    // Denial claims whatever gate is outstanding, atomically.
-    mocks.db.takeCareerOpsPendingApprovalChallenge.mockImplementation(async () => {
-      const previous = outstandingChallenge;
-      outstandingChallenge = null;
-      return previous;
-    });
+    mocks.db.releaseCareerOpsApprovalGate.mockImplementation(
+      async (_id: string, _userId: string, challengeId: string) => {
+        if (runStatus !== "running" || outstandingChallenge) return;
+        runStatus = "waiting_for_approval";
+        outstandingChallenge = challengeId || null;
+      },
+    );
     mocks.db.getCareerOpsRun.mockImplementation(async () => ({
       ...RUN,
       status: runStatus,
@@ -1275,8 +1321,8 @@ describe("run controls", () => {
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
     ).resolves.toBeUndefined();
 
-    // The consume is what clears it, in the same statement that checks it.
-    expect(mocks.db.consumeCareerOpsApprovalChallenge).toHaveBeenCalledWith(
+    // The claim is what closes the gate, in the same statement that checks it.
+    expect(mocks.db.claimCareerOpsApprovalGate).toHaveBeenCalledWith(
       "run-1",
       "user-a",
       expect.any(String),
@@ -1315,17 +1361,29 @@ describe("run controls", () => {
   });
 
   it("lets only one of a racing grant and denial reach the agent", async () => {
-    // Both used to be forwarded: the grant consumed the gate atomically while
-    // the denial cleared it unconditionally, so neither excluded the other.
+    // The regression the owner reproduced: both requests read an open gate.
+    // With the challenge consumed by the grant, the denial's own claim came
+    // back empty — but it then proceeded on the run's still-`waiting_for_approval`
+    // status, so both were audited and both were forwarded, and whichever
+    // arrived second could answer a gate the agent had already moved on to.
     const challenge = await challengeFor("run-1", ["once"]);
-    await Promise.all([
-      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge).catch(() => undefined),
-      resolveCareerOpsApproval(SESSION_A, "run-1", "deny").catch(() => undefined),
-    ]);
-    // The gate is claimed once; a later decision for it finds nothing pending.
-    await expect(
+    expect(runStatus).toBe("waiting_for_approval");
+
+    const results = await Promise.allSettled([
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
-    ).rejects.toMatchObject({ code: "conflict" });
+      resolveCareerOpsApproval(SESSION_A, "run-1", "deny"),
+    ]);
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(mocks.client.resolveApproval).toHaveBeenCalledTimes(1);
+    // And the audit records one decision, not two.
+    expect(mocks.db.recordCareerOpsApprovalDecision.mock.calls.map((call) => call[2])).toEqual(
+      expect.arrayContaining([expect.any(String)]),
+    );
+    const decided = new Set(
+      mocks.db.recordCareerOpsApprovalDecision.mock.calls.map((call) => call[2]),
+    );
+    expect(decided.size).toBe(1);
   });
 
   it("always lets the owner deny, even with no recoverable prompt", async () => {

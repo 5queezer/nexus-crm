@@ -43,6 +43,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
+  CareerOpsApprovalGateClaim,
   CareerOpsApprovalState,
   CareerOpsRunClaim,
   CareerOpsThreadDeletion,
@@ -167,7 +168,25 @@ export interface DatabaseAdapter {
    * Attach the upstream run id to a reservation created with an empty one.
    * Returns null when the run is not the user's.
    */
+  /**
+   * Attach the upstream run id to a reservation, if it is still one.
+   *
+   * Conditional, not a blind write: expiry can reach the same row, and the two
+   * must have exactly one winner. Binding a row that expiry has already settled
+   * would leave a live upstream run attached to a closed reservation while the
+   * conversation's active slot stands free for a second one.
+   */
   bindCareerOpsRunHermesId(id: string, userId: string, hermesRunId: string): Promise<CareerOpsRunRecord | null>;
+
+  /**
+   * Give up on a reservation that has no upstream id and is past its cutoff.
+   *
+   * One conditional transition, so it cannot race binding: it matches only a
+   * row that is still unbound, still active, and created before `cutoff`. The
+   * status it writes is `abandoned` rather than `failed` — Nexus never observed
+   * the upstream run end, and must not claim it did.
+   */
+  expireCareerOpsRunReservation(id: string, userId: string, cutoff: Date): Promise<boolean>;
   /** Release a reservation whose upstream run could not be started. */
   deleteCareerOpsRun(id: string, userId: string): Promise<void>;
   /** Most recent run on a thread, so a reloaded client can rejoin it. */
@@ -193,22 +212,33 @@ export interface DatabaseAdapter {
   ): Promise<void>;
 
   /**
-   * Atomically clear the outstanding approval challenge if — and only if — it
-   * is still the one given. Returns true to exactly one caller, so two
-   * concurrent decisions carrying the same challenge cannot both proceed.
+   * Atomically claim the decision for the gate a run is currently at.
+   *
+   * One conditional write decides, for grant and denial alike. Splitting this
+   * into a challenge-consuming path and a status-checking path is what let a
+   * grant and a denial both reach Hermes: the denial read a `waiting_for_approval`
+   * status that the grant's claim had already invalidated.
+   *
+   * `challengeId` is required for a granting decision and must still be the
+   * outstanding one — that is what makes a grant single-use and bound to the
+   * gate that disclosed it. Denial passes `null` and claims the gate on its
+   * state alone, so a recovered prompt with no challenge can still be refused.
+   *
+   * Returns the outstanding challenge (empty when the gate had none) to exactly
+   * one caller and `null` to every other.
    */
-  consumeCareerOpsApprovalChallenge(
+  claimCareerOpsApprovalGate(
     id: string,
     userId: string,
-    challengeId: string,
-  ): Promise<boolean>;
+    challengeId: string | null,
+  ): Promise<CareerOpsApprovalGateClaim | null>;
 
   /**
-   * Atomically clear whatever approval challenge is outstanding and report what
-   * it was. Used by denial, which carries no challenge of its own but must
-   * still win the gate so a concurrent grant cannot also proceed.
+   * Put a claimed gate back, for a caller that claimed it and then sent
+   * nothing. Conditional on the run still being as the claim left it, so a
+   * gate the agent has since moved on to is never overwritten.
    */
-  takeCareerOpsPendingApprovalChallenge(id: string, userId: string): Promise<string | null>;
+  releaseCareerOpsApprovalGate(id: string, userId: string, challengeId: string): Promise<void>;
 
   recordCareerOpsApprovalDecision(
     id: string,

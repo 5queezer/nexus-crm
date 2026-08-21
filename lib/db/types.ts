@@ -665,6 +665,16 @@ export type CareerOpsRunStatus =
   | "stopping"
   | "completed"
   | "failed"
+  /**
+   * Nexus stopped waiting on a reservation it can never settle.
+   *
+   * Distinct from `failed` on purpose. A submission whose response was lost
+   * leaves no upstream id, so Nexus cannot look the run up, stop it, or observe
+   * its end — and `runTimeoutMs` bounds only how long Nexus watched, never what
+   * Hermes did. Calling that `failed` asserts something about the upstream run
+   * that Nexus has no way to know.
+   */
+  | "abandoned"
   | "cancelled";
 
 /**
@@ -680,6 +690,7 @@ export type CareerOpsRunStatus =
 export const CAREER_OPS_TERMINAL_RUN_STATUSES = [
   "completed",
   "failed",
+  "abandoned",
   "cancelled",
 ] as const satisfies readonly CareerOpsRunStatus[];
 
@@ -776,6 +787,20 @@ export interface CreateCareerOpsRunInput {
  * invariant natively (a partial unique index on Postgres, a transaction on
  * Firestore) and report which of these happened.
  */
+/**
+ * What the single winner of an approval gate receives.
+ *
+ * The gate is the run's `waiting_for_approval` state, not the challenge. A
+ * prompt whose challenge never landed — the mint write failed, or the
+ * single-consumer stream dropped and the browser recovered without it — is
+ * still a real gate a human may deny, so the claim cannot be keyed on the
+ * challenge alone.
+ */
+export interface CareerOpsApprovalGateClaim {
+  /** The challenge that was outstanding, or "" when the gate had none. */
+  challengeId: string;
+}
+
 export type CareerOpsRunClaim =
   /** This caller won the slot and created the reservation. */
   | { outcome: "claimed"; run: CareerOpsRunRecord }

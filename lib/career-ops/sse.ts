@@ -1,9 +1,9 @@
 import {
   CREDENTIAL_CANDIDATES,
   CREDENTIAL_TOKEN_CHAR,
+  REDACTED_ERROR_LIMIT,
   configuredSecrets,
   redactSecrets,
-  redactUpstreamError,
 } from "./config";
 
 /**
@@ -245,14 +245,26 @@ function readDataLines(frame: string): string | null {
 /** Display bound for the human-readable parts of an approval prompt. */
 export const APPROVAL_TEXT_LIMIT = 400;
 
-/** True when the value would lose content at this bound. */
-function exceedsDisplayBound(value: unknown, maximum: number): boolean {
-  return typeof value === "string" && value.length > maximum;
+/**
+ * Strip credentials from a whole upstream field, then bound what is emitted.
+ *
+ * The order is the point. Slicing first can cut a configured secret that begins
+ * near the limit: exact-secret matching then no longer recognizes the truncated
+ * remainder, and the prefix that survived the slice is emitted verbatim. The
+ * generic patterns fail the same way — a keyword whose token is cut short of
+ * eight characters stops matching. Redaction has to see the complete value.
+ *
+ * Redacting the full field is bounded work: the frame it came from is already
+ * capped while reading, so nothing here grows without limit.
+ */
+function redactedField(value: unknown, maximum: number): string {
+  if (typeof value !== "string") return "";
+  return redactSecrets(value).slice(0, maximum);
 }
 
-function asString(value: unknown, maximum: number): string {
-  if (typeof value !== "string") return "";
-  return value.slice(0, maximum);
+/** The same redaction, unbounded, for callers that must judge the length. */
+function redactedWhole(value: unknown): string {
+  return typeof value === "string" ? redactSecrets(value) : "";
 }
 
 /**
@@ -288,15 +300,19 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       // Delta text is therefore raw at this layer and MUST pass through
       // SecretBoundaryRedactor before it reaches a client. The run event route
       // is the only consumer and does exactly that.
-      const text = asString(event.delta, 16_000);
+      // Deliberately neither redacted nor sliced here. Redaction happens in
+      // SecretBoundaryRedactor, which needs the seam between frames intact; a
+      // slice would cut a secret and emit the surviving prefix, and the frame
+      // this came from is already bounded while reading.
+      const text = typeof event.delta === "string" ? event.delta : "";
       return text ? { type: "delta", text } : null;
     }
     case "tool.started": {
-      const tool = redactSecrets(asString(event.tool, 120));
+      const tool = redactedField(event.tool, 120);
       return tool ? { type: "tool_started", tool } : null;
     }
     case "tool.completed": {
-      const tool = redactSecrets(asString(event.tool, 120));
+      const tool = redactedField(event.tool, 120);
       if (!tool) return null;
       const duration = typeof event.duration === "number" && Number.isFinite(event.duration)
         ? Math.max(0, Math.round(event.duration * 1000))
@@ -314,9 +330,18 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       // A consequential argument can sit past the display bound. Approving what
       // was shown would then authorize something else, so a clipped action is
       // offered for denial only rather than silently truncated.
-      const truncated = exceedsDisplayBound(event.pattern_key, 120)
-        || exceedsDisplayBound(event.description, APPROVAL_TEXT_LIMIT)
-        || exceedsDisplayBound(event.command, APPROVAL_TEXT_LIMIT);
+      // Redact first, then measure. The bound that decides `truncated` and the
+      // bound the text is actually cut at must be the same one, applied to the
+      // same string — checking the raw value while emitting the redacted one
+      // lets a field that grew under redaction be clipped with `once` still on
+      // offer, which is the silent truncation this check exists to prevent.
+      const operation = redactedWhole(event.pattern_key);
+      const summary = redactedWhole(event.description);
+      const details = redactedWhole(event.command);
+      const truncated =
+        operation.length > 120 ||
+        summary.length > APPROVAL_TEXT_LIMIT ||
+        details.length > APPROVAL_TEXT_LIMIT;
       // Nexus grants single use only. `session` and `always` would let one
       // decision authorize operations the user never sees, which is the thing
       // the approval gate exists to prevent, so they are dropped here rather
@@ -328,30 +353,25 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       const grantable = choices.filter((choice) => choice === "once");
       const offered: CareerOpsApprovalChoice[] =
         grantable.length > 0 ? [...grantable, "deny"] : ["deny"];
-      // `redactSecrets`, never `redactUpstreamError`: the latter clips at its own
-      // 300-character error bound, which is shorter than the bound `truncated`
-      // was computed against. A 301-400 character command would then be clipped
-      // while the prompt still offered `once` — exactly the silent truncation the
-      // check above exists to prevent. Redaction here must not shorten anything.
       return {
         type: "approval_required",
-        operation: redactSecrets(asString(event.pattern_key, 120)),
-        summary: redactSecrets(asString(event.description, APPROVAL_TEXT_LIMIT)),
-        details: redactSecrets(asString(event.command, APPROVAL_TEXT_LIMIT)),
+        operation: operation.slice(0, 120),
+        summary: summary.slice(0, APPROVAL_TEXT_LIMIT),
+        details: details.slice(0, APPROVAL_TEXT_LIMIT),
         choices: truncated ? ["deny"] : offered,
         truncated,
       };
     }
     case "approval.responded": {
-      const choice = redactSecrets(asString(event.choice, 32));
+      const choice = redactedField(event.choice, 32);
       return choice ? { type: "approval_resolved", choice } : null;
     }
     case "run.completed":
-      return { type: "completed", output: redactSecrets(asString(event.output, 200_000)) };
+      return { type: "completed", output: redactedField(event.output, 200_000) };
     case "run.failed":
       return {
         type: "failed",
-        message: redactUpstreamError(asString(event.error, 400)) || "run_failed",
+        message: redactedField(event.error, REDACTED_ERROR_LIMIT) || "run_failed",
       };
     case "run.cancelled":
       return { type: "cancelled" };

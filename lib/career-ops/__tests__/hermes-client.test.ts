@@ -333,6 +333,25 @@ describe("run operations", () => {
     expect(run.error).not.toContain(SECRET);
   });
 
+  it("redacts a status field before bounding it, not after", async () => {
+    // Slicing first severs a secret that begins near the bound, after which
+    // exact matching no longer recognizes it and the surviving prefix is
+    // emitted. Each field puts 20 characters of the key inside its limit.
+    const surviving = SECRET.slice(0, 20);
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        run_id: "run_7",
+        status: "failed",
+        output: `${"o".repeat(200_000 - 20)}${SECRET}`,
+        error: `${"e".repeat(300 - 20)}${SECRET}`,
+      }),
+    ) as unknown as typeof fetch;
+
+    const run = await createHermesClient(enabledConfig()).getRun("run_7");
+    expect(run.output).not.toContain(surviving);
+    expect(run.error ?? "").not.toContain(surviving);
+  });
+
   it("stops a run", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ run_id: "run_7", status: "stopping" }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -480,6 +499,27 @@ describe("stored transcript redaction", () => {
     const messages = await createHermesClient(config).listSessionMessages("sess-1");
     expect(messages).toHaveLength(1);
     expect(JSON.stringify(messages)).not.toContain(SECRET);
+  });
+
+  it("redacts stored transcript content before bounding it", async () => {
+    // The transcript is re-served on every reload, so a prefix left behind by
+    // an early slice would persist in the conversation indefinitely.
+    const config = enabledConfig();
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        data: [
+          {
+            id: "m1",
+            role: "assistant",
+            content: `${"c".repeat(200_000 - 20)}${SECRET}`,
+            timestamp: 1,
+          },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+
+    const messages = await createHermesClient(config).listSessionMessages("sess-1");
+    expect(messages[0]?.content).not.toContain(SECRET.slice(0, 20));
   });
 });
 

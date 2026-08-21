@@ -62,6 +62,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
+  CareerOpsApprovalGateClaim,
   CareerOpsApprovalState,
   CareerOpsRunClaim,
   CareerOpsThreadDeletion,
@@ -2295,12 +2296,37 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     hermesRunId: string,
   ): Promise<CareerOpsRunRecord | null> {
+    // Conditional: expiry can reach this row, and only one of the two may win.
     const updated = await prisma.careerOpsRun.updateMany({
-      where: { id, userId },
-      data: { hermesRunId },
+      where: {
+        id,
+        userId,
+        hermesRunId: "",
+        status: { in: [...CAREER_OPS_ACTIVE_RUN_STATUSES] },
+      },
+      data: { hermesRunId, updatedAt: new Date() },
     });
     if (updated.count === 0) return null;
     return this.getCareerOpsRun(id, userId);
+  }
+
+  async expireCareerOpsRunReservation(
+    id: string,
+    userId: string,
+    cutoff: Date,
+  ): Promise<boolean> {
+    const expired = await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        hermesRunId: "",
+        status: { in: [...CAREER_OPS_ACTIVE_RUN_STATUSES] },
+        createdAt: { lt: cutoff },
+      },
+      // Not `failed`: Nexus never saw this run end and cannot say that it did.
+      data: { status: "abandoned", updatedAt: new Date() },
+    });
+    return expired.count === 1;
   }
 
   async deleteCareerOpsRun(id: string, userId: string): Promise<void> {
@@ -2318,36 +2344,50 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
-  async consumeCareerOpsApprovalChallenge(
+  async claimCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+  ): Promise<CareerOpsApprovalGateClaim | null> {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
+      // The gate is the state, not the challenge: a prompt whose challenge
+      // never landed is still a gate a human may deny.
+      if (!run || run.status !== "waiting_for_approval") return null;
+      const outstanding = run.pendingApprovalChallengeId ?? "";
+      // A grant must answer the gate that is actually pending; an earlier
+      // gate's token verifies against run, owner and choice but not this.
+      if (challengeId !== null && outstanding !== challengeId) return null;
+
+      const claimed = await tx.careerOpsRun.updateMany({
+        where: {
+          id,
+          userId,
+          status: "waiting_for_approval",
+          pendingApprovalChallengeId: run.pendingApprovalChallengeId,
+        },
+        data: { status: "running", pendingApprovalChallengeId: null, updatedAt: new Date() },
+      });
+      // The conditional write decides, not the read above. Two decisions read
+      // the same open gate; only one update matches.
+      return claimed.count === 1 ? { challengeId: outstanding } : null;
+    });
+  }
+
+  async releaseCareerOpsApprovalGate(
     id: string,
     userId: string,
     challengeId: string,
-  ): Promise<boolean> {
-    // The predicate is part of the write, so the database decides the winner.
-    const updated = await prisma.careerOpsRun.updateMany({
-      where: { id, userId, pendingApprovalChallengeId: challengeId },
-      data: { pendingApprovalChallengeId: null },
-    });
-    return updated.count === 1;
-  }
-
-  async takeCareerOpsPendingApprovalChallenge(
-    id: string,
-    userId: string,
-  ): Promise<string | null> {
-    return prisma.$transaction(async (tx) => {
-      const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
-      if (!run?.pendingApprovalChallengeId) return null;
-      const cleared = await tx.careerOpsRun.updateMany({
-        where: { id, userId, pendingApprovalChallengeId: run.pendingApprovalChallengeId },
-        data: { pendingApprovalChallengeId: null },
-      });
-      // The conditional write decides, not the read. Two overlapping denials
-      // both see the same pending challenge; without this both are handed the
-      // id and both get forwarded, so the second can answer a gate the agent
-      // has already advanced to. Firestore gets this from transaction retry —
-      // the loser re-reads and finds nothing pending.
-      return cleared.count === 1 ? run.pendingApprovalChallengeId : null;
+  ): Promise<void> {
+    await prisma.careerOpsRun.updateMany({
+      // Only if the run is still exactly as the claim left it. If the agent has
+      // reached another gate since, that gate is not this caller's to restore.
+      where: { id, userId, status: "running", pendingApprovalChallengeId: null },
+      data: {
+        status: "waiting_for_approval",
+        pendingApprovalChallengeId: challengeId || null,
+        updatedAt: new Date(),
+      },
     });
   }
 

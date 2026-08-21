@@ -19,7 +19,7 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
 const DEFAULT_RUN_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
-const REDACTED_ERROR_LIMIT = 300;
+export const REDACTED_ERROR_LIMIT = 300;
 
 export type CareerOpsDisabledReason =
   | "disabled"

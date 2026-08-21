@@ -62,6 +62,7 @@ import type {
   CareerOpsRunStatus,
   CreateCareerOpsThreadInput,
   CreateCareerOpsRunInput,
+  CareerOpsApprovalGateClaim,
   CareerOpsApprovalState,
   CareerOpsRunClaim,
   CareerOpsThreadDeletion,
@@ -2724,10 +2725,40 @@ export class FirestoreAdapter implements DatabaseAdapter {
     hermesRunId: string,
   ): Promise<CareerOpsRunRecord | null> {
     const ref = this.careerOpsRuns.doc(id);
-    const snapshot = await ref.get();
-    if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
-    await ref.update({ hermesRunId, updatedAt: Timestamp.now() });
-    return this.getCareerOpsRun(id, userId);
+    return this.db.runTransaction<CareerOpsRunRecord | null>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return null;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return null;
+      // Conditional: expiry can reach this row, and only one of the two may win.
+      if (data.hermesRunId !== "") return null;
+      if (!CAREER_OPS_ACTIVE_RUN_STATUSES.includes(data.status)) return null;
+      tx.update(ref, { hermesRunId, updatedAt: Timestamp.now() });
+      return this.mapCareerOpsRun(snapshot.id, { ...data, hermesRunId });
+    });
+  }
+
+  async expireCareerOpsRunReservation(
+    id: string,
+    userId: string,
+    cutoff: Date,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return false;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return false;
+      if (data.hermesRunId !== "") return false;
+      if (!CAREER_OPS_ACTIVE_RUN_STATUSES.includes(data.status)) return false;
+      // Same conversion the rest of this adapter uses; an `instanceof` check
+      // here is narrower than the values Firestore actually returns.
+      const createdAt = toDate(data.createdAt);
+      if (!createdAt || createdAt.getTime() >= cutoff.getTime()) return false;
+      // Not `failed`: Nexus never saw this run end and cannot say that it did.
+      tx.update(ref, { status: "abandoned", updatedAt: Timestamp.now() });
+      return true;
+    });
   }
 
   async deleteCareerOpsRun(id: string, userId: string): Promise<void> {
@@ -2748,33 +2779,56 @@ export class FirestoreAdapter implements DatabaseAdapter {
     await ref.update({ pendingApprovalChallengeId: challengeId });
   }
 
-  async consumeCareerOpsApprovalChallenge(
+  async claimCareerOpsApprovalGate(
     id: string,
     userId: string,
-    challengeId: string,
-  ): Promise<boolean> {
+    challengeId: string | null,
+  ): Promise<CareerOpsApprovalGateClaim | null> {
     const ref = this.careerOpsRuns.doc(id);
-    return this.db.runTransaction(async (tx) => {
+    return this.db.runTransaction<CareerOpsApprovalGateClaim | null>(async (tx) => {
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists || snapshot.data()!.userId !== userId) return false;
-      if (snapshot.data()!.pendingApprovalChallengeId !== challengeId) return false;
-      tx.update(ref, { pendingApprovalChallengeId: null });
-      return true;
+      if (!snapshot.exists) return null;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return null;
+      // The gate is the state, not the challenge: a prompt whose challenge
+      // never landed is still a gate a human may deny.
+      if (data.status !== "waiting_for_approval") return null;
+      const outstanding =
+        typeof data.pendingApprovalChallengeId === "string"
+          ? data.pendingApprovalChallengeId
+          : "";
+      // A grant must answer the gate that is actually pending.
+      if (challengeId !== null && outstanding !== challengeId) return null;
+      // The transaction decides: a concurrent claim writing this document makes
+      // the loser re-run and find the gate already closed.
+      tx.update(ref, {
+        status: "running",
+        pendingApprovalChallengeId: null,
+        updatedAt: Timestamp.now(),
+      });
+      return { challengeId: outstanding };
     });
   }
 
-  async takeCareerOpsPendingApprovalChallenge(
+  async releaseCareerOpsApprovalGate(
     id: string,
     userId: string,
-  ): Promise<string | null> {
+    challengeId: string,
+  ): Promise<void> {
     const ref = this.careerOpsRuns.doc(id);
-    return this.db.runTransaction<string | null>(async (tx) => {
+    await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
-      const pending = snapshot.data()!.pendingApprovalChallengeId;
-      if (typeof pending !== "string" || !pending) return null;
-      tx.update(ref, { pendingApprovalChallengeId: null });
-      return pending;
+      if (!snapshot.exists) return;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return;
+      // Only if the run is still exactly as the claim left it.
+      if (data.status !== "running") return;
+      if (data.pendingApprovalChallengeId) return;
+      tx.update(ref, {
+        status: "waiting_for_approval",
+        pendingApprovalChallengeId: challengeId || null,
+        updatedAt: Timestamp.now(),
+      });
     });
   }
 

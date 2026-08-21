@@ -73,6 +73,16 @@ function matches(row: Row, where: Row): boolean {
       const included = (value as { in: unknown[] }).in;
       return included.includes(row[key]);
     }
+    // The reservation cutoff filters with `lt`. Unmodelled, it matched nothing,
+    // so an expiry test would pass while the production write never fired.
+    if (value && typeof value === "object" && "lt" in (value as Row)) {
+      const bound = (value as { lt: unknown }).lt;
+      const left = row[key];
+      if (left instanceof Date && bound instanceof Date) {
+        return left.getTime() < bound.getTime();
+      }
+      return false;
+    }
     return row[key] === value;
   });
 }
@@ -388,14 +398,23 @@ vi.mock("firebase-admin/firestore", () => ({
       };
     },
   }),
-  Timestamp: {
-    // Monotonic so same-tick writes still order deterministically in the fake.
-    now: () => {
+  // Defined here, not at module scope: `vi.mock` factories are hoisted above
+  // top-level declarations, and a class referenced from one is not initialized
+  // yet. It must be a constructor — the adapters narrow with `instanceof`, and
+  // a plain object literal threw the moment production code tested the type.
+  Timestamp: class FakeTimestamp {
+    constructor(private readonly at: Date) {}
+    toDate(): Date {
+      return this.at;
+    }
+    /** Monotonic so same-tick writes still order deterministically. */
+    static now(): FakeTimestamp {
       mockClock += 1;
-      const at = new Date(mockClock);
-      return { toDate: () => at };
-    },
-    fromDate: (value: Date) => ({ toDate: () => value }),
+      return new FakeTimestamp(new Date(mockClock));
+    }
+    static fromDate(value: Date): FakeTimestamp {
+      return new FakeTimestamp(value);
+    }
   },
   FieldPath: { documentId: () => "__name__" },
   FieldValue: {
@@ -903,72 +922,219 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
   });
 
-  it("lets exactly one caller consume an outstanding approval challenge", async () => {
+  it("lets binding and expiry have exactly one winner, in either order", async () => {
+    // Both reach the same reservation. Only one may take effect: a row that is
+    // bound *and* abandoned means a live Hermes run is attached to a closed
+    // reservation while the conversation's active slot stands free for another.
+    //
+    // Both orderings are exercised deliberately. Racing them with Promise.all
+    // proves nothing here — the fakes settle in call order, so it only ever
+    // tested the ordering that happens to be safe.
+    for (const expireFirst of [false, true]) {
+      const thread = await seedThread("user-a");
+      const { run } = await claimRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "",
+        clientRequestId: `client-id-bind-race-${expireFirst}`,
+        status: "queued",
+      });
+      // Cutoffs are relative to the row's own createdAt: the two fakes keep
+      // different clocks, and a wall-clock cutoff would exercise only one.
+      const created = (await db.getCareerOpsRun(run.id, "user-a"))!.createdAt;
+      const cutoff = new Date(created.getTime() + 1);
+
+      let bound: unknown;
+      let expired: boolean;
+      if (expireFirst) {
+        expired = await db.expireCareerOpsRunReservation(run.id, "user-a", cutoff);
+        bound = await db.bindCareerOpsRunHermesId(run.id, "user-a", "run_late");
+      } else {
+        bound = await db.bindCareerOpsRunHermesId(run.id, "user-a", "run_late");
+        expired = await db.expireCareerOpsRunReservation(run.id, "user-a", cutoff);
+      }
+
+      const label = expireFirst ? "expiry first" : "binding first";
+      expect([bound !== null, expired].filter(Boolean), label).toHaveLength(1);
+
+      const settled = await db.getCareerOpsRun(run.id, "user-a");
+      if (expireFirst) {
+        expect(settled?.status, label).toBe("abandoned");
+        expect(settled?.hermesRunId, label).toBe("");
+      } else {
+        expect(settled?.status, label).toBe("queued");
+        expect(settled?.hermesRunId, label).toBe("run_late");
+      }
+    }
+  });
+
+  it("expires only an unbound, still-active reservation past its cutoff", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "client-id-expiry-guards",
+      status: "queued",
+    });
+
+    const created = (await db.getCareerOpsRun(run.id, "user-a"))!.createdAt;
+    const past = new Date(created.getTime() + 1);
+
+    // At its own creation instant: not yet past the cutoff.
+    await expect(
+      db.expireCareerOpsRunReservation(run.id, "user-a", created),
+    ).resolves.toBe(false);
+    // Another user's run is never this caller's to settle.
+    await expect(db.expireCareerOpsRunReservation(run.id, "user-b", past)).resolves.toBe(false);
+
+    // A bound run is live; expiry must not touch it however old it is.
+    expect(await db.bindCareerOpsRunHermesId(run.id, "user-a", "run_bound")).not.toBeNull();
+    await expect(db.expireCareerOpsRunReservation(run.id, "user-a", past)).resolves.toBe(false);
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      status: "queued",
+      hermesRunId: "run_bound",
+    });
+  });
+
+  it("frees the conversation once a reservation is abandoned", async () => {
+    // `abandoned` is terminal, so the partial unique index releases the slot and
+    // the conversation is usable again rather than wedged forever.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "",
+      clientRequestId: "client-id-abandon-frees",
+      status: "queued",
+    });
+    const created = (await db.getCareerOpsRun(run.id, "user-a"))!.createdAt;
+    await expect(
+      db.expireCareerOpsRunReservation(run.id, "user-a", new Date(created.getTime() + 1)),
+    ).resolves.toBe(true);
+
+    // The slot is free: a fresh submission is admitted rather than refused.
+    await expect(
+      claimRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_next",
+        clientRequestId: "client-id-abandon-next",
+        status: "queued",
+      }),
+    ).resolves.toMatchObject({ created: true });
+  });
+
+  it("lets exactly one decision claim an open approval gate", async () => {
+    // Grant and denial contend for the same gate. Two partial claims — one
+    // consuming the challenge, one reading the run's status — let both through,
+    // because the denial's status read was already stale by the time it acted.
+    // One conditional write now decides for both.
     const thread = await seedThread("user-a");
     const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
-      clientRequestId: "client-id-consume",
+      clientRequestId: "client-id-gate",
       status: "running",
     });
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
     await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
 
-    const results = await Promise.all([
-      db.consumeCareerOpsApprovalChallenge(run.id, "user-a", "gate-a"),
-      db.consumeCareerOpsApprovalChallenge(run.id, "user-a", "gate-a"),
+    const claims = await Promise.all([
+      db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a"),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null),
     ]);
-    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(claims.filter(Boolean)).toHaveLength(1);
 
-    // A different challenge never wins, and the slot is now empty.
-    await expect(
-      db.consumeCareerOpsApprovalChallenge(run.id, "user-a", "gate-b"),
-    ).resolves.toBe(false);
+    // The gate is closed afterwards: the run is no longer waiting and nothing
+    // is outstanding, so a later decision finds nothing to answer.
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      status: "running",
       pendingApprovalChallengeId: null,
     });
   });
 
-  it("hands an outstanding challenge to exactly one denial", async () => {
-    // Two overlapping denials both read the same pending challenge before
-    // either conditional write commits. Returning the id to the loser as well
-    // put two decisions on the wire, and the second could answer a gate the
-    // agent had already advanced to. The conditional write decides, not the
-    // read.
+  it("refuses a grant that names a challenge the gate is not holding", async () => {
     const thread = await seedThread("user-a");
     const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
-      clientRequestId: "client-id-take",
-      status: "waiting_for_approval",
+      clientRequestId: "client-id-gate-wrong",
+      status: "running",
     });
-    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-b");
 
-    const taken = await Promise.all([
-      db.takeCareerOpsPendingApprovalChallenge(run.id, "user-a"),
-      db.takeCareerOpsPendingApprovalChallenge(run.id, "user-a"),
-    ]);
-    expect(taken.filter((value) => value === "gate-a")).toHaveLength(1);
-    expect(taken.filter((value) => value === null)).toHaveLength(1);
-
-    // The slot is empty afterwards, and a later denial finds nothing pending.
-    await expect(db.takeCareerOpsPendingApprovalChallenge(run.id, "user-a")).resolves.toBeNull();
+    // An earlier gate's token verifies against run, owner and choice; only the
+    // claim can tell it apart from the one actually pending.
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).resolves.toBeNull();
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
-      pendingApprovalChallengeId: null,
+      status: "waiting_for_approval",
+      pendingApprovalChallengeId: "gate-b",
     });
   });
 
-  it("refuses to take a challenge for another user's run", async () => {
+  it("lets a recovered denial claim a gate that has no challenge", async () => {
+    // The mint write can fail, and the single-consumer stream cannot reissue a
+    // prompt. Denial must still be possible — and still exactly once.
     const thread = await seedThread("user-a");
     const { run } = await claimRun("user-a", {
       threadId: thread.id,
       hermesRunId: "run_1",
-      clientRequestId: "client-id-take-foreign",
+      clientRequestId: "client-id-gate-recovered",
+      status: "running",
+    });
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
+
+    const claims = await Promise.all([
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(claims.find(Boolean)).toEqual({ challengeId: "" });
+  });
+
+  it("refuses to claim a gate on a run that is not waiting, or is not yours", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gate-running",
+      status: "running",
+    });
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-b", null)).resolves.toBeNull();
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
       status: "waiting_for_approval",
     });
+  });
+
+  it("puts a claimed gate back when nothing was sent, and only then", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gate-release",
+      status: "running",
+    });
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
     await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-a");
-    await expect(db.takeCareerOpsPendingApprovalChallenge(run.id, "user-b")).resolves.toBeNull();
+
+    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).toEqual({
+      challengeId: "gate-a",
+    });
+    await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      status: "waiting_for_approval",
       pendingApprovalChallengeId: "gate-a",
+    });
+
+    // A gate the agent has since moved on to is not this caller's to restore.
+    await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
+    await db.setCareerOpsPendingApprovalChallenge(run.id, "user-a", "gate-b");
+    await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      pendingApprovalChallengeId: "gate-b",
     });
   });
 

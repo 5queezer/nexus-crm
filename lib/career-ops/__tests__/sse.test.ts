@@ -406,6 +406,50 @@ describe("credential stripping in assistant output", () => {
     expect(out).toContain("end");
   });
 
+  it("redacts before bounding, so a secret at the limit cannot survive the cut", () => {
+    // The leak this closes: slicing first severs a configured secret that
+    // begins near the bound. Exact-secret matching then no longer recognizes
+    // the remainder, and the prefix that survived the slice is emitted. Each
+    // field is built so exactly 20 characters of the key sit inside the bound.
+    const SURVIVING = KEY.slice(0, 20);
+    for (const frame of [
+      { event: "run.completed", output: `${"o".repeat(200_000 - 20)}${KEY}` },
+      { event: "tool.started", tool: `${"t".repeat(120 - 20)}${KEY}` },
+      { event: "approval.responded", choice: `${"c".repeat(32 - 20)}${KEY}` },
+      { event: "run.failed", error: `${"e".repeat(300 - 20)}${KEY}` },
+    ]) {
+      const event = normalizeHermesEvent(JSON.stringify(frame));
+      expect(event, `dropped ${frame.event}`).not.toBeNull();
+      expect(JSON.stringify(event ?? {}), `leaked in ${frame.event}`).not.toContain(SURVIVING);
+    }
+  });
+
+  it("measures the approval bound on the text it actually renders", () => {
+    // Redaction shortens, so measuring the raw value overstates the length: a
+    // command that only exceeds the bound because of the credentials being
+    // stripped out of it displays in full, and denying the grant for it would
+    // be wrong. The check and the cut have to be the same string.
+    const command = Array.from({ length: 15 }, () => KEY).join(" ");
+    expect(command.length).toBeGreaterThan(APPROVAL_TEXT_LIMIT);
+
+    const event = normalizeHermesEvent(
+      JSON.stringify({
+        event: "approval.request",
+        pattern_key: "shell",
+        description: "Run a command",
+        command,
+        choices: ["once", "deny"],
+      }),
+    );
+    expect(event?.type).toBe("approval_required");
+    if (event?.type !== "approval_required") throw new Error("unreachable");
+
+    expect(event.details).not.toContain(KEY);
+    expect(event.details.length).toBeLessThanOrEqual(APPROVAL_TEXT_LIMIT);
+    expect(event.truncated).toBe(false);
+    expect(event.choices).toEqual(["once", "deny"]);
+  });
+
   it("passes ordinary text through unchanged once flushed", () => {
     const redactor = new SecretBoundaryRedactor();
     const out = redactor.push("the quick brown fox") + redactor.flush();

@@ -1,5 +1,10 @@
 import { getDb } from "@/lib/db";
-import type { CareerOpsRunRecord, CareerOpsRunStatus, CareerOpsThreadRecord } from "@/lib/db/types";
+import {
+  CAREER_OPS_TERMINAL_RUN_STATUSES,
+  type CareerOpsRunRecord,
+  type CareerOpsRunStatus,
+  type CareerOpsThreadRecord,
+} from "@/lib/db/types";
 import {
   CAREER_OPS_CLIENT_REQUEST_ID_PATTERN,
   CAREER_OPS_MAX_MESSAGE_LENGTH,
@@ -313,6 +318,15 @@ const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
  * brick the conversation permanently. The window is generous enough that a real
  * in-flight submission is never mistaken for a stale one.
  */
+/**
+ * Grace beyond the run lifetime before a reservation is given up on.
+ *
+ * The lifetime is what Nexus watches for; Hermes may still be finishing when it
+ * elapses. The margin keeps the ordinary case — a slow but live run — from
+ * having its slot taken.
+ */
+const RESERVATION_EXPIRY_MARGIN_MS = 5 * 60_000;
+
 function unboundReservationTtlMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
   // The full run lifetime, not a short grace period. If Hermes accepted the
   // submission and only the response was lost, a legitimate run can still be
@@ -328,12 +342,41 @@ function unboundReservationTtlMs(config: Extract<CareerOpsConfig, { enabled: tru
   return Math.max(60_000, config.runTimeoutMs);
 }
 
-function isStaleUnboundReservation(
+/**
+ * The instant before which an unbound reservation may be given up on.
+ *
+ * Deliberately past the full run lifetime plus a margin. `runTimeoutMs` bounds
+ * how long Nexus watches a run, not how long Hermes may execute one, so a
+ * shorter cutoff would free the conversation's active slot while the upstream
+ * run could still be working — and admit a second privileged run beside it.
+ */
+function reservationCutoff(config: Extract<CareerOpsConfig, { enabled: true }>): Date {
+  return new Date(Date.now() - unboundReservationTtlMs(config) - RESERVATION_EXPIRY_MARGIN_MS);
+}
+
+/**
+ * Give up on a reservation nothing can settle, if it is genuinely past its
+ * cutoff — decided by the database, in one conditional transition, so it cannot
+ * race the binding of an upstream id that arrived late.
+ *
+ * The status written is `abandoned`, never `failed`: Nexus holds no upstream id
+ * for this run, so it never observed an outcome and must not assert one.
+ *
+ * Residual, and stated plainly because it cannot be closed from this side: this
+ * frees the active slot on a *local* deadline. Only an execution deadline that
+ * Hermes itself enforces would prove the upstream run has stopped, and the Runs
+ * API exposes no such field, just as it exposes no lookup by client key. See
+ * design.md.
+ */
+async function expireUnboundReservation(
   run: CareerOpsRunRecord,
+  session: CareerOpsSession,
   config: Extract<CareerOpsConfig, { enabled: true }>,
-): boolean {
+): Promise<boolean> {
   if (run.hermesRunId !== "") return false;
-  return Date.now() - run.createdAt.getTime() > unboundReservationTtlMs(config);
+  return getDb()
+    .expireCareerOpsRunReservation(run.id, session.userId, reservationCutoff(config))
+    .catch(() => false);
 }
 
 /**
@@ -354,12 +397,7 @@ export async function getActiveCareerOpsRun(
   // inactive while the database still counts it as active leaves the
   // conversation impossible to delete — and impossible to escape without
   // submitting again to trigger the cleanup elsewhere.
-  if (isStaleUnboundReservation(run, config)) {
-    await getDb()
-      .updateCareerOpsRunStatus(run.id, session.userId, "failed")
-      .catch(() => undefined);
-    return null;
-  }
+  if (await expireUnboundReservation(run, session, config)) return null;
   return run;
 }
 
@@ -573,7 +611,9 @@ async function threadInstructions(
   });
 }
 
-const TERMINAL_RUN_STATUSES: readonly string[] = ["completed", "failed", "cancelled"];
+// Kept in step with CAREER_OPS_TERMINAL_RUN_STATUSES: a status missing here is
+// one this service would keep polling for after it can no longer change.
+const TERMINAL_RUN_STATUSES: readonly string[] = [...CAREER_OPS_TERMINAL_RUN_STATUSES];
 
 /**
  * Upstream failures that leave it unknown whether the request took effect. A
@@ -695,9 +735,7 @@ export async function startCareerOpsRun(
     // An expired unbound reservation must not wedge the conversation forever.
     // Settle it, then let the caller retry into the freed slot.
     const stale = await db.getLatestCareerOpsRun(threadId, session.userId);
-    if (stale && isStaleUnboundReservation(stale, config)) {
-      await db.updateCareerOpsRunStatus(stale.id, session.userId, "failed").catch(() => undefined);
-    }
+    if (stale) await expireUnboundReservation(stale, session, config);
     throw new CareerOpsServiceError("conflict", "This conversation already has a run in progress");
   }
   const reservation = claim.run;
@@ -824,13 +862,6 @@ export async function openCareerOpsRunEvents(
   if (isUnbound(run)) {
     throw new CareerOpsServiceError("conflict", "The run has not started yet");
   }
-  // A decision only means anything while a gate is open. A finished run has no
-  // gate, and this run holds a single approval audit slot — so forwarding a
-  // stale decision here would overwrite the record of the decision the user
-  // actually made with an unrelated `not_applied`.
-  if (TERMINAL_RUN_STATUSES.includes(run.status)) {
-    throw new CareerOpsServiceError("conflict", "That run has already finished");
-  }
   try {
     const upstream = await client(config).openRunEvents(run.hermesRunId, signal);
     return {
@@ -937,31 +968,25 @@ export async function resolveCareerOpsApproval(
   // for it would strip the owner of the safe option in exactly the case where
   // the prompt could not be recovered — after the single-consumer event stream
   // dropped. Denial stays available to the owner unconditionally.
+  //
+  // Both paths end in the *same* conditional claim. Two partial claims — one
+  // consuming the challenge for grants, one checking the status for denials —
+  // is what let a grant and a denial both reach Hermes: the denial read a
+  // `waiting_for_approval` status the grant's claim had already invalidated,
+  // and whichever arrived second could answer a later gate.
   let consumedChallengeId = "";
   if (choice === "deny") {
-    // Denial needs no proof of disclosure — it grants nothing, and demanding
-    // proof would remove the safe option exactly when the prompt could not be
-    // recovered. But it must still *claim* the gate, atomically, or a denial
-    // and a grant racing on the same gate could both be forwarded.
-    //
-    // A null result means no gate was outstanding: either none was ever
-    // disclosed (the recovered-prompt case, where denial must still work) or a
-    // grant has just claimed it. Denial proceeds either way, because it cannot
-    // authorize anything; Hermes refuses a decision for a gate that is no
-    // longer pending.
-    consumedChallengeId =
-      (await getDb()
-        .takeCareerOpsPendingApprovalChallenge(run.id, session.userId)
-        .catch(() => null)) ?? "";
-    // Two independent signals that a gate is open, because either write can
-    // fail on its own: an outstanding challenge, or the run recorded as
-    // waiting. Neither means the run is merely executing, and a decision then
-    // answers nothing — it only overwrites the audit slot and puts a forward on
-    // the wire that a later gate could absorb. Stop stays available, and is the
+    // Denial carries no challenge, by design, but still has to win the gate.
+    // A null claim means no gate is open here: the run is merely executing, has
+    // finished, or a grant just took it. Stop remains available, and is the
     // stronger action in that situation anyway.
-    if (!consumedChallengeId && run.status !== "waiting_for_approval") {
+    const claim = await getDb()
+      .claimCareerOpsApprovalGate(run.id, session.userId, null)
+      .catch(() => null);
+    if (!claim) {
       throw new CareerOpsServiceError("conflict", "No approval is awaiting a decision");
     }
+    consumedChallengeId = claim.challengeId;
   } else {
     const verified = verifyApprovalChallenge(config, challenge, {
       runId: run.id,
@@ -980,19 +1005,13 @@ export async function resolveCareerOpsApproval(
     // can reach several gates inside one challenge lifetime, so "not the one
     // already consumed" is not enough: an earlier gate's token would still
     // verify against run, owner and choice, and could authorize whatever action
-    // is pending now.
-    //
-    // The check and the consumption are one database operation. Reading the
-    // outstanding id, comparing it here and clearing it after the upstream call
-    // would let two concurrent decisions carrying the same challenge both pass,
-    // and the second could reach Hermes after the first advanced the run to
-    // another gate — authorizing an action its token never disclosed.
-    const won = await getDb().consumeCareerOpsApprovalChallenge(
+    // is pending now. The claim is what rules that out.
+    const claim = await getDb().claimCareerOpsApprovalGate(
       run.id,
       session.userId,
       verified.payload.jti,
     );
-    if (!won) {
+    if (!claim) {
       throw new CareerOpsServiceError(
         "conflict",
         "That decision does not answer the approval currently awaiting you",
@@ -1018,11 +1037,11 @@ export async function resolveCareerOpsApproval(
       "pending",
     );
   } catch {
-    // Nothing was sent upstream, so returning the challenge is not a replay
-    // risk — and without it the prompt came from a single-consumer stream that
-    // cannot reissue it, leaving denial as the user's only remaining action.
+    // Nothing was sent upstream, so putting the gate back is not a replay risk
+    // — and without it the prompt came from a single-consumer stream that
+    // cannot reissue it, leaving the user with no way to answer at all.
     await getDb()
-      .setCareerOpsPendingApprovalChallenge(run.id, session.userId, consumedChallengeId)
+      .releaseCareerOpsApprovalGate(run.id, session.userId, consumedChallengeId)
       .catch(() => undefined);
     throw new CareerOpsServiceError(
       "upstream_error",

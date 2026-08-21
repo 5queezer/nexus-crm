@@ -1,4 +1,9 @@
-import { redactSecrets, redactUpstreamError, type CareerOpsConfig } from "./config";
+import {
+  REDACTED_ERROR_LIMIT,
+  redactSecrets,
+  redactUpstreamError,
+  type CareerOpsConfig,
+} from "./config";
 import type { CareerOpsApprovalChoice } from "./sse";
 
 /**
@@ -149,7 +154,10 @@ export function createHermesClient(config: EnabledConfig) {
     try {
       // Read through the byte bound rather than buffering the whole body: an
       // error response is as attacker-controlled as a successful one.
-      detail = redactUpstreamError((await readBounded(response, MAX_ERROR_BODY_BYTES)).slice(0, 1_000));
+      // Bounded while reading for memory safety, then redacted whole, and only
+      // then cut to message length — slicing to 1 000 first could sever a
+      // secret and leave its prefix in the detail.
+      detail = redactUpstreamError(await readBounded(response, MAX_ERROR_BODY_BYTES));
     } catch {
       detail = "";
     }
@@ -201,8 +209,21 @@ export function createHermesClient(config: EnabledConfig) {
     return parsed as Record<string, unknown>;
   }
 
+  /** Bound a non-credential field. Never use for text derived from upstream. */
   function text(value: unknown, maximum: number): string {
     return typeof value === "string" ? value.slice(0, maximum) : "";
+  }
+
+  /**
+   * Strip credentials from the whole field, then bound it.
+   *
+   * Slicing first can cut a configured secret that starts near the limit, after
+   * which exact-secret matching no longer recognizes the remainder and the
+   * surviving prefix is emitted. The raw body is already bounded while reading,
+   * so redacting the complete field is bounded work.
+   */
+  function redactedText(value: unknown, maximum: number): string {
+    return typeof value === "string" ? redactSecrets(value).slice(0, maximum) : "";
   }
 
   async function fetchRun(runId: string): Promise<HermesRun> {
@@ -223,10 +244,10 @@ export function createHermesClient(config: EnabledConfig) {
       status: raw,
       // Same stripping as the streaming path: status recovery must not become
       // the way an upstream-echoed credential reaches the browser.
-      output: redactSecrets(text(body.output, 200_000)),
+      output: redactedText(body.output, 200_000),
       error: body.error === undefined || body.error === null
         ? null
-        : redactUpstreamError(text(body.error, 400)),
+        : redactedText(body.error, REDACTED_ERROR_LIMIT),
     };
   }
 
@@ -305,7 +326,7 @@ export function createHermesClient(config: EnabledConfig) {
         // every reload — so it needs the same credential stripping as the live
         // stream, not less. Nothing arriving from Hermes reaches the browser
         // without passing through here.
-        const content = redactSecrets(text(record.content, 200_000));
+        const content = redactedText(record.content, 200_000);
         if (!content) continue;
         messages.push({
           // Ids may arrive as numbers; bounded either way, and never used as
