@@ -1485,6 +1485,39 @@ describe("run controls", () => {
     expect(mocks.client.resolveApproval).toHaveBeenCalledWith("run_1", "deny");
   });
 
+  it("reopens the gate when Hermes refused the decision outright", async () => {
+    // A rate limit is a stated refusal: the decision provably did nothing, so
+    // the gate is still open upstream. Leaving it locally claimed stranded the
+    // run — the client offers a retry, the retry finds no open gate and drops
+    // the prompt, and Hermes waits forever with nobody able to answer.
+    const challenge = await challengeFor("run-1", ["once"]);
+    mocks.client.resolveApproval.mockRejectedValue(new HermesError("rate_limited", "slow down"));
+
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toBeTruthy();
+    expect(mocks.db.releaseCareerOpsApprovalGate).toHaveBeenCalled();
+
+    // And the retry can actually be answered rather than conflicting.
+    mocks.client.resolveApproval.mockResolvedValue(undefined);
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).resolves.toBeUndefined();
+  });
+
+  it("keeps the gate closed when the outcome is unknown", async () => {
+    // A transport failure does not say whether Hermes applied the decision.
+    // Reopening then would let a second decision reach a gate the first may
+    // already have answered.
+    const challenge = await challengeFor("run-1", ["once"]);
+    mocks.client.resolveApproval.mockRejectedValue(new HermesError("timeout", "gone quiet"));
+
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).rejects.toBeTruthy();
+    expect(mocks.db.releaseCareerOpsApprovalGate).not.toHaveBeenCalled();
+  });
+
   it("refuses a decision for a run that is not at a gate", async () => {
     // A stale or direct decision for a run that is merely executing answers
     // nothing. It used to be recorded and forwarded anyway, and since this run

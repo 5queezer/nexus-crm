@@ -564,6 +564,57 @@ describe("application context", () => {
     expect(within(dialog).getByText("CURRENT ANSWER")).toBeTruthy();
   });
 
+  it("blocks submission while a selected conversation is still loading", async () => {
+    // Selecting a history entry commits the id immediately. Without holding the
+    // loading state across the whole selection, the composer accepts a message
+    // for a conversation whose transcript is still blank — the user has had no
+    // chance to see what they are replying to.
+    const user = userEvent.setup();
+    const second = { ...THREAD, id: "thread-2", title: "Second" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD, second] }));
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    route("GET", /\/threads\/thread-2\/messages$/, async () => {
+      await held;
+      return json({ messages: [] });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "hello");
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Second" }));
+
+    const send = within(dialog).getByRole("button", { name: /^send$/i });
+    await waitFor(() => expect(send.hasAttribute("disabled")).toBe(true));
+
+    release();
+    await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
+  });
+
+  it("creates one conversation when the control is double-clicked", async () => {
+    // Both handlers enter before either request changes any state, and each
+    // would create a Hermes session and a Nexus conversation.
+    const user = userEvent.setup();
+    let created = 0;
+    route("POST", /\/api\/career-ops\/threads$/, async () => {
+      created += 1;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return json({ thread: { ...THREAD, id: `thread-new-${created}` } }, 201);
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    const newThread = within(dialog).getByRole("button", { name: /new conversation/i });
+    await Promise.all([user.click(newThread), user.click(newThread)]);
+
+    await waitFor(() => expect(created).toBeGreaterThan(0));
+    expect(created).toBe(1);
+  });
+
   it("does not keep an unsent message in the transcript when the run is refused", async () => {
     const user = userEvent.setup();
     route("POST", /\/threads\/[^/]+\/runs$/, () => json({ error: "conflict" }, 409));

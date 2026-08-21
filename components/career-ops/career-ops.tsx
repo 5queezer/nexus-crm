@@ -79,6 +79,8 @@ export function CareerOps({
    * screen. Every state update from an async load checks its generation first.
    */
   const selectionRef = useRef(0);
+  /** True while a conversation is being created, so a double click makes one. */
+  const creatingRef = useRef(false);
   /**
    * A submission whose outcome the browser never learned, with the text it
    * carried. The id may only be reused for that same text: the server resolves
@@ -291,10 +293,17 @@ export function CareerOps({
    */
   const createThreadSafely = useCallback(
     async (withApplication: boolean) => {
+      // A double click enters here twice before either request has changed any
+      // state, and each would create a Hermes session and a Nexus conversation.
+      // `busy` cannot cover this: it only turns true once a run starts.
+      if (creatingRef.current) return;
+      creatingRef.current = true;
       try {
         await createThread(withApplication);
       } catch (reason) {
         setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
+      } finally {
+        creatingRef.current = false;
       }
     },
     [createThread],
@@ -444,7 +453,11 @@ export function CareerOps({
   const busy = running || loading;
 
   async function selectThread(threadId: string) {
-    if (busy) return;
+    // `running`, not `busy`: switching away from a conversation whose transcript
+    // is still loading is fine — the generation guard discards its result — and
+    // blocking it would strand the user behind a slow load. What must not be
+    // interrupted is a live run, above all one waiting on a decision.
+    if (running) return;
     // Claim a generation up front: any load still in flight for the previously
     // selected thread becomes stale here and will discard its own result.
     const generation = ++selectionRef.current;
@@ -458,12 +471,21 @@ export function CareerOps({
     // another's identity, while submissions went to the new one.
     setMessages([]);
     reset();
-    await loadMessages(threadId, generation);
-    await rejoinActiveRun(threadId, generation);
+    // Hold `loading` across the whole selection. Without it `busy` is false the
+    // instant the id changes, so the composer accepts a submission against a
+    // conversation whose messages are still blank — the user has had no chance
+    // to see what they are replying to.
+    setLoading(true);
+    try {
+      await loadMessages(threadId, generation);
+      await rejoinActiveRun(threadId, generation);
+    } finally {
+      if (selectionRef.current === generation) setLoading(false);
+    }
   }
 
   async function removeThread(threadId: string) {
-    if (busy) return;
+    if (running) return;
     try {
       await careerOpsJson(`/api/career-ops/threads/${threadId}`, { method: "DELETE" });
     } catch (reason) {
@@ -636,7 +658,7 @@ export function CareerOps({
                   <button
                     type="button"
                     onClick={() => void createThreadSafely(false)}
-                    disabled={busy}
+                    disabled={running}
                     className="nexus-focus-ring rounded-full px-2 py-1 font-medium text-slate-500 underline-offset-2 hover:underline disabled:opacity-40"
                   >
                     {t("context_switch_global")}
@@ -660,7 +682,7 @@ export function CareerOps({
                 <button
                   type="button"
                   onClick={() => void createThreadSafely(Boolean(application))}
-                  disabled={busy}
+                  disabled={running}
                   className="nexus-focus-ring mb-2 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-950"
                 >
                   <Plus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -676,7 +698,13 @@ export function CareerOps({
                           type="button"
                           onClick={() => void selectThread(thread.id)}
                           aria-current={thread.id === activeThreadId ? "true" : undefined}
-                          className={`nexus-focus-ring min-w-0 flex-1 truncate rounded-lg px-3 py-2 text-left text-xs ${
+                          // Say it, do not just ignore the click. The handler
+                          // returns silently during a run, which leaves keyboard
+                          // and assistive-technology users pressing a control
+                          // that looks live and does nothing — and a run waiting
+                          // on a decision would lose its only prompt.
+                          disabled={running}
+                          className={`nexus-focus-ring min-w-0 flex-1 truncate rounded-lg px-3 py-2 text-left text-xs disabled:opacity-40 ${
                             thread.id === activeThreadId
                               ? "bg-slate-100 font-semibold text-slate-950 dark:bg-white/8 dark:text-white"
                               : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-white/5"
@@ -688,7 +716,8 @@ export function CareerOps({
                           type="button"
                           onClick={() => void removeThread(thread.id)}
                           aria-label={`${t("delete_thread")}: ${thread.title}`}
-                          className="nexus-focus-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+                          disabled={running}
+                          className="nexus-focus-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 dark:hover:bg-red-500/10"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>

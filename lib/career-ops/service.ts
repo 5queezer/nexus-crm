@@ -1128,6 +1128,17 @@ export async function resolveCareerOpsApproval(
         undecided ? "outcome_unknown" : "not_applied",
       )
       .catch(() => undefined);
+    if (!undecided) {
+      // Hermes stated the refusal, so the decision provably did nothing and the
+      // gate is still open upstream — a rate limit is the ordinary case. Leaving
+      // it locally claimed strands the run: the client offers a retry, the retry
+      // finds no open gate and drops the prompt, and Hermes waits forever with
+      // nobody able to answer. Reopening is safe precisely because nothing was
+      // applied.
+      await getDb()
+        .releaseCareerOpsApprovalGate(run.id, session.userId, consumedChallengeId)
+        .catch(() => undefined);
+    }
     throw toServiceError(reason);
   }
   // Attribution only: which owner decided what, and when. The command and its
