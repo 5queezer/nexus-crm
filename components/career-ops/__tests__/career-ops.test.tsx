@@ -603,6 +603,36 @@ describe("application context", () => {
     stream.close();
   });
 
+  it("discards a pending load for a conversation that was deleted", async () => {
+    // The delete control stays live while a transcript loads, so a late
+    // response could restore the deleted conversation's messages over the
+    // cleared drawer.
+    const user = userEvent.setup();
+    const doomed = { ...THREAD, id: "thread-doomed", title: "Doomed" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD, doomed] }));
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    route("GET", /\/threads\/thread-doomed\/messages$/, async () => {
+      await held;
+      return json({ messages: [{ id: "d1", role: "assistant", content: "DOOMED ANSWER" }] });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Doomed" }));
+
+    // Delete it while its transcript is still in flight.
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: /delete conversation: Doomed/i }));
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(within(dialog).queryByText("DOOMED ANSWER")).toBeNull();
+  });
+
   it("blocks submission while a selected conversation is still loading", async () => {
     // Selecting a history entry commits the id immediately. Without holding the
     // loading state across the whole selection, the composer accepts a message

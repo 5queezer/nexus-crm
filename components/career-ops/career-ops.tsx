@@ -519,6 +519,12 @@ export function CareerOps({
     }
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
     if (activeThreadId === threadId) {
+      // Invalidate first. The delete control stays live while a transcript
+      // loads, so without this a late `loadMessages` still sees its generation
+      // as current and restores the deleted conversation's messages — or its
+      // failure state — over the cleared drawer.
+      selectionRef.current += 1;
+      setLoading(false);
       setActiveThreadId(null);
       setMessages([]);
       setThreadApplication(null);

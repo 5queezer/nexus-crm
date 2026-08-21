@@ -550,6 +550,28 @@ describe("run event stream", () => {
     expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith("run-1", "user-a", "completed");
   });
 
+  it("does not declare a run finished it could not record as finished", async () => {
+    // Emitting the terminal event re-enables the composer. If the status never
+    // landed, the stored run is still active, so the next submission is refused
+    // by the one-active-run invariant — and this client never polls, because it
+    // already saw the run finish. Saying the stream broke sends it to status
+    // recovery, which can settle and retry the write.
+    mocks.db.updateCareerOpsRunStatus.mockRejectedValue(new Error("database down"));
+    mocks.client.openRunEvents.mockResolvedValue(
+      upstreamStream([
+        'data: {"event":"message.delta","delta":"Hel"}\n\n',
+        'data: {"event":"run.completed","output":"Hello"}\n\n',
+      ]),
+    );
+
+    const response = await runEvents(new Request("http://test"), runContext);
+    const body = await response.text();
+
+    expect(body).toContain('{"type":"delta","text":"Hel"}');
+    expect(body).toContain('"type":"error"');
+    expect(body).not.toContain('{"type":"completed"');
+  });
+
   it("survives a malformed upstream frame", async () => {
     mocks.client.openRunEvents.mockResolvedValue(
       upstreamStream([

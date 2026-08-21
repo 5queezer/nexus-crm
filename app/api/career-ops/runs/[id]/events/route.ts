@@ -29,10 +29,15 @@ async function persistWithRetry(write: () => Promise<unknown>): Promise<void> {
     try {
       await write();
       return;
-    } catch {
+    } catch (reason) {
       if (attempt === 2) {
+        // Propagate, do not swallow. The caller emits the terminal event only
+        // once this resolves: reporting success after every write failed would
+        // re-enable the composer while the stored run is still active, so the
+        // next submission is refused by the one-active-run invariant — and this
+        // client never polls, because it already saw the run finish.
         console.warn("career-ops: run status could not be persisted");
-        return;
+        throw reason;
       }
       await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
     }
@@ -164,7 +169,16 @@ export async function GET(request: Request, context: Context) {
           // would be refused by the one-active-run invariant. Retrying matters
           // for the same reason: this is the status's only chance to land while
           // the stream is open.
-          await persistWithRetry(() => recordCareerOpsRunStatus(session, runId, terminal));
+          try {
+            await persistWithRetry(() => recordCareerOpsRunStatus(session, runId, terminal));
+          } catch {
+            // The run finished but Nexus could not record it. Saying so sends
+            // the client to status recovery, which settles from the ownership-
+            // checked status endpoint and can retry the write — far better than
+            // an unrecoverable terminal event over a row that stays active.
+            emit(serializeCareerOpsEvent({ type: "error", message: "stream_interrupted" }));
+            return;
+          }
           emit(serializeCareerOpsEvent(outgoing));
           return;
         }
