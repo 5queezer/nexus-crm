@@ -972,19 +972,20 @@ export async function careerOpsApprovalChallengeFor(
     actionHash: approvalActionHash(event),
     choices: event.choices,
   });
-  // Record it as the run's outstanding challenge. Only this one may be
-  // answered, which is what stops a token minted for an earlier gate on the
-  // same run from authorizing a later, different action.
+  // Open the gate and record this challenge as the one outstanding for it. Only
+  // this challenge may be answered, which is what stops a token minted for an
+  // earlier gate on the same run from authorizing a later, different action.
   //
-  // If it cannot be stored, the challenge is worthless: every granting decision
-  // would be refused, and the single-consumer stream means reloading cannot
-  // reissue the prompt — the user would be left with a grant button that can
-  // never work. Report that instead, so the caller offers denial only.
+  // This write is what makes the prompt answerable at all — a decision arriving
+  // against a run with no open gate is refused. So the caller must not disclose
+  // controls until it succeeds: the single-consumer stream cannot reissue the
+  // prompt, and the user would be left with buttons that can never work while
+  // Hermes stays blocked waiting for one of them.
   const jti = approvalChallengeId(token);
   if (!jti) return null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await getDb().setCareerOpsPendingApprovalChallenge(runId, session.userId, jti);
+      await getDb().openCareerOpsApprovalGate(runId, session.userId, jti);
       return token;
     } catch {
       if (attempt === 2) return null;

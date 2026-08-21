@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     getLatestCareerOpsRun: vi.fn(),
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
-    setCareerOpsPendingApprovalChallenge: vi.fn(),
+    openCareerOpsApprovalGate: vi.fn(),
     claimCareerOpsApprovalGate: vi.fn(),
     releaseCareerOpsApprovalGate: vi.fn(),
     bindCareerOpsRunHermesId: vi.fn(),
@@ -133,7 +133,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
-  mocks.db.setCareerOpsPendingApprovalChallenge.mockResolvedValue(undefined);
+  mocks.db.openCareerOpsApprovalGate.mockResolvedValue(undefined);
 });
 
 describe("getCareerOpsStatus", () => {
@@ -1120,7 +1120,7 @@ describe("run controls", () => {
   beforeEach(() => {
     outstandingChallenge = null;
     runStatus = RUN.status;
-    mocks.db.setCareerOpsPendingApprovalChallenge.mockImplementation(
+    mocks.db.openCareerOpsApprovalGate.mockImplementation(
       async (_id: string, _userId: string, challengeId: string | null) => {
         outstandingChallenge = challengeId;
         // Disclosing a prompt means the run *is* at a gate: the event route

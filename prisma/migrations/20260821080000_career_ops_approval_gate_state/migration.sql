@@ -1,0 +1,11 @@
+-- The approval gate gets its own state, independent of the run status.
+--
+-- The gate used to be `status = 'waiting_for_approval'`. That status has two
+-- other writers: recovery, which persists whatever Hermes reports (still
+-- "waiting" until the decision POST lands), and the run event route. Either
+-- could flip a run back to waiting *after* a decision had atomically claimed
+-- the gate, reopening it so a second decision could claim it too and both be
+-- forwarded — the second possibly answering a gate the agent had moved on to.
+--
+-- Nullable and additive: existing rows have no open gate, which is correct.
+ALTER TABLE "CareerOpsRun" ADD COLUMN "approvalGateOpenedAt" TIMESTAMP(3);

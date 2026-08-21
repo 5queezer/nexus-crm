@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     getLatestCareerOpsRun: vi.fn(),
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
-    setCareerOpsPendingApprovalChallenge: vi.fn(),
+    openCareerOpsApprovalGate: vi.fn(),
     claimCareerOpsApprovalGate: vi.fn(),
     releaseCareerOpsApprovalGate: vi.fn(),
     getApplication: vi.fn(),
@@ -141,7 +141,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
-  mocks.db.setCareerOpsPendingApprovalChallenge.mockResolvedValue(undefined);
+  mocks.db.openCareerOpsApprovalGate.mockResolvedValue(undefined);
   mocks.db.claimCareerOpsApprovalGate.mockResolvedValue({ challengeId: "" });
   mocks.db.releaseCareerOpsApprovalGate.mockResolvedValue(undefined);
 });

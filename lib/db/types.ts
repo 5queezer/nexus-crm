@@ -758,6 +758,15 @@ export interface CareerOpsRunRecord {
    * authorize a later one.
    */
   pendingApprovalChallengeId: string | null;
+  /**
+   * When the gate this run is currently at was opened, or null when none is.
+   *
+   * Independent of `status` on purpose: status is also written by recovery
+   * (which persists whatever Hermes reports, still "waiting" until a decision
+   * lands) and by the event route, either of which would otherwise reopen a
+   * gate a decision had already claimed.
+   */
+  approvalGateOpenedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

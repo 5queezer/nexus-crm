@@ -2471,6 +2471,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         typeof data.approvalState === "string"
           ? (data.approvalState as CareerOpsApprovalState)
           : null,
+      approvalGateOpenedAt: toDate(data.approvalGateOpenedAt),
       pendingApprovalChallengeId:
         typeof data.pendingApprovalChallengeId === "string"
           ? data.pendingApprovalChallengeId
@@ -2768,7 +2769,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     await ref.delete();
   }
 
-  async setCareerOpsPendingApprovalChallenge(
+  async openCareerOpsApprovalGate(
     id: string,
     userId: string,
     challengeId: string | null,
@@ -2776,7 +2777,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const ref = this.careerOpsRuns.doc(id);
     const snapshot = await ref.get();
     if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
-    await ref.update({ pendingApprovalChallengeId: challengeId });
+    // The gate lives here, not in `status`: recovery and the event route both
+    // write status, and either would otherwise reopen a claimed gate.
+    await ref.update({
+      approvalGateOpenedAt: Timestamp.now(),
+      pendingApprovalChallengeId: challengeId,
+    });
   }
 
   async claimCareerOpsApprovalGate(
@@ -2790,9 +2796,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (!snapshot.exists) return null;
       const data = snapshot.data()!;
       if (data.userId !== userId) return null;
-      // The gate is the state, not the challenge: a prompt whose challenge
-      // never landed is still a gate a human may deny.
-      if (data.status !== "waiting_for_approval") return null;
+      // The gate is its own state, not the challenge and not the run status: a
+      // prompt whose challenge never landed is still a gate a human may deny,
+      // and a status snapshot from recovery must never reopen a claimed one.
+      if (!data.approvalGateOpenedAt) return null;
       const outstanding =
         typeof data.pendingApprovalChallengeId === "string"
           ? data.pendingApprovalChallengeId
@@ -2802,7 +2809,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
       // The transaction decides: a concurrent claim writing this document makes
       // the loser re-run and find the gate already closed.
       tx.update(ref, {
-        status: "running",
+        approvalGateOpenedAt: null,
         pendingApprovalChallengeId: null,
         updatedAt: Timestamp.now(),
       });
@@ -2821,11 +2828,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (!snapshot.exists) return;
       const data = snapshot.data()!;
       if (data.userId !== userId) return;
-      // Only if the run is still exactly as the claim left it.
-      if (data.status !== "running") return;
+      // Only if the gate is still exactly as the claim left it: closed with
+      // nothing outstanding. A gate the agent has since reached is not this
+      // caller's to reopen.
+      if (data.approvalGateOpenedAt) return;
       if (data.pendingApprovalChallengeId) return;
       tx.update(ref, {
-        status: "waiting_for_approval",
+        approvalGateOpenedAt: Timestamp.now(),
         pendingApprovalChallengeId: challengeId || null,
         updatedAt: Timestamp.now(),
       });

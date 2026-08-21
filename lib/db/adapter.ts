@@ -202,10 +202,15 @@ export interface DatabaseAdapter {
    * payload or arguments. No-op when the run is not the user's.
    */
   /**
-   * Record (or clear) the approval challenge outstanding for a run. Called when
-   * a prompt is disclosed and when a decision consumes it.
+   * Open the approval gate a run has reached, with the challenge disclosed for
+   * it (or null when none could be minted).
+   *
+   * Must succeed *before* the prompt reaches the browser. Exposing controls
+   * first lets a decision arrive while no gate is recorded, where it is refused
+   * as a conflict — the client drops the prompt and Hermes stays blocked with
+   * nobody able to answer.
    */
-  setCareerOpsPendingApprovalChallenge(
+  openCareerOpsApprovalGate(
     id: string,
     userId: string,
     challengeId: string | null,

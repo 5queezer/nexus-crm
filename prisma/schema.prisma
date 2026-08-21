@@ -621,6 +621,16 @@ model CareerOpsRun {
   /// challenge may be answered, so a token minted for an earlier gate cannot
   /// authorize a later one.
   pendingApprovalChallengeId String?
+  /// When the approval gate this run is currently at was opened, or null when no
+  /// gate is open.
+  ///
+  /// Deliberately separate from `status`. Keying the gate on
+  /// `status = waiting_for_approval` meant two other writers could reopen it:
+  /// status recovery persisting Hermes's snapshot (which still says waiting
+  /// until the decision POST lands) and the event route. Either could reopen a
+  /// gate a decision had already claimed, letting a second decision through.
+  /// Only the approval paths write this column.
+  approvalGateOpenedAt       DateTime?
   /// Lifecycle of the last decision: `pending` once Nexus commits to sending it,
   /// `effect_completed` once Hermes accepted it, `outcome_unknown` when the
   /// upstream call left it undecided. Never the command or its arguments.

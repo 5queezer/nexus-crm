@@ -136,14 +136,23 @@ export async function GET(request: Request, context: Context) {
 
         let outgoing = event;
         if (event.type === "approval_required") {
+          // The gate must be recorded *before* its controls reach the browser.
+          // Emitting first lets a decision arrive while no gate is open, where
+          // it is refused as a conflict: the client drops the prompt and Hermes
+          // stays blocked with nobody able to answer it.
           const challenge = await careerOpsApprovalChallengeFor(session, runId, event).catch(
             () => null,
           );
-          // No usable proof of disclosure means no grant can ever succeed, so
-          // offer denial only rather than a control that is guaranteed to fail.
-          outgoing = challenge
-            ? { ...event, challenge }
-            : { ...event, choices: ["deny"] as typeof event.choices, truncated: true };
+          if (!challenge) {
+            // The gate could not be opened at all — not merely without proof of
+            // disclosure. Actionable controls here would all fail, so show none
+            // and say so; Stop remains the way out.
+            emit(
+              serializeCareerOpsEvent({ type: "error", message: "approval_unavailable" }),
+            );
+            return;
+          }
+          outgoing = { ...event, challenge };
         }
         const terminal = TERMINAL_STATUS[event.type];
         if (terminal) {
@@ -160,6 +169,10 @@ export async function GET(request: Request, context: Context) {
           return;
         }
         emit(serializeCareerOpsEvent(outgoing));
+        // The run status is recorded for display only. The gate itself lives in
+        // its own column, written by `careerOpsApprovalChallengeFor` above, so
+        // a failure here cannot leave a prompt no decision can answer — nor can
+        // a later status write reopen a gate a decision has already claimed.
         if (event.type === "approval_required") {
           await recordCareerOpsRunStatus(session, runId, "waiting_for_approval").catch(
             () => undefined,

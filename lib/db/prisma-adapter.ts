@@ -2333,14 +2333,16 @@ export class PrismaAdapter implements DatabaseAdapter {
     await prisma.careerOpsRun.deleteMany({ where: { id, userId } });
   }
 
-  async setCareerOpsPendingApprovalChallenge(
+  async openCareerOpsApprovalGate(
     id: string,
     userId: string,
     challengeId: string | null,
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({
       where: { id, userId },
-      data: { pendingApprovalChallengeId: challengeId },
+      // The gate lives here, not in `status`: recovery and the event route both
+      // write status, and either would otherwise reopen a claimed gate.
+      data: { approvalGateOpenedAt: new Date(), pendingApprovalChallengeId: challengeId },
     });
   }
 
@@ -2351,9 +2353,10 @@ export class PrismaAdapter implements DatabaseAdapter {
   ): Promise<CareerOpsApprovalGateClaim | null> {
     return prisma.$transaction(async (tx) => {
       const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
-      // The gate is the state, not the challenge: a prompt whose challenge
-      // never landed is still a gate a human may deny.
-      if (!run || run.status !== "waiting_for_approval") return null;
+      // The gate is its own state, not the challenge and not the run status: a
+      // prompt whose challenge never landed is still a gate a human may deny,
+      // and a status snapshot from recovery must never reopen a claimed one.
+      if (!run || !run.approvalGateOpenedAt) return null;
       const outstanding = run.pendingApprovalChallengeId ?? "";
       // A grant must answer the gate that is actually pending; an earlier
       // gate's token verifies against run, owner and choice but not this.
@@ -2363,10 +2366,14 @@ export class PrismaAdapter implements DatabaseAdapter {
         where: {
           id,
           userId,
-          status: "waiting_for_approval",
+          approvalGateOpenedAt: run.approvalGateOpenedAt,
           pendingApprovalChallengeId: run.pendingApprovalChallengeId,
         },
-        data: { status: "running", pendingApprovalChallengeId: null, updatedAt: new Date() },
+        data: {
+          approvalGateOpenedAt: null,
+          pendingApprovalChallengeId: null,
+          updatedAt: new Date(),
+        },
       });
       // The conditional write decides, not the read above. Two decisions read
       // the same open gate; only one update matches.
@@ -2380,11 +2387,12 @@ export class PrismaAdapter implements DatabaseAdapter {
     challengeId: string,
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({
-      // Only if the run is still exactly as the claim left it. If the agent has
-      // reached another gate since, that gate is not this caller's to restore.
-      where: { id, userId, status: "running", pendingApprovalChallengeId: null },
+      // Only if the gate is still exactly as the claim left it: closed with
+      // nothing outstanding. A gate the agent has since reached is not this
+      // caller's to reopen.
+      where: { id, userId, approvalGateOpenedAt: null, pendingApprovalChallengeId: null },
       data: {
-        status: "waiting_for_approval",
+        approvalGateOpenedAt: new Date(),
         pendingApprovalChallengeId: challengeId || null,
         updatedAt: new Date(),
       },
@@ -2465,6 +2473,7 @@ function mapCareerOpsRun(row: {
   approvalChallengeId: string | null;
   approvalState: string | null;
   pendingApprovalChallengeId: string | null;
+  approvalGateOpenedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsRunRecord {
@@ -2475,6 +2484,7 @@ function mapCareerOpsRun(row: {
     hermesRunId: row.hermesRunId,
     clientRequestId: row.clientRequestId,
     status: row.status as CareerOpsRunStatus,
+    approvalGateOpenedAt: row.approvalGateOpenedAt,
     approvalChoice: row.approvalChoice ?? null,
     approvalAt: row.approvalAt ?? null,
     approvalChallengeId: row.approvalChallengeId ?? null,
