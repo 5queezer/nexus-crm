@@ -943,6 +943,7 @@
     "error_generic": "Etwas ist schiefgelaufen.",
     "error_rate_limited": "Zu viele Anfragen. Warte einen Moment und versuche es erneut.",
     "error_conflict": "Der Agent wartet nicht mehr auf diese Aktion.",
+    "error_stop_failed": "Der Agent konnte nicht gestoppt werden. Er läuft möglicherweise noch — bitte erneut versuchen.",
     "loading": "Wird geladen …",
     "you": "Du",
     "assistant": "Career Ops",

@@ -865,6 +865,7 @@ export function CareerOps({
                         const code = run.errorCode ?? errorCode;
                         if (code === "rate_limited") return t("error_rate_limited");
                         if (code === "conflict") return t("error_conflict");
+                        if (code === "error_stop_failed") return t("error_stop_failed");
                         return t("error_generic");
                       })()}
                     </p>

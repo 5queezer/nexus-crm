@@ -343,8 +343,20 @@ export function useCareerOpsRun(
     if (!runId) return;
     try {
       await careerOpsJson(`/api/career-ops/runs/${runId}/stop`, { method: "POST" });
-    } catch {
-      // The run may already have finished; the stream still settles the UI.
+    } catch (reason) {
+      // Only a run that has already finished may be ignored — the stream still
+      // settles the UI for that one, and there is nothing left to stop.
+      //
+      // Every other failure has to surface. Swallowing a transport error, a
+      // rate limit or an upstream 5xx leaves the drawer looking exactly as it
+      // does on success, so the user walks away believing they stopped a
+      // privileged agent that is in fact still running.
+      if (reason instanceof CareerOpsRequestError && reason.status === 404) return;
+      setState((current) => ({
+        ...current,
+        errorCode:
+          reason instanceof CareerOpsRequestError ? reason.code : "error_stop_failed",
+      }));
     }
   }, [state.runId]);
 

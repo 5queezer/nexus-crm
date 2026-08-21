@@ -345,10 +345,21 @@ function boundedHistory(
   // Walk backwards: a follow-up refers to the newest turns, so those are the
   // ones worth spending the budget on.
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (kept.length >= HISTORY_MAX_MESSAGES) break;
+    if (kept.length >= HISTORY_MAX_MESSAGES || budget <= 0) break;
     const message = messages[i];
     if (!message.content) continue;
-    if (message.content.length > budget) break;
+    if (message.content.length > budget) {
+      // Keep a bounded portion rather than dropping everything. One oversized
+      // message — content is accepted up to 200 000 characters — used to end
+      // the walk on its first iteration and return no history at all, so the
+      // next turn lost even the question it was answering while the drawer
+      // still showed a continuous conversation.
+      //
+      // Safe to slice: this text was redacted whole when the transcript was
+      // read, so cutting it here cannot sever a credential.
+      kept.push({ role: message.role, content: `${message.content.slice(0, budget)}…` });
+      break;
+    }
     budget -= message.content.length;
     kept.push({ role: message.role, content: message.content });
   }

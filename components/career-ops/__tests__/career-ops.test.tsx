@@ -1214,6 +1214,42 @@ describe("stop control", () => {
     stream.close();
   });
 
+  it("says so when the agent could not be stopped", async () => {
+    // A swallowed stop failure leaves the drawer looking exactly as it does on
+    // success, so the user walks away believing they stopped a privileged agent
+    // that is in fact still running.
+    const user = userEvent.setup();
+    const stream = openSse([]);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("POST", /\/runs\/[^/]+\/stop$/, () => json({ error: "upstream_error" }, 503));
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "long task");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await user.click(await within(dialog).findByRole("button", { name: /^stop$/i }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toBeTruthy());
+    stream.close();
+  });
+
+  it("stays quiet when the run had already finished", async () => {
+    // 404 is the one stop failure worth ignoring: there is nothing left to
+    // stop, and the stream settles the UI anyway.
+    const user = userEvent.setup();
+    const stream = openSse([]);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("POST", /\/runs\/[^/]+\/stop$/, () => json({ error: "not_found" }, 404));
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "long task");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await user.click(await within(dialog).findByRole("button", { name: /^stop$/i }));
+    await waitFor(() => expect(calls.some((call) => call.url.includes("/stop"))).toBe(true));
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    stream.close();
+  });
+
   it("hides the stop control when the connected Hermes does not support it", async () => {
     const user = userEvent.setup();
     route("GET", /\/api\/career-ops\/status$/, () =>

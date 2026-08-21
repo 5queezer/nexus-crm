@@ -617,6 +617,27 @@ describe("startCareerOpsRun", () => {
     expect(args.history.map((m: { content: string }) => m.content)).not.toContain("turn 0");
   });
 
+  it("keeps a bounded portion of an oversized turn rather than none of it", async () => {
+    // Transcript content is accepted up to 200 000 characters, so one message
+    // can exceed the whole budget. Ending the walk there returned no history at
+    // all — the next turn lost even the question it was answering, while the
+    // drawer still showed a continuous conversation.
+    mocks.client.listSessionMessages.mockResolvedValue([
+      { id: "m1", role: "user", content: "what did I ask?", createdAt: 1 },
+      { id: "m2", role: "assistant", content: "x".repeat(200_000), createdAt: 2 },
+    ]);
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "continue",
+      clientRequestId: "client-id-oversized",
+    });
+
+    const [args] = mocks.client.createRun.mock.calls[0];
+    expect(args.history.length).toBeGreaterThan(0);
+    expect(args.history.at(-1).content.length).toBeLessThan(200_000);
+    expect(args.history.at(-1).role).toBe("assistant");
+  });
+
   it("refuses to start a turn whose earlier turns it could not read", async () => {
     // Failing closed: a conversation that silently forgets is the defect this
     // history exists to fix, so an unreadable transcript is reported rather

@@ -943,6 +943,7 @@
     "error_generic": "Something went wrong.",
     "error_rate_limited": "Too many requests. Wait a moment and try again.",
     "error_conflict": "The agent is no longer waiting for that action.",
+    "error_stop_failed": "The agent could not be stopped. It may still be running — try again.",
     "loading": "Loading…",
     "you": "You",
     "assistant": "Career Ops",
