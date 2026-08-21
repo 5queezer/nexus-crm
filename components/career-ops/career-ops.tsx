@@ -44,6 +44,19 @@ import { useCareerOpsRun } from "./use-career-ops-run";
 /** Stable id linking the history disclosure button to the panel it controls. */
 const HISTORY_PANEL_ID = "career-ops-history";
 
+/**
+ * Phases in which the hook still holds Hermes's event stream.
+ *
+ * That stream is single-consumer, so aborting it cannot be undone: whatever it
+ * would have delivered is gone, and only status polling remains.
+ */
+const LIVE_RUN_PHASES: RunPhase[] = [
+  "starting",
+  "streaming",
+  "reconnecting",
+  "waiting_approval",
+];
+
 export function CareerOps({
   application,
   variant = "floating",
@@ -328,15 +341,25 @@ export function CareerOps({
         ? result.threads.find((thread) => thread.applicationId === application.id)
         : result.threads.find((thread) => thread.applicationId === null);
       if (preferred) {
-        // Commit the identity and the state that belongs to it together. React
-        // batches these into one render, so the drawer never shows the previous
-        // conversation's transcript, run controls or scope badge under the newly
-        // selected conversation's id.
-        setMessages([]);
-        setThreadApplication(null);
-        setTranscriptFailed(false);
-        pendingRequestRef.current = null;
-        reset();
+        // Reopening onto the conversation whose run is still live must not
+        // disturb it. The hook stays mounted while the drawer is closed and
+        // holds the only subscription to Hermes's single-consumer event stream,
+        // so resetting here would abort it — rejoin could then only poll
+        // status, losing deltas and tool progress and downgrading any approval
+        // prompt to the denial-only recovered form.
+        const keepsLiveRun =
+          preferred.id === activeThreadId && LIVE_RUN_PHASES.includes(runRef.current.phase);
+        if (!keepsLiveRun) {
+          // Commit the identity and the state that belongs to it together.
+          // React batches these into one render, so the drawer never shows the
+          // previous conversation's transcript, run controls or scope badge
+          // under the newly selected conversation's id.
+          setMessages([]);
+          setThreadApplication(null);
+          setTranscriptFailed(false);
+          pendingRequestRef.current = null;
+          reset();
+        }
         setActiveThreadId(preferred.id);
         await loadMessages(preferred.id, generation);
         if (!current()) return;
@@ -359,7 +382,7 @@ export function CareerOps({
     } finally {
       if (current()) setLoading(false);
     }
-  }, [application, createThread, loadMessages, rejoinActiveRun, reset]);
+  }, [activeThreadId, application, createThread, loadMessages, rejoinActiveRun, reset]);
 
   useEffect(() => {
     if (!open || !status?.available) return;

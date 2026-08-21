@@ -564,6 +564,45 @@ describe("application context", () => {
     expect(within(dialog).getByText("CURRENT ANSWER")).toBeTruthy();
   });
 
+  it("keeps a live run's stream when the drawer is reopened onto it", async () => {
+    // The hook stays mounted while the drawer is closed and holds the only
+    // subscription to Hermes's single-consumer event stream. Resetting on
+    // reopen aborts it for good: rejoin can then only poll status, so deltas
+    // and tool progress are lost and an approval prompt degrades to the
+    // denial-only recovered form.
+    const user = userEvent.setup();
+    const stream = openSse([]);
+    let streamOpens = 0;
+    route("GET", /\/runs\/[^/]+\/events$/, () => {
+      streamOpens += 1;
+      return stream.response;
+    });
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({ thread: THREAD, application: null, activeRun: { id: "run-1" } }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "long task");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(streamOpens).toBe(1));
+
+    // Close and reopen onto the same conversation.
+    await user.keyboard("{Escape}");
+    await openDrawer(user);
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.includes("/api/career-ops/threads?"))).toBe(false),
+    );
+
+    // The original subscription is still the one in use: no second open, and
+    // Stop is still offered because the run is still being tracked.
+    expect(streamOpens).toBe(1);
+    expect(
+      await within(await openDrawer(user)).findByRole("button", { name: /^stop$/i }),
+    ).toBeTruthy();
+    stream.close();
+  });
+
   it("blocks submission while a selected conversation is still loading", async () => {
     // Selecting a history entry commits the id immediately. Without holding the
     // loading state across the whole selection, the composer accepts a message
