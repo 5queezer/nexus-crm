@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
 import {
   CAREER_OPS_TERMINAL_RUN_STATUSES,
@@ -318,6 +319,21 @@ const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
  * brick the conversation permanently. The window is generous enough that a real
  * in-flight submission is never mistaken for a stale one.
  */
+/**
+ * Digest of the message a client request id is claimed for.
+ *
+ * A digest, not the text: Nexus already declines to duplicate the conversation
+ * into its own store, and this exists only to tell a genuine retry from a
+ * reused key. Normalized so that trimming or line-ending differences between a
+ * submission and its retry do not read as a different question.
+ */
+export function careerOpsRequestHash(message: string): string {
+  return createHash("sha256")
+    .update(message.replace(/\r\n/g, "\n").trim())
+    .digest("base64url")
+    .slice(0, 32);
+}
+
 /**
  * How much prior conversation is replayed to Hermes on each turn.
  *
@@ -760,6 +776,10 @@ export async function startCareerOpsRun(
     threadId,
     hermesRunId: "",
     clientRequestId: input.clientRequestId,
+    // Bind the key to what it is being claimed for. Without this the same id
+    // sent with edited text resolves to the earlier run, and the user is shown
+    // an answer to a question they no longer asked.
+    requestHash: careerOpsRequestHash(message),
     status: "queued",
   });
   if (claim.outcome === "existing") {
@@ -775,6 +795,12 @@ export async function startCareerOpsRun(
       );
     }
     return claim.run;
+  }
+  if (claim.outcome === "request_mismatch") {
+    throw new CareerOpsServiceError(
+      "conflict",
+      "That request id was already used for a different message",
+    );
   }
   if (claim.outcome === "thread_gone") {
     throw new CareerOpsServiceError("not_found", "Not found");

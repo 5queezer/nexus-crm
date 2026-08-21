@@ -1,0 +1,13 @@
+-- Bind the client request id to what it was claimed for.
+--
+-- `(threadId, clientRequestId)` made a retry idempotent, but nothing checked
+-- that the retry carried the *same* message. A client reusing a key for edited
+-- text would silently resolve to the earlier run and be shown an answer to a
+-- question it no longer asked. The digest lets the claim tell a genuine retry
+-- from a reused key, and it is a digest so the message is never duplicated
+-- into Nexus.
+--
+-- Defaulted rather than nullable so existing rows keep a definite value: "" is
+-- the pre-hash marker, and the claim treats it as "unknown, accept the retry"
+-- so a deploy mid-flight cannot start refusing legitimate retries.
+ALTER TABLE "CareerOpsRun" ADD COLUMN "requestHash" TEXT NOT NULL DEFAULT '';

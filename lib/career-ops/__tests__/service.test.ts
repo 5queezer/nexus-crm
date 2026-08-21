@@ -571,6 +571,40 @@ describe("startCareerOpsRun", () => {
     expect(args.input).toBe("hello");
   });
 
+  it("refuses a request id reused for different text", async () => {
+    // Idempotency that ignores the body is not idempotency: the client would be
+    // shown the earlier run's answer to a question it no longer asked.
+    mocks.db.claimCareerOpsRun.mockResolvedValue({ outcome: "request_mismatch" });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "a different question",
+        clientRequestId: "client-id-reused",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+
+  it("binds the request id to the message it was claimed for", async () => {
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "  hello there\r\n",
+      clientRequestId: "client-id-hash",
+    });
+    const [, claimed] = mocks.db.claimCareerOpsRun.mock.calls[0];
+    expect(claimed.requestHash).toBeTruthy();
+    // The digest, never the text: Nexus does not duplicate the conversation.
+    expect(claimed.requestHash).not.toContain("hello");
+
+    // Normalized, so trimming and line endings do not read as a new question.
+    mocks.db.claimCareerOpsRun.mockClear();
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello there",
+      clientRequestId: "client-id-hash",
+    });
+    const [, again] = mocks.db.claimCareerOpsRun.mock.calls[0];
+    expect(again.requestHash).toBe(claimed.requestHash);
+  });
+
   it("carries the earlier turns into the next one", async () => {
     // The Runs API assembles model history from explicit request fields; it
     // does not hydrate stored messages from `session_id`. Sending the session

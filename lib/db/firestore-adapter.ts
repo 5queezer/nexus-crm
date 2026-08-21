@@ -2472,6 +2472,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
           ? (data.approvalState as CareerOpsApprovalState)
           : null,
       approvalGateOpenedAt: toDate(data.approvalGateOpenedAt),
+      requestHash: typeof data.requestHash === "string" ? data.requestHash : "",
       pendingApprovalChallengeId:
         typeof data.pendingApprovalChallengeId === "string"
           ? data.pendingApprovalChallengeId
@@ -2668,6 +2669,16 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (mine.exists) {
         const current = mine.data()!;
         if (current.userId !== userId) return { outcome: "thread_gone" };
+        // A retry must carry the same message. `""` marks a row written before
+        // the digest existed, and is accepted so a mid-flight deploy cannot
+        // start refusing legitimate retries.
+        if (
+          typeof current.requestHash === "string" &&
+          current.requestHash !== "" &&
+          current.requestHash !== data.requestHash
+        ) {
+          return { outcome: "request_mismatch" };
+        }
         return { outcome: "existing", run: this.mapCareerOpsRun(mine.id, current) };
       }
 
@@ -2684,6 +2695,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         threadId: data.threadId,
         hermesRunId: data.hermesRunId,
         clientRequestId: data.clientRequestId,
+        requestHash: data.requestHash,
         status: data.status,
         createdAt: now,
         updatedAt: now,
@@ -2710,12 +2722,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
       const snapshot = await tx.get(ref);
       if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
       const current = snapshot.data()!.status as string;
-      if (
-        !terminal &&
-        (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(current)
-      ) {
-        return;
-      }
+      const currentIsTerminal = (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(
+        current,
+      );
+      // Monotonic, and terminal states are final. A late `failed` landing on a
+      // `completed` run rewrites what the agent actually did, and the audit
+      // beside it. Re-writing the same terminal status stays a no-op rather
+      // than an error, so a duplicate delivery is harmless.
+      if (currentIsTerminal && current !== status) return;
       tx.update(ref, {
         status,
         updatedAt: Timestamp.now(),

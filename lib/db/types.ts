@@ -767,6 +767,8 @@ export interface CareerOpsRunRecord {
    * gate a decision had already claimed.
    */
   approvalGateOpenedAt: Date | null;
+  /** Digest of the message this request id was claimed for; "" pre-migration. */
+  requestHash: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -786,6 +788,8 @@ export interface CreateCareerOpsRunInput {
   threadId: string;
   hermesRunId: string;
   clientRequestId: string;
+  /** Digest of the normalized message this request id is being claimed for. */
+  requestHash: string;
   status: CareerOpsRunStatus;
 }
 
@@ -817,5 +821,13 @@ export type CareerOpsRunClaim =
   | { outcome: "existing"; run: CareerOpsRunRecord }
   /** A different run already holds the conversation's active slot. */
   | { outcome: "active_run_exists" }
+  /**
+   * The request id was already claimed, but for different text.
+   *
+   * An idempotency key that ignores the body is not idempotency: resolving to
+   * the earlier run would show the user an answer to a question they did not
+   * ask. The caller reports a conflict instead.
+   */
+  | { outcome: "request_mismatch" }
   /** The conversation no longer exists, or is not owned by this user. */
   | { outcome: "thread_gone" };

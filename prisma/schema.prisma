@@ -608,6 +608,13 @@ model CareerOpsRun {
   thread                     CareerOpsThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   hermesRunId                String
   clientRequestId            String
+  /// Digest of the normalized message this request id was claimed for.
+  ///
+  /// An idempotency key that ignores the request body is not idempotency: the
+  /// same key sent with different text would resolve to the earlier run and
+  /// answer a question the user did not ask. Stored as a digest so the message
+  /// itself is never duplicated into Nexus.
+  requestHash                String          @default("")
   status                     String          @default("queued")
   /// Attribution for the last human approval decision. The command payload and
   /// arguments are deliberately never stored.

@@ -2218,7 +2218,15 @@ export class PrismaAdapter implements DatabaseAdapter {
     const existing = await prisma.careerOpsRun.findFirst({
       where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
     });
-    if (existing) return { outcome: "existing", run: mapCareerOpsRun(existing) };
+    if (existing) {
+      // A retry must carry the same message. `""` marks a row written before
+      // the digest existed, and is accepted so a mid-flight deploy cannot start
+      // refusing legitimate retries.
+      if (existing.requestHash !== "" && existing.requestHash !== data.requestHash) {
+        return { outcome: "request_mismatch" };
+      }
+      return { outcome: "existing", run: mapCareerOpsRun(existing) };
+    }
 
     try {
       const row = await prisma.$transaction(async (tx) => {
@@ -2235,6 +2243,7 @@ export class PrismaAdapter implements DatabaseAdapter {
             threadId: data.threadId,
             hermesRunId: data.hermesRunId,
             clientRequestId: data.clientRequestId,
+            requestHash: data.requestHash,
             status: data.status,
           },
         });
@@ -2273,19 +2282,30 @@ export class PrismaAdapter implements DatabaseAdapter {
     userId: string,
     status: CareerOpsRunStatus,
   ): Promise<void> {
-    // Status transitions are monotonic: a delayed poll that observed `running`
-    // must not overwrite a terminal state the event stream already persisted.
-    // Beyond showing a finished run as active, that would resurrect the row
-    // into the one-active-run index and wedge the conversation.
+    // Status transitions are monotonic, and terminal states are final.
+    //
+    // A delayed poll that observed `running` must not overwrite a terminal
+    // state the event stream already persisted: beyond showing a finished run
+    // as active, that would resurrect the row into the one-active-run index and
+    // wedge the conversation. And one terminal result must not overwrite
+    // another — a late `failed` landing on a `completed` run rewrites what the
+    // agent actually did, and the audit beside it. Re-writing the *same*
+    // terminal status stays allowed, so a duplicate delivery is a no-op rather
+    // than an error.
+    const isTerminal = CAREER_OPS_TERMINAL_RUN_STATUSES.includes(
+      status as (typeof CAREER_OPS_TERMINAL_RUN_STATUSES)[number],
+    );
     await prisma.careerOpsRun.updateMany({
       where: {
         id,
         userId,
-        ...(CAREER_OPS_TERMINAL_RUN_STATUSES.includes(
-          status as (typeof CAREER_OPS_TERMINAL_RUN_STATUSES)[number],
-        )
-          ? {}
-          : { status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] } }),
+        status: isTerminal
+          ? {
+              notIn: CAREER_OPS_TERMINAL_RUN_STATUSES.filter(
+                (terminal) => terminal !== status,
+              ),
+            }
+          : { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
       },
       data: {
         status,
@@ -2293,11 +2313,7 @@ export class PrismaAdapter implements DatabaseAdapter {
         // denial claim it long after the run finished: the decision would
         // overwrite the terminal run's approval audit and be forwarded upstream
         // for an action nobody is waiting on.
-        ...(CAREER_OPS_TERMINAL_RUN_STATUSES.includes(
-          status as (typeof CAREER_OPS_TERMINAL_RUN_STATUSES)[number],
-        )
-          ? { approvalGateOpenedAt: null, pendingApprovalChallengeId: null }
-          : {}),
+        ...(isTerminal ? { approvalGateOpenedAt: null, pendingApprovalChallengeId: null } : {}),
       },
     });
   }
@@ -2505,6 +2521,7 @@ function mapCareerOpsRun(row: {
   approvalState: string | null;
   pendingApprovalChallengeId: string | null;
   approvalGateOpenedAt: Date | null;
+  requestHash: string;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsRunRecord {
@@ -2516,6 +2533,7 @@ function mapCareerOpsRun(row: {
     clientRequestId: row.clientRequestId,
     status: row.status as CareerOpsRunStatus,
     approvalGateOpenedAt: row.approvalGateOpenedAt,
+    requestHash: row.requestHash ?? "",
     approvalChoice: row.approvalChoice ?? null,
     approvalAt: row.approvalAt ?? null,
     approvalChallengeId: row.approvalChallengeId ?? null,

@@ -491,11 +491,18 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       hermesRunId: string;
       clientRequestId: string;
       status: CareerOpsRunStatus;
+      requestHash?: string;
     },
   ) {
-    const claim = await db.claimCareerOpsRun(userId, data);
+    const claim = await db.claimCareerOpsRun(userId, {
+      // Default to a hash derived from the request id, so the many tests that
+      // do not care about request binding still model a consistent retry.
+      requestHash: `hash-${data.clientRequestId}`,
+      ...data,
+    });
     if (claim.outcome === "active_run_exists") throw new Error("active_run_exists");
     if (claim.outcome === "thread_gone") throw new Error("thread_gone");
+    if (claim.outcome === "request_mismatch") throw new Error("request_mismatch");
     return { run: claim.run, created: claim.outcome === "claimed" };
   }
 
@@ -631,6 +638,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
         threadId: thread.id,
         hermesRunId: "run_2",
         clientRequestId: "tab-two",
+        requestHash: "hash-direct",
         status: "queued",
       }),
     ).resolves.toEqual({ outcome: "active_run_exists" });
@@ -643,7 +651,8 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
         db.claimCareerOpsRun("user-a", {
           threadId: thread.id,
           hermesRunId: "",
-          clientRequestId,
+          clientRequestId,      requestHash: "hash-direct",
+
           status: "queued",
         }),
       ),
@@ -661,12 +670,14 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       threadId: thread.id,
       hermesRunId: "",
       clientRequestId: "same-id",
+        requestHash: "hash-direct",
       status: "queued",
     });
     const retry = await db.claimCareerOpsRun("user-a", {
       threadId: thread.id,
       hermesRunId: "",
       clientRequestId: "same-id",
+        requestHash: "hash-direct",
       status: "queued",
     });
     expect(first.outcome).toBe("claimed");
@@ -688,6 +699,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
         threadId: thread.id,
         hermesRunId: "",
         clientRequestId: "orphan",
+        requestHash: "hash-direct",
         status: "queued",
       }),
     ).resolves.toEqual({ outcome: "thread_gone" });
@@ -763,6 +775,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
         threadId: thread.id,
         hermesRunId: "run_x",
         clientRequestId: "client-id-x",
+        requestHash: "hash-direct",
         status: "queued",
       }),
     ).resolves.toEqual({ outcome: "thread_gone" });
@@ -1146,6 +1159,94 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     // And never on a finished run.
     await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
     await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+  });
+
+  it("tells a genuine retry from a reused request id", async () => {
+    // An idempotency key that ignores the body is not idempotency: the same id
+    // sent with edited text resolved to the earlier run, and the user was shown
+    // an answer to a question they no longer asked.
+    const thread = await seedThread("user-a");
+    const first = await db.claimCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "reused-id",
+      requestHash: "hash-of-first-message",
+      status: "queued",
+    });
+    expect(first.outcome).toBe("claimed");
+
+    // Same id, same text: the retry resolves to its own reservation.
+    await expect(
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_1",
+        clientRequestId: "reused-id",
+        requestHash: "hash-of-first-message",
+        status: "queued",
+      }),
+    ).resolves.toMatchObject({ outcome: "existing" });
+
+    // Same id, different text: refused rather than silently answering the
+    // earlier question.
+    await expect(
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_1",
+        clientRequestId: "reused-id",
+        requestHash: "hash-of-edited-message",
+        status: "queued",
+      }),
+    ).resolves.toEqual({ outcome: "request_mismatch" });
+  });
+
+  it("accepts a retry for a reservation written before the digest existed", async () => {
+    // `""` marks a pre-migration row. Treating it as a mismatch would make a
+    // deploy start refusing legitimate retries mid-flight.
+    const thread = await seedThread("user-a");
+    await db.claimCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "legacy-id",
+      requestHash: "",
+      status: "queued",
+    });
+
+    await expect(
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_1",
+        clientRequestId: "legacy-id",
+        requestHash: "hash-of-anything",
+        status: "queued",
+      }),
+    ).resolves.toMatchObject({ outcome: "existing" });
+  });
+
+  it("does not let one terminal result overwrite another", async () => {
+    // A late `failed` landing on a `completed` run rewrites what the agent
+    // actually did, and the approval audit beside it. The existing guard only
+    // stopped an *active* status from overwriting a terminal one.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-terminal-final",
+      status: "running",
+    });
+
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    for (const later of ["failed", "cancelled", "abandoned"] as const) {
+      await db.updateCareerOpsRunStatus(run.id, "user-a", later);
+      await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+        status: "completed",
+      });
+    }
+
+    // Re-delivering the same terminal status stays a no-op, not an error.
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      status: "completed",
+    });
   });
 
   it("closes an open gate when the run reaches a terminal status", async () => {
