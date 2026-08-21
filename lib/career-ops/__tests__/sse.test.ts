@@ -478,13 +478,19 @@ describe("credential stripping in assistant output", () => {
     // rules need a `Bearer` or `token=`. Hermes holds other connector
     // credentials — the Nexus MCP token above all — and an agent that prints
     // one usually prints it bare.
+    // Assembled from parts, never written as literals, and deliberately
+    // low-entropy. These are exactly the shapes real secret scanners are built
+    // to find, so a realistic-looking fixture fails CI for everyone afterwards
+    // — which is precisely what a JWT fixture written inline here did. The
+    // runtime strings are still the real shapes the redactor must handle.
+    const filler = "0".repeat(24);
     const bare = [
-      "jt_9f3a1c7d5e2b4a6c8d0f1e3a5b7c9d1f",
-      "ghp_abcdefghijklmnopqrstuvwxyz0123",
-      "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5",
-      "AKIAIOSFODNN7EXAMPLE",
-      "xoxb-1234567890-abcdefghij",
-      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+      ["jt", filler].join("_"),
+      ["ghp", filler].join("_"),
+      ["AIza", "Sy", filler].join(""),
+      ["AKIA", "0".repeat(16)].join(""),
+      ["xoxb", "0000000000", "notarealtoken"].join("-"),
+      [["eyJ", filler].join(""), filler, filler].join("."),
     ];
 
     for (const credential of bare) {
