@@ -278,7 +278,7 @@ export function CareerOps({
   }, []);
 
   const createThread = useCallback(
-    async (withApplication: boolean) => {
+    async (withApplication: boolean, stillCurrent: () => boolean = () => true) => {
       setErrorCode(null);
       const body = withApplication && application ? { applicationId: application.id } : {};
       const result = await careerOpsJson<{ thread: CareerOpsThread }>("/api/career-ops/threads", {
@@ -286,8 +286,13 @@ export function CareerOps({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      selectionRef.current += 1;
+      // The conversation exists either way, so it joins the list. What must be
+      // conditional is *selecting* it: a slow creation returning after the user
+      // moved on would switch away from — and reset — a run that is still
+      // executing, aborting its single-consumer stream for good.
       setThreads((current) => [result.thread, ...current]);
+      if (!stillCurrent()) return result.thread;
+      selectionRef.current += 1;
       setActiveThreadId(result.thread.id);
       setThreadApplication(withApplication && application ? application : null);
       setTranscriptFailed(false);
@@ -311,8 +316,15 @@ export function CareerOps({
       // `busy` cannot cover this: it only turns true once a run starts.
       if (creatingRef.current) return;
       creatingRef.current = true;
+      // Creation is not serialized against selection or submission, so a slow
+      // POST can return after the user has selected another conversation and
+      // started a run in it. Adopting that response would advance the
+      // generation, switch away, and reset — aborting the single-consumer
+      // stream of a run that is still executing. Bind the response to the
+      // selection it was started from.
+      const startedAt = selectionRef.current;
       try {
-        await createThread(withApplication);
+        await createThread(withApplication, () => selectionRef.current === startedAt);
       } catch (reason) {
         setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
       } finally {
@@ -925,6 +937,9 @@ export function CareerOps({
                         if (code === "conflict") return t("error_conflict");
                         if (code === "error_stop_failed") return t("error_stop_failed");
                         if (code === "error_status_unknown") return t("error_status_unknown");
+                        if (code === "error_approval_unavailable") {
+                          return t("error_approval_unavailable");
+                        }
                         return t("error_generic");
                       })()}
                     </p>

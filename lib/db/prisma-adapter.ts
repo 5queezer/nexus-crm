@@ -2272,7 +2272,15 @@ export class PrismaAdapter implements DatabaseAdapter {
       const winner = await prisma.careerOpsRun.findFirst({
         where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
       });
-      if (winner) return { outcome: "existing", run: mapCareerOpsRun(winner) };
+      if (winner) {
+        // The same check the lookup above performs. Reaching `existing` by
+        // losing a race rather than by finding the row first does not make a
+        // reused request id any less of a mismatch.
+        if (winner.requestHash !== "" && winner.requestHash !== data.requestHash) {
+          return { outcome: "request_mismatch" };
+        }
+        return { outcome: "existing", run: mapCareerOpsRun(winner) };
+      }
       return { outcome: "active_run_exists" };
     }
   }
@@ -2366,7 +2374,15 @@ export class PrismaAdapter implements DatabaseAdapter {
     challengeId: string | null,
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({
-      where: { id, userId },
+      where: {
+        id,
+        userId,
+        // Never on a finished run. Polling can record a terminal status while
+        // an approval frame is still being processed; that write clears the
+        // gate, and an unconditional open here would put it back on the
+        // terminal row for a stale denial to claim.
+        status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+      },
       // The gate lives here, not in `status`: recovery and the event route both
       // write status, and either would otherwise reopen a claimed gate.
       data: { approvalGateOpenedAt: new Date(), pendingApprovalChallengeId: challengeId },

@@ -152,6 +152,22 @@ export function useCareerOpsRun(
           return { ...current, phase: "failed", approval: null, errorCode: "error_generic" };
         case "cancelled":
           return { ...current, phase: "cancelled", approval: null };
+        case "error":
+          // Dropping these left the drawer streaming forever while Hermes was
+          // paused on an approval it could not present — `approval_unavailable`
+          // arrives exactly when no prompt can be shown. Say so and move to
+          // recovery; the caller settles from the status endpoint.
+          return TERMINAL_PHASES.includes(current.phase)
+            ? current
+            : {
+                ...current,
+                phase: "reconnecting",
+                approval: null,
+                errorCode:
+                  event.message === "approval_unavailable"
+                    ? "error_approval_unavailable"
+                    : "error_generic",
+              };
         default:
           return current;
       }

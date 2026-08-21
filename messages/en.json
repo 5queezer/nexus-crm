@@ -945,6 +945,7 @@
     "error_conflict": "The agent is no longer waiting for that action.",
     "error_stop_failed": "The agent could not be stopped. It may still be running — try again.",
     "error_status_unknown": "Nexus stopped tracking this run. It may still be working — use Stop if you want it to end.",
+    "error_approval_unavailable": "The agent is waiting on a decision that could not be shown. Use Stop to end the run.",
     "loading": "Loading…",
     "you": "You",
     "assistant": "Career Ops",

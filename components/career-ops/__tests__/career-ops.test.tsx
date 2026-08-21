@@ -663,6 +663,66 @@ describe("application context", () => {
     await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
   });
 
+  it("surfaces an approval that could not be shown instead of streaming forever", async () => {
+    // Hermes pauses on an unanswered approval. When the gate could not be
+    // opened the route says so, and dropping that event left the drawer
+    // streaming indefinitely with no prompt and no way out.
+    const user = userEvent.setup();
+    const stream = openSse(['data: {"type":"error","message":"approval_unavailable"}\n\n']);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("GET", /\/runs\/[^/]+$/, () => json({ status: "running", output: "", error: null }));
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "do the thing");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByText(/could not be shown/i)).toBeTruthy(),
+    );
+    stream.close();
+  });
+
+  it("does not switch away from a run started while a conversation was being created", async () => {
+    // A slow creation returning after the user moved on used to advance the
+    // generation, select the new conversation and reset — aborting the
+    // single-consumer stream of a run that was still executing.
+    const user = userEvent.setup();
+    const second = { ...THREAD, id: "thread-2", title: "Second" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD, second] }));
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    route("POST", /\/api\/career-ops\/threads$/, async () => {
+      await held;
+      return json({ thread: { ...THREAD, id: "thread-created", title: "Created" } }, 201);
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    // Start a creation that will not return yet.
+    void user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+    // Meanwhile select an existing conversation.
+    await user.click(await within(dialog).findByRole("button", { name: "Second" }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.includes("/threads/thread-2/messages"))).toBe(true),
+    );
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // The late creation must not have taken over the selection: a message sent
+    // now must still go to the conversation the user actually chose.
+    calls.length = 0;
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "for the selected one");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(calls.some((call) => call.url.includes("/runs"))).toBe(true));
+    const submission = calls.find((call) => call.url.includes("/runs"));
+    expect(submission?.url).toContain("/threads/thread-2/runs");
+  });
+
   it("creates one conversation when the control is double-clicked", async () => {
     // Both handlers enter before either request changes any state, and each
     // would create a Hermes session and a Nexus conversation.

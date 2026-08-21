@@ -1199,6 +1199,54 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     ).resolves.toEqual({ outcome: "request_mismatch" });
   });
 
+  it("refuses a hash mismatch discovered by losing the unique race", async () => {
+    // Two submissions with the same id and different text can both pass the
+    // lookup; the loser lands on the unique-constraint recovery path. Reaching
+    // `existing` by losing a race rather than by finding the row first does not
+    // make a reused request id any less of a mismatch.
+    const thread = await seedThread("user-a");
+    const [first, second] = await Promise.all([
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_1",
+        clientRequestId: "raced-id",
+        requestHash: "hash-of-first",
+        status: "queued",
+      }),
+      db.claimCareerOpsRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: "run_1",
+        clientRequestId: "raced-id",
+        requestHash: "hash-of-second",
+        status: "queued",
+      }),
+    ]);
+
+    const outcomes = [first.outcome, second.outcome].sort();
+    expect(outcomes).toEqual(["claimed", "request_mismatch"]);
+  });
+
+  it("never opens an approval gate on a finished run", async () => {
+    // Polling can record a terminal status while an approval frame is still
+    // being processed. That write clears the gate; an unconditional open would
+    // put it back on the terminal row for a stale denial to claim.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-open-terminal",
+      status: "running",
+    });
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+
+    await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      approvalGateOpenedAt: null,
+      pendingApprovalChallengeId: null,
+    });
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+  });
+
   it("accepts a retry for a reservation written before the digest existed", async () => {
     // `""` marks a pre-migration row. Treating it as a mismatch would make a
     // deploy start refusing legitimate retries mid-flight.

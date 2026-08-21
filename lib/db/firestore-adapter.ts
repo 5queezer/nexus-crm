@@ -2799,6 +2799,15 @@ export class FirestoreAdapter implements DatabaseAdapter {
     const ref = this.careerOpsRuns.doc(id);
     const snapshot = await ref.get();
     if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+    // Never on a finished run. Polling can record a terminal status while an
+    // approval frame is still being processed; that write clears the gate, and
+    // an unconditional open here would put it back on the terminal row for a
+    // stale denial to claim.
+    if (
+      (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(snapshot.data()!.status)
+    ) {
+      return;
+    }
     // The gate lives here, not in `status`: recovery and the event route both
     // write status, and either would otherwise reopen a claimed gate.
     await ref.update({
