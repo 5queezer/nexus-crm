@@ -191,13 +191,26 @@ function safeCut(combined: string, cut: number): number {
   return earliest;
 }
 
+/**
+ * Size in bytes of the UTF-8 encoding, which is what the network actually
+ * carried. `String.length` counts UTF-16 code units and undercounts every
+ * non-ASCII character.
+ */
+const byteEncoder = new TextEncoder();
+function byteLength(text: string): number {
+  return byteEncoder.encode(text).length;
+}
+
 /** Incremental SSE frame reader. Feed it decoded text chunks in arrival order. */
 export class SseFrameParser {
   private buffer = "";
   private consumed = 0;
 
   push(chunk: string): string[] {
-    this.consumed += chunk.length;
+    // Bytes, not code units. `length` counts UTF-16 code units, so a non-ASCII
+    // stream could carry several times the documented network-byte limit before
+    // either bound noticed.
+    this.consumed += byteLength(chunk);
     if (this.consumed > MAX_SSE_STREAM_BYTES) {
       this.buffer = "";
       throw new SseStreamTooLargeError("stream");
@@ -206,6 +219,13 @@ export class SseFrameParser {
     const frames: string[] = [];
     let separator = this.buffer.indexOf("\n\n");
     while (separator !== -1) {
+      // Check the delimited frame *before* slicing or parsing it. Bounding only
+      // the leftover buffer let a single complete frame approach the whole
+      // stream cap and be parsed in full, bypassing the frame bound entirely.
+      if (byteLength(this.buffer.slice(0, separator)) > MAX_SSE_FRAME_BYTES) {
+        this.buffer = "";
+        throw new SseStreamTooLargeError("frame");
+      }
       const raw = this.buffer.slice(0, separator);
       this.buffer = this.buffer.slice(separator + 2);
       const payload = readDataLines(raw);
@@ -214,7 +234,7 @@ export class SseFrameParser {
     }
     // Whatever is left is an unterminated frame. Bounding it here is what stops
     // an upstream that never sends a delimiter from growing memory without end.
-    if (this.buffer.length > MAX_SSE_FRAME_BYTES) {
+    if (byteLength(this.buffer) > MAX_SSE_FRAME_BYTES) {
       this.buffer = "";
       throw new SseStreamTooLargeError("frame");
     }
@@ -226,6 +246,13 @@ export class SseFrameParser {
     const remainder = this.buffer;
     this.buffer = "";
     if (!remainder.trim()) return [];
+    // Defence in depth: `push` has already bounded this very buffer, so this
+    // cannot fire today. It is here so that a future change to where `push`
+    // checks cannot quietly make "never send a delimiter, then close" a way
+    // around the frame limit.
+    if (byteLength(remainder) > MAX_SSE_FRAME_BYTES) {
+      throw new SseStreamTooLargeError("frame");
+    }
     const payload = readDataLines(remainder);
     return payload === null ? [] : [payload];
   }

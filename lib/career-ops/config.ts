@@ -131,7 +131,23 @@ export function careerOpsMemoryScope(
 const SECRET_PATTERNS: RegExp[] = [
   /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
   /\b(api[_-]?key|apikey|token|secret|authorization)\b\s*[:=]\s*"?[A-Za-z0-9._~+/=-]{8,}"?/gi,
+  // Self-identifying credentials, which arrive with no label at all.
+  //
+  // Exact matching only knows this deployment's own two secrets, and the rules
+  // above need a keyword. Hermes holds other connector credentials — the Nexus
+  // MCP token above all — and an agent that prints one usually prints it bare:
+  // no `Bearer`, no `token=`. These shapes are distinctive enough to strip on
+  // sight, and each is anchored on a fixed prefix (or, for a JWT, on its
+  // three-segment structure) so ordinary prose cannot match.
   /\bsk-[A-Za-z0-9._-]{8,}/gi,
+  /\bjt_[A-Za-z0-9._-]{16,}/gi,
+  /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
+  /\bAIza[A-Za-z0-9_-]{16,}/g,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+  /\bxox[abposr]-[A-Za-z0-9-]{10,}/gi,
+  // JWT: three base64url segments, the first decoding to a JOSE header. The
+  // length floors keep it off ordinary dotted text.
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
 
 /** A character that can appear inside a credential token. */
@@ -154,6 +170,12 @@ export const CREDENTIAL_CANDIDATES: RegExp[] = [
   /\bbearer\s*[A-Za-z0-9._~+/=-]*/gi,
   /\b(?:api[_-]?key|apikey|token|secret|authorization)\b\s*[:=]?\s*"?[A-Za-z0-9._~+/=-]*/gi,
   /\bsk-[A-Za-z0-9._-]*/gi,
+  /\bjt_[A-Za-z0-9._-]*/gi,
+  /\bgh[pousr]_[A-Za-z0-9]*/g,
+  /\bAIza[A-Za-z0-9_-]*/g,
+  /\b(?:AKIA|ASIA)[A-Z0-9]*/g,
+  /\bxox[abposr]-[A-Za-z0-9-]*/gi,
+  /\beyJ[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]*){0,2}/g,
 ];
 
 /**

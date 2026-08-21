@@ -260,6 +260,29 @@ describe("stream size bounds", () => {
     }).toThrow(SseStreamTooLargeError);
   });
 
+  it("rejects an oversized frame before parsing it", () => {
+    // Bounding only the leftover buffer let one *complete* frame approach the
+    // whole stream cap and be sliced and parsed in full, so the documented
+    // per-frame limit did nothing for a well-delimited upstream.
+    //
+    // `flush()` carries the same check, but `push` has already bounded the very
+    // buffer flush reads, so that one is defence in depth rather than a
+    // reachable path — no test claims otherwise.
+    const huge = `data: ${"x".repeat(300 * 1024)}\n\n`;
+    expect(() => new SseFrameParser().push(huge)).toThrow(SseStreamTooLargeError);
+  });
+
+  it("counts the bytes that crossed the network, not UTF-16 code units", () => {
+    // `length` undercounts every non-ASCII character, so a multibyte stream
+    // could carry several times the documented limit before either bound
+    // noticed. Each of these characters is three bytes.
+    const parser = new SseFrameParser();
+    // Comfortably under the frame limit by code units, over it by bytes.
+    expect(() => parser.push(`data: ${"あ".repeat(100 * 1024)}`)).toThrow(
+      SseStreamTooLargeError,
+    );
+  });
+
   it("accepts an ordinary stream well inside the bounds", () => {
     const parser = new SseFrameParser();
     const frames = parser.push('data: {"event":"message.delta","delta":"hi"}\n\n');
@@ -448,6 +471,63 @@ describe("credential stripping in assistant output", () => {
     expect(event.details.length).toBeLessThanOrEqual(APPROVAL_TEXT_LIMIT);
     expect(event.truncated).toBe(false);
     expect(event.choices).toEqual(["once", "deny"]);
+  });
+
+  it("strips unlabeled connector credentials on every path", () => {
+    // Exact matching knows only this deployment's two secrets, and the keyword
+    // rules need a `Bearer` or `token=`. Hermes holds other connector
+    // credentials — the Nexus MCP token above all — and an agent that prints
+    // one usually prints it bare.
+    const bare = [
+      "jt_9f3a1c7d5e2b4a6c8d0f1e3a5b7c9d1f",
+      "ghp_abcdefghijklmnopqrstuvwxyz0123",
+      "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5",
+      "AKIAIOSFODNN7EXAMPLE",
+      "xoxb-1234567890-abcdefghij",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r",
+    ];
+
+    for (const credential of bare) {
+      // Every shape of upstream text, not just the ones that look risky.
+      const frames = [
+        { event: "run.completed", output: `done ${credential}` },
+        { event: "tool.started", tool: `tool ${credential}` },
+        {
+          event: "approval.request",
+          pattern_key: "shell",
+          description: `use ${credential}`,
+          command: `curl ${credential}`,
+          choices: ["once", "deny"],
+        },
+        { event: "run.failed", error: `boom ${credential}` },
+      ];
+      for (const frame of frames) {
+        const event = normalizeHermesEvent(JSON.stringify(frame));
+        expect(
+          JSON.stringify(event ?? {}),
+          `${credential.slice(0, 6)} leaked in ${frame.event}`,
+        ).not.toContain(credential);
+      }
+
+      // And across a stream seam, where the two halves arrive separately.
+      const redactor = new SecretBoundaryRedactor();
+      const half = Math.floor(credential.length / 2);
+      let streamed = redactor.push(`${"filler ".repeat(20)}${credential.slice(0, half)}`);
+      streamed += redactor.push(`${credential.slice(half)} trailing`);
+      streamed += redactor.flush();
+      expect(streamed, `${credential.slice(0, 6)} leaked across the seam`).not.toContain(
+        credential,
+      );
+    }
+  });
+
+  it("leaves ordinary prose alone", () => {
+    // The standalone patterns are anchored on fixed prefixes so that normal
+    // text — including dotted words and capitalised acronyms — is untouched.
+    const redactor = new SecretBoundaryRedactor();
+    const prose =
+      "I reviewed the ASIA region rollout, the AI initiative, and node.js.config settings.";
+    expect(redactor.push(prose) + redactor.flush()).toBe(prose);
   });
 
   it("passes ordinary text through unchanged once flushed", () => {
