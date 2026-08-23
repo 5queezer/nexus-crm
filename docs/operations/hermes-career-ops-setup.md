@@ -192,7 +192,7 @@ The existing `deploy.sh` needs no changes; the migration and build are already p
    ```bash
    firebase deploy --only firestore:indexes
    ```
-   This adds the `careerOpsThreads` and `careerOpsRuns` composite indexes.
+   This adds the `careerOpsThreads` and `careerOpsRuns` composite indexes. A third collection, `careerOpsThreadDeletions`, needs none: it is queried by `userId` alone, which Firestore indexes automatically. It holds one small document per deleted conversation whose run documents are still being collected, and each is removed as soon as they are — a non-empty collection at rest means a cleanup was interrupted and has not been retried yet. The relational backend has no equivalent; there the foreign key cascades.
 4. Verify from the host, as a signed-in user:
    ```bash
    curl -s -b "<session-cookie>" https://<nexus-host>/api/career-ops/status
@@ -225,7 +225,7 @@ DROP TABLE "CareerOpsRun";
 DROP TABLE "CareerOpsThread";
 ```
 
-On Firestore, delete the `careerOpsRuns` and `careerOpsThreads` collections. Hermes-side sessions are not removed by this; delete them through Hermes if required.
+On Firestore, delete the `careerOpsRuns`, `careerOpsThreads` and `careerOpsThreadDeletions` collections. Hermes-side sessions are not removed by this; delete them through Hermes if required.
 
 **Rotating a leaked Hermes key:** set a new `API_SERVER_KEY` on the profile, restart Hermes, update `HERMES_CAREER_OPS_API_KEY`, restart Nexus. Unless `HERMES_CAREER_OPS_SCOPE_SECRET` is set explicitly, this also changes the derived memory scope, so conversations start a fresh long-term memory scope — set that variable first if you want to avoid it.
 

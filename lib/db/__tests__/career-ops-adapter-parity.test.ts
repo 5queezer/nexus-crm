@@ -24,6 +24,9 @@ const { prismaTables, firestoreStores } = vi.hoisted(() => ({
   firestoreStores: {
     careerOpsThreads: new Map<string, Row>(),
     careerOpsRuns: new Map<string, Row>(),
+    // Records a deletion whose run documents are still outstanding, so an
+    // interrupted cleanup is work something can finish rather than a log line.
+    careerOpsThreadDeletions: new Map<string, Row>(),
     applications: new Map<string, Row>(),
     contacts: new Map<string, Row>(),
     documents: new Map<string, Row>(),
@@ -241,6 +244,9 @@ interface MockRef {
  */
 let heldWrites: Promise<void> | null = null;
 
+/** How many of the next batch commits should fail; see the fake's `commit`. */
+let failBatchCommits = 0;
+
 function holdDocumentWrites(): () => void {
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
@@ -428,6 +434,8 @@ vi.mock("firebase-admin/firestore", () => ({
       // unbounded fake would accept writes the real backend refuses and the
       // chunking could regress unnoticed.
       const FIRESTORE_BATCH_LIMIT = 500;
+      const shouldFail = failBatchCommits > 0;
+      if (shouldFail) failBatchCommits -= 1;
       const writes: Array<() => void> = [];
       const add = (write: () => void) => {
         if (writes.length >= FIRESTORE_BATCH_LIMIT) {
@@ -440,7 +448,14 @@ vi.mock("firebase-admin/firestore", () => ({
         update: (ref: MockRef, data: Row) =>
           add(() => ref.__store.set(ref.id, { ...ref.__store.get(ref.id), ...data })),
         delete: (ref: MockRef) => add(() => ref.__store.delete(ref.id)),
-        commit: async () => writes.forEach((write) => write()),
+        commit: async () => {
+          // A commit that does not land: the network drops, the request runs
+          // out of time, the instance goes away. Deleting a conversation's runs
+          // happens after its parent is already gone, so this is the failure
+          // that used to strand them permanently.
+          if (shouldFail) throw new Error("firestore: batch commit failed");
+          writes.forEach((write) => write());
+        },
       };
     },
   }),
@@ -492,6 +507,7 @@ function resetStores() {
   for (const store of Object.values(firestoreStores)) store.clear();
   autoId = 0;
   heldWrites = null;
+  failBatchCommits = 0;
 }
 
 describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdapter) => {
@@ -1598,6 +1614,81 @@ describe("Firestore application deletion clears the Career Ops link", () => {
       id: thread.id,
       applicationId: null,
     });
+  });
+});
+
+describe("Firestore deletes a conversation's runs durably", () => {
+  /**
+   * Firestore has no cascade, and a conversation's runs cannot go in the same
+   * transaction as their parent — a long one exceeds the write cap. So they are
+   * removed afterwards, and afterwards can fail. That used to end in a
+   * `console.warn` and documents that stayed forever.
+   */
+  async function seedDeletedThread() {
+    resetStores();
+    const db = new FirestoreAdapter();
+    const thread = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-1",
+      title: "Career Ops",
+      applicationId: null,
+    });
+    const claim = await db.claimCareerOpsRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-1",
+      status: "completed",
+      requestHash: "hash-1",
+    });
+    if (claim.outcome !== "claimed") throw new Error(`seed: ${claim.outcome}`);
+    return { db, thread, claim };
+  }
+
+  it("records the outstanding work when the run cleanup fails", async () => {
+    const { db, thread } = await seedDeletedThread();
+    failBatchCommits = 1;
+
+    // The caller must still be told the conversation is gone: the parent is
+    // deleted, and throwing here would stop it deleting the upstream Hermes
+    // session, losing the session id for good.
+    await expect(db.deleteCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
+      outcome: "deleted",
+    });
+    expect(firestoreStores.careerOpsThreads.size).toBe(0);
+    expect(firestoreStores.careerOpsRuns.size).toBe(1);
+    // Not a log line — a record the next attempt can act on.
+    expect(firestoreStores.careerOpsThreadDeletions.get(thread.id)).toMatchObject({
+      threadId: thread.id,
+      userId: "user-a",
+    });
+  });
+
+  it("finishes an interrupted cleanup on the next deletion", async () => {
+    const { db, thread } = await seedDeletedThread();
+    failBatchCommits = 1;
+    await db.deleteCareerOpsThread(thread.id, "user-a");
+    expect(firestoreStores.careerOpsRuns.size).toBe(1);
+
+    // A second, unrelated deletion resumes the first one's outstanding work.
+    const second = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-2",
+      title: "Another",
+      applicationId: null,
+    });
+    await db.deleteCareerOpsThread(second.id, "user-a");
+
+    expect(firestoreStores.careerOpsRuns.size).toBe(0);
+    expect(firestoreStores.careerOpsThreadDeletions.size).toBe(0);
+  });
+
+  it("clears the record once nothing is left to collect", async () => {
+    const { db, thread } = await seedDeletedThread();
+
+    await db.deleteCareerOpsThread(thread.id, "user-a");
+
+    expect(firestoreStores.careerOpsRuns.size).toBe(0);
+    // The tombstone is deleted only after the children are, so an interruption
+    // at any point leaves the work described rather than lost.
+    expect(firestoreStores.careerOpsThreadDeletions.size).toBe(0);
   });
 });
 

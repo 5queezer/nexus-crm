@@ -338,6 +338,25 @@ export class FirestoreAdapter implements DatabaseAdapter {
   private get careerOpsThreads() { return this.db.collection("careerOpsThreads"); }
   private get careerOpsRuns() { return this.db.collection("careerOpsRuns"); }
 
+  /**
+   * Deletions whose run documents have not all been removed yet.
+   *
+   * Firestore has no cascade, and a conversation's runs cannot be deleted in
+   * the same transaction as their parent — a long one exceeds the transaction's
+   * write cap. So the children are removed afterwards, and afterwards can fail:
+   * a network error, a request that runs out of time, an instance that goes
+   * away mid-batch. Previously that possibility was met with a `console.warn`,
+   * which is a record no code can act on, and the documents stayed forever.
+   *
+   * A tombstone written in the same transaction that removes the parent turns
+   * that into work something can finish: it names the conversation whose
+   * children are still pending and is deleted only once they are all gone. The
+   * relational backend needs none of this — the foreign key cascades.
+   */
+  private get careerOpsThreadDeletions() {
+    return this.db.collection("careerOpsThreadDeletions");
+  }
+
   private canonicalUrlRef(userId: string, canonicalJobUrl: string) {
     return this.canonicalUrls.doc(submissionRequestHash({ userId, canonicalJobUrl }));
   }
@@ -2589,6 +2608,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadDeletion> {
+    // Finish what an earlier request could not, before starting more. Doing it
+    // first rather than last matters: retrying a cleanup in the same request
+    // that just watched it fail retries it under the conditions that made it
+    // fail, and would mask the interruption instead of recording it.
+    await this.resumeCareerOpsThreadDeletions(userId, 3);
     const threadRef = this.careerOpsThreads.doc(id);
     // The refusal and the removal of the parent happen in one transaction, so a
     // submission cannot claim the conversation in a window between them and be
@@ -2609,35 +2633,77 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (!active.empty) return { outcome: "active_run" };
       const thread = this.mapCareerOpsThread(snapshot.id, snapshot.data()!);
       tx.delete(threadRef);
+      // Committed with the parent's removal, so the work is recorded before it
+      // can be interrupted. There is no moment where the thread is gone and
+      // nothing says its runs still need collecting.
+      tx.set(this.careerOpsThreadDeletions.doc(id), {
+        threadId: id,
+        userId,
+        deletedAt: Timestamp.now(),
+      });
       return { outcome: "deleted", thread };
     });
 
     if (result.outcome !== "deleted") return result;
 
-    const runs = await this.careerOpsRuns
-      .where("threadId", "==", id)
-      .where("userId", "==", userId)
-      .get();
-    // Chunked: a long-lived conversation would otherwise exceed the batch cap
-    // and leave its runs behind forever.
-    //
     // Failures here must not propagate. The authoritative mapping — the parent
     // thread — is already gone, so throwing would stop the caller from deleting
     // the upstream Hermes session while a retry could only ever see
     // `not_found`, losing the session id for good. Orphaned run documents are
-    // inert, because ownership always resolves through the thread.
+    // inert in the meantime, because ownership always resolves through the
+    // thread; the tombstone is what makes them collectable rather than
+    // permanent.
+    await this.collectCareerOpsThreadRuns(id, userId);
+    return result;
+  }
+
+  /**
+   * Delete a deleted conversation's run documents, then its tombstone.
+   *
+   * Ordered that way deliberately: the tombstone is removed only once nothing
+   * is left to collect, so an interruption at any point leaves the work
+   * described rather than lost. Re-running it is harmless.
+   */
+  private async collectCareerOpsThreadRuns(id: string, userId: string): Promise<boolean> {
     try {
-      for (let offset = 0; offset < runs.docs.length; offset += 450) {
+      for (;;) {
+        // Chunked, and re-queried each round: a long-lived conversation exceeds
+        // the 500-write batch cap, and paging by offset over a snapshot taken
+        // once would re-read documents this loop has already removed.
+        const runs = await this.careerOpsRuns
+          .where("threadId", "==", id)
+          .where("userId", "==", userId)
+          .limit(450)
+          .get();
+        if (runs.empty) break;
         const batch = this.db.batch();
-        for (const document of runs.docs.slice(offset, offset + 450)) {
-          batch.delete(document.ref);
-        }
+        for (const document of runs.docs) batch.delete(document.ref);
         await batch.commit();
+        if (runs.docs.length < 450) break;
+      }
+      await this.careerOpsThreadDeletions.doc(id).delete();
+      return true;
+    } catch {
+      // The tombstone stays, so this is retried rather than forgotten.
+      return false;
+    }
+  }
+
+  /** Finish deletions an earlier request could not complete. */
+  private async resumeCareerOpsThreadDeletions(userId: string, limit: number): Promise<void> {
+    try {
+      const pending = await this.careerOpsThreadDeletions
+        .where("userId", "==", userId)
+        .limit(limit)
+        .get();
+      for (const document of pending.docs) {
+        const data = document.data();
+        if (data.userId !== userId) continue;
+        await this.collectCareerOpsThreadRuns(document.id, userId);
       }
     } catch {
-      console.warn("career-ops: run documents left behind after thread deletion");
+      // Best effort: the tombstones survive for the next attempt.
     }
-    return result;
   }
 
   async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
