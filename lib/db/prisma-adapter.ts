@@ -2397,6 +2397,7 @@ export class PrismaAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     challengeId: string | null,
+    choice: string,
   ): Promise<CareerOpsApprovalGateClaim | null> {
     return prisma.$transaction(async (tx) => {
       const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
@@ -2419,6 +2420,14 @@ export class PrismaAdapter implements DatabaseAdapter {
         data: {
           approvalGateOpenedAt: null,
           pendingApprovalChallengeId: null,
+          // Recorded here, not by a following write: between closing the gate
+          // and recording the decision there would be a row that looks exactly
+          // like one recovery should reopen, and a status poll landing in that
+          // interval handed a second decision the gate the first was answering.
+          approvalChoice: choice,
+          approvalAt: new Date(),
+          approvalChallengeId: outstanding,
+          approvalState: "pending",
           updatedAt: new Date(),
         },
       });

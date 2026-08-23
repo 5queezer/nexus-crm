@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import type { DatabaseAdapter } from "@/lib/db/adapter";
 import {
   CAREER_OPS_TERMINAL_RUN_STATUSES,
+  type CareerOpsApprovalGateClaim,
   type CareerOpsRunRecord,
   type CareerOpsRunStatus,
   type CareerOpsThreadRecord,
@@ -1181,9 +1182,19 @@ export async function resolveCareerOpsApproval(
     // A null claim means no gate is open here: the run is merely executing, has
     // finished, or a grant just took it. Stop remains available, and is the
     // stronger action in that situation anyway.
-    const claim = await getDb()
-      .claimCareerOpsApprovalGate(run.id, session.userId, null)
-      .catch(() => null);
+    //
+    // A write that *fails* is not a gate that is absent, and conflating them
+    // told the owner nothing was awaiting a decision when the database was
+    // merely unreachable. Only a null return means no gate.
+    let claim: CareerOpsApprovalGateClaim | null;
+    try {
+      claim = await getDb().claimCareerOpsApprovalGate(run.id, session.userId, null, choice);
+    } catch {
+      throw new CareerOpsServiceError(
+        "upstream_error",
+        "The decision could not be recorded, so it was not sent",
+      );
+    }
     if (!claim) {
       throw new CareerOpsServiceError("conflict", "No approval is awaiting a decision");
     }
@@ -1207,11 +1218,23 @@ export async function resolveCareerOpsApproval(
     // already consumed" is not enough: an earlier gate's token would still
     // verify against run, owner and choice, and could authorize whatever action
     // is pending now. The claim is what rules that out.
-    const claim = await getDb().claimCareerOpsApprovalGate(
-      run.id,
-      session.userId,
-      verified.payload.jti,
-    );
+    let claim: CareerOpsApprovalGateClaim | null;
+    try {
+      claim = await getDb().claimCareerOpsApprovalGate(
+        run.id,
+        session.userId,
+        verified.payload.jti,
+        choice,
+      );
+    } catch {
+      // The gate is untouched, so the challenge is still outstanding and the
+      // prompt can be answered again — which is the whole reason this write
+      // has to happen before anything reaches Hermes.
+      throw new CareerOpsServiceError(
+        "upstream_error",
+        "The decision could not be recorded, so it was not sent",
+      );
+    }
     if (!claim) {
       throw new CareerOpsServiceError(
         "conflict",
@@ -1221,34 +1244,13 @@ export async function resolveCareerOpsApproval(
     consumedChallengeId = verified.payload.jti;
   }
 
-  // Commit the intent before the upstream call. Recording only afterwards
-  // meant a decision that Hermes accepted could leave no local trace at all if
-  // the write then failed — the privileged effect had happened and Nexus could
-  // not say who caused it.
-  //
-  // This write is required, not best-effort: swallowing it and forwarding
-  // anyway would authorize a privileged action with no attribution, which is
-  // the very thing recording-first exists to prevent.
-  try {
-    await getDb().recordCareerOpsApprovalDecision(
-      run.id,
-      session.userId,
-      choice,
-      consumedChallengeId,
-      "pending",
-    );
-  } catch {
-    // Nothing was sent upstream, so putting the gate back is not a replay risk
-    // — and without it the prompt came from a single-consumer stream that
-    // cannot reissue it, leaving the user with no way to answer at all.
-    await getDb()
-      .releaseCareerOpsApprovalGate(run.id, session.userId, consumedChallengeId)
-      .catch(() => undefined);
-    throw new CareerOpsServiceError(
-      "upstream_error",
-      "The decision could not be recorded, so it was not sent",
-    );
-  }
+  // The intent is already committed: the claim above closed the gate and
+  // recorded this decision as `pending` in one write. It was two writes, which
+  // still satisfied "record before forwarding" but left an interval between
+  // them where the row was a closed gate with no decision on it — exactly what
+  // gate recovery looks for. A status poll landing there reopened the gate this
+  // decision was answering, and a second decision could claim it while the
+  // first was still on its way to Hermes.
 
   try {
     await client(config).resolveApproval(run.hermesRunId, choice);

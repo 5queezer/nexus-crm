@@ -239,11 +239,20 @@ export interface DatabaseAdapter {
    *
    * Returns the outstanding challenge (empty when the gate had none) to exactly
    * one caller and `null` to every other.
+   *
+   * The same write records the decision as `pending`, with `choice` and the
+   * consumed challenge, because closing the gate and recording the decision are
+   * one act. Done as two writes there is an interval where the gate is closed
+   * and no decision is recorded — and that is exactly the shape gate recovery
+   * looks for, so a status poll landing inside it reopened the gate a decision
+   * was already answering. A second decision could then claim it while the
+   * first was still in flight, and both reach the agent.
    */
   claimCareerOpsApprovalGate(
     id: string,
     userId: string,
     challengeId: string | null,
+    choice: string,
   ): Promise<CareerOpsApprovalGateClaim | null>;
 
   /**

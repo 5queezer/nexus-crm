@@ -1112,14 +1112,14 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-a");
 
     const claims = await Promise.all([
-      db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a"),
-      db.claimCareerOpsApprovalGate(run.id, "user-a", null),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny"),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny"),
     ]);
     expect(claims.filter(Boolean)).toHaveLength(1);
 
     // The gate is closed afterwards: the run is no longer waiting and nothing
     // is outstanding, so a later decision finds nothing to answer.
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.toBeNull();
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
       approvalGateOpenedAt: null,
       pendingApprovalChallengeId: null,
@@ -1138,7 +1138,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
     // An earlier gate's token verifies against run, owner and choice; only the
     // claim can tell it apart from the one actually pending.
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny")).resolves.toBeNull();
     const stillOpen = await db.getCareerOpsRun(run.id, "user-a");
     expect(stillOpen?.approvalGateOpenedAt).not.toBeNull();
     expect(stillOpen?.pendingApprovalChallengeId).toBe("gate-b");
@@ -1157,8 +1157,8 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await db.openCareerOpsApprovalGate(run.id, "user-a", null);
 
     const claims = await Promise.all([
-      db.claimCareerOpsApprovalGate(run.id, "user-a", null),
-      db.claimCareerOpsApprovalGate(run.id, "user-a", null),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny"),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny"),
     ]);
     expect(claims.filter(Boolean)).toHaveLength(1);
     expect(claims.find(Boolean)).toEqual({ challengeId: "" });
@@ -1172,12 +1172,12 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       clientRequestId: "client-id-gate-running",
       status: "running",
     });
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.toBeNull();
 
     await db.openCareerOpsApprovalGate(run.id, "user-a", null);
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-b", null)).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-b", null, "deny")).resolves.toBeNull();
     // Still open: another user's decision is never this gate's to close.
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.not.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.not.toBeNull();
   });
 
   it("recovers a denial-only gate, but never one a decision already took", async () => {
@@ -1198,8 +1198,8 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     // Denial-only by construction: no challenge was disclosed, so nothing can
     // be granted against it.
     expect(recovered?.pendingApprovalChallengeId).toBeNull();
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).resolves.toBeNull();
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.not.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny")).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.not.toBeNull();
 
     // While a decision is unresolved it must decline: `pending` means one is in
     // flight, `outcome_unknown` that one may already have landed. Reopening
@@ -1216,6 +1216,39 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     // And never on a finished run.
     await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
     await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+  });
+
+  it("closes the gate and records the decision in one write", async () => {
+    // Two writes left an interval where the row was a closed gate carrying no
+    // decision — which is exactly the shape gate recovery looks for. A status
+    // poll landing there reopened the gate the decision was answering, and a
+    // second decision could claim it while the first was still on its way
+    // upstream. Recovery must find nothing to reopen the instant the gate is
+    // taken.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-atomic-claim",
+      status: "running",
+    });
+    await db.openCareerOpsApprovalGate(run.id, "user-a", "challenge-a");
+
+    const claim = await db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-a", "once");
+    expect(claim).toEqual({ challengeId: "challenge-a" });
+
+    const claimed = await db.getCareerOpsRun(run.id, "user-a");
+    expect(claimed?.approvalGateOpenedAt ?? null).toBeNull();
+    // The audit is already there — not written by a later call.
+    expect(claimed?.approvalChoice).toBe("once");
+    expect(claimed?.approvalChallengeId).toBe("challenge-a");
+    expect(claimed?.approvalState).toBe("pending");
+
+    // So recovery declines, and no second decision can be let in.
+    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+    await expect(
+      db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny"),
+    ).resolves.toBeNull();
   });
 
   it("does not let one gate's outcome land on the next gate's audit", async () => {
@@ -1314,7 +1347,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
 
     await db.openCareerOpsApprovalGate(run.id, "user-a", "challenge-1");
-    const claim = await db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-1");
+    const claim = await db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-1", "deny");
     expect(claim).not.toBeNull();
     await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
 
@@ -1324,7 +1357,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     const settled = await db.getCareerOpsRun(run.id, "user-a");
     expect(settled?.approvalGateOpenedAt ?? null).toBeNull();
     await expect(
-      db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-1"),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-1", "deny"),
     ).resolves.toBeNull();
   });
 
@@ -1355,7 +1388,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(settled?.approvalGateOpenedAt ?? null).toBeNull();
     // And so nothing is left for a late decision to answer.
     await expect(
-      db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-late"),
+      db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-late", "deny"),
     ).resolves.toBeNull();
   });
 
@@ -1442,7 +1475,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       approvalGateOpenedAt: null,
       pendingApprovalChallengeId: null,
     });
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.toBeNull();
   });
 
   it("accepts a retry for a reservation written before the digest existed", async () => {
@@ -1540,8 +1573,8 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       approvalGateOpenedAt: null,
       pendingApprovalChallengeId: null,
     });
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny")).resolves.toBeNull();
   });
 
   it("does not let a status write reopen a claimed gate", async () => {
@@ -1557,12 +1590,12 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       status: "running",
     });
     await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-a");
-    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).not.toBeNull();
+    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny")).not.toBeNull();
 
     // Recovery persists what Hermes reports. It writes status only.
     await db.updateCareerOpsRunStatus(run.id, "user-a", "waiting_for_approval");
 
-    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null)).resolves.toBeNull();
+    await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.toBeNull();
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
       status: "waiting_for_approval",
       approvalGateOpenedAt: null,
@@ -1579,7 +1612,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
     await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-a");
 
-    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a")).toEqual({
+    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny")).toEqual({
       challengeId: "gate-a",
     });
     await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
@@ -1588,7 +1621,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(restored?.pendingApprovalChallengeId).toBe("gate-a");
 
     // A gate the agent has since moved on to is not this caller's to restore.
-    await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+    await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny");
     await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-b");
     await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({

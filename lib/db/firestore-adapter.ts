@@ -2905,6 +2905,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     challengeId: string | null,
+    choice: string,
   ): Promise<CareerOpsApprovalGateClaim | null> {
     const ref = this.careerOpsRuns.doc(id);
     return this.db.runTransaction<CareerOpsApprovalGateClaim | null>(async (tx) => {
@@ -2927,6 +2928,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
       tx.update(ref, {
         approvalGateOpenedAt: null,
         pendingApprovalChallengeId: null,
+        // Recorded here, not by a following write: between closing the gate and
+        // recording the decision there would be a row that looks exactly like
+        // one recovery should reopen, and a status poll landing in that interval
+        // handed a second decision the gate the first was answering.
+        approvalChoice: choice,
+        approvalAt: Timestamp.now(),
+        approvalChallengeId: outstanding,
+        approvalState: "pending",
         updatedAt: Timestamp.now(),
       });
       return { challengeId: outstanding };

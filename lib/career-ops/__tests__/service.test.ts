@@ -1313,6 +1313,10 @@ describe("run controls", () => {
   let outstandingChallenge: string | null = null;
   /** The run's own status, which is the other signal that a gate is open. */
   let runStatus: string = RUN.status;
+  /** The decision audit the claim now writes, and the outcome later settles. */
+  let decisionChoice: string | null = null;
+  let decisionState: string | null = null;
+  let decisionChallenge: string | null = null;
 
   /**
    * Put the run at a gate with no recoverable prompt: the event route records
@@ -1329,6 +1333,9 @@ describe("run controls", () => {
   beforeEach(() => {
     outstandingChallenge = null;
     runStatus = RUN.status;
+    decisionChoice = null;
+    decisionState = null;
+    decisionChallenge = null;
     mocks.db.openCareerOpsApprovalGate.mockImplementation(
       async (_id: string, _userId: string, challengeId: string | null) => {
         // Guarded in both backends: a run that has already settled has no gate,
@@ -1349,15 +1356,30 @@ describe("run controls", () => {
     // Models the adapters' single conditional claim. Crucially it also moves
     // the run out of `waiting_for_approval`, the way both backends do — a fake
     // that only cleared the challenge would let a denial keep reading an open
-    // gate that a grant had already taken, which is the bug this replaced.
+    // gate that a grant had already taken, which is the bug this replaced —
+    // *and* it records the decision as `pending` in the same step, because the
+    // adapters do. Modelling that as a separate write would leave the fake with
+    // an interval the real backends no longer have.
     mocks.db.claimCareerOpsApprovalGate.mockImplementation(
-      async (_id: string, _userId: string, challengeId: string | null) => {
+      async (_id: string, _userId: string, challengeId: string | null, choice: string) => {
         if (runStatus !== "waiting_for_approval") return null;
         const outstanding = outstandingChallenge ?? "";
         if (challengeId !== null && outstanding !== challengeId) return null;
         outstandingChallenge = null;
         runStatus = "running";
+        decisionChoice = choice;
+        decisionState = "pending";
+        decisionChallenge = outstanding;
         return { challengeId: outstanding };
+      },
+    );
+    mocks.db.settleCareerOpsApprovalDecision.mockImplementation(
+      async (_id: string, _userId: string, challengeId: string, state: string) => {
+        // Conditional in both backends: only this decision's own outcome, and
+        // only while it is still awaiting one.
+        if (decisionChallenge !== challengeId || decisionState !== "pending") return false;
+        decisionState = state;
+        return true;
       },
     );
     mocks.db.releaseCareerOpsApprovalGate.mockImplementation(
@@ -1367,10 +1389,16 @@ describe("run controls", () => {
         outstandingChallenge = challengeId || null;
       },
     );
+    // Reflects the audit the claim wrote, the way both adapters do — a fake
+    // that dropped it could not show that the decision is recorded the instant
+    // the gate is taken.
     mocks.db.getCareerOpsRun.mockImplementation(async () => ({
       ...RUN,
       status: runStatus,
       pendingApprovalChallengeId: outstandingChallenge,
+      approvalChoice: decisionChoice,
+      approvalChallengeId: decisionChallenge,
+      approvalState: decisionState,
     }));
     mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
   });
@@ -1417,14 +1445,16 @@ describe("run controls", () => {
     atGateWithoutPrompt();
     await resolveCareerOpsApproval(SESSION_A, "run-1", "deny");
     // Intent first, outcome second: a decision Hermes accepted must never be
-    // invisible to Nexus just because the later write failed.
-    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenNthCalledWith(
-      1,
+    // invisible to Nexus just because the later write failed. The intent is
+    // recorded by the gate claim itself, in one write — closing the gate and
+    // recording the decision are the same act, and splitting them left an
+    // interval in which recovery reopened the gate this decision was
+    // answering.
+    expect(mocks.db.claimCareerOpsApprovalGate).toHaveBeenCalledWith(
       "run-1",
       "user-a",
+      null,
       "deny",
-      "",
-      "pending",
     );
     // The outcome is a *conditional* transition, not another blind write:
     // Hermes may have reached the next gate while the call was in flight.
@@ -1453,8 +1483,10 @@ describe("run controls", () => {
 
   it("does not forward a decision it cannot record", async () => {
     // Recording first exists so a privileged action is never taken without
-    // attribution. Forwarding anyway when the record fails would defeat that.
-    mocks.db.recordCareerOpsApprovalDecision.mockRejectedValue(new Error("db down"));
+    // attribution, and the claim is that record. Forwarding when it fails
+    // would defeat that — and a failed write must not be reported as "nothing
+    // is awaiting a decision", which is a different situation entirely.
+    mocks.db.claimCareerOpsApprovalGate.mockRejectedValue(new Error("db down"));
     atGateWithoutPrompt();
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
       code: "upstream_error",
@@ -1526,18 +1558,20 @@ describe("run controls", () => {
     );
   });
 
-  it("returns the challenge when the decision could not be recorded", async () => {
-    // Nothing was sent upstream, so restoring it is not a replay risk — and
-    // the prompt came from a single-consumer stream that cannot reissue it.
+  it("leaves the challenge answerable when the decision could not be recorded", async () => {
+    // Nothing was sent upstream, and the gate was never claimed — so there is
+    // nothing to put back, which is the point of closing the gate and recording
+    // the decision in one write. The prompt came from a single-consumer stream
+    // that cannot reissue it, so it has to stay answerable.
     const challenge = await challengeFor("run-1", ["once"]);
-    mocks.db.recordCareerOpsApprovalDecision.mockRejectedValueOnce(new Error("db down"));
+    mocks.db.claimCareerOpsApprovalGate.mockRejectedValueOnce(new Error("db down"));
 
     await expect(
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
     ).rejects.toMatchObject({ code: "upstream_error" });
     expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
 
-    // The retry succeeds because the challenge is outstanding again.
+    // The retry succeeds: the gate is exactly as it was.
     await expect(
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
     ).resolves.toBeUndefined();
@@ -1575,7 +1609,8 @@ describe("run controls", () => {
   it("refuses to replay a challenge that was already consumed", async () => {
     const challenge = await challengeFor("run-1", ["once", "deny"]);
     await resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge);
-    const consumedId = mocks.db.recordCareerOpsApprovalDecision.mock.calls.at(-1)?.[3] as string;
+    // The claim both consumed the challenge and recorded it as this decision's.
+    const consumedId = mocks.db.claimCareerOpsApprovalGate.mock.calls.at(-1)?.[2] as string;
     expect(consumedId).toBeTruthy();
 
     mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, approvalChallengeId: consumedId });
@@ -1610,6 +1645,7 @@ describe("run controls", () => {
       "run-1",
       "user-a",
       expect.any(String),
+      "once",
     );
     await expect(
       resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
@@ -1660,14 +1696,15 @@ describe("run controls", () => {
 
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(mocks.client.resolveApproval).toHaveBeenCalledTimes(1);
-    // And the audit records one decision, not two.
-    expect(mocks.db.recordCareerOpsApprovalDecision.mock.calls.map((call) => call[2])).toEqual(
-      expect.arrayContaining([expect.any(String)]),
+    // And exactly one decision was recorded, because recording it *is* winning
+    // the gate: the claim writes the audit in the same statement that decides
+    // who owns the gate, so a loser cannot leave a decision behind.
+    const claimed = mocks.db.claimCareerOpsApprovalGate.mock.results.filter(
+      (result) => result.type === "return",
     );
-    const decided = new Set(
-      mocks.db.recordCareerOpsApprovalDecision.mock.calls.map((call) => call[2]),
-    );
-    expect(decided.size).toBe(1);
+    expect(claimed.length).toBeGreaterThan(0);
+    const winners = await Promise.all(claimed.map((result) => result.value));
+    expect(winners.filter((value) => value !== null)).toHaveLength(1);
   });
 
   it("always lets the owner deny, even with no recoverable prompt", async () => {

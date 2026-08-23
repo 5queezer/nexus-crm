@@ -84,6 +84,10 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** any decision, including a rejection, arrives for a run that is executing without a gate awaiting a decision, or that has already reached a terminal state
 - **THEN** the system refuses it and neither records nor forwards it, because it answers nothing and would otherwise overwrite the record of the decision the owner actually made
 
+#### Scenario: A status poll lands as a decision is being recorded
+- **WHEN** a run-status poll reporting `waiting_for_approval` arrives while a decision is claiming the gate
+- **THEN** it finds no gate to recover, because winning the gate and recording the decision are one write — so a second decision cannot be admitted while the first is still being forwarded
+
 #### Scenario: Two rejections race for the same gate
 - **WHEN** two rejections for the same outstanding approval are submitted concurrently
 - **THEN** at most one is forwarded, because the decision belongs to whichever claim the database accepts, not to whichever request read the gate first
