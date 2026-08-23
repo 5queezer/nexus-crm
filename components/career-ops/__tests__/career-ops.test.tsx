@@ -852,6 +852,34 @@ describe("application context", () => {
     expect(creations).toBe(1);
   });
 
+  it("does not carry an unknown-run lock onto a new conversation", async () => {
+    // The lock says "this conversation may hold a run I could not see". A
+    // conversation created a moment ago cannot, so carrying the flag across
+    // left the composer disabled on a conversation whose state is not in doubt,
+    // with no run to wait for and no way out but a reload.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () => json({ error: "upstream" }, 503));
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await waitFor(() =>
+      expect(within(dialog).getByText(/could not check whether/i)).toBeTruthy(),
+    );
+    expect(
+      within(dialog).getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "fresh start");
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
+  });
+
   it("does not present an uninspected conversation as idle", async () => {
     // A failed run lookup is not "no run". Leaving the composer enabled with no
     // Stop invites a submission whose only feedback is the server's conflict,

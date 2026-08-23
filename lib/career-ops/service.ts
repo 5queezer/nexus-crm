@@ -959,9 +959,22 @@ export async function getCareerOpsRunStatus(
     // active forever and, with one active run per conversation, wedge it. A
     // definitive 404 is therefore reconciled into a terminal local state.
     if (reason instanceof HermesError && reason.kind === "not_found") {
-      await getDb()
+      const reconciled = await getDb()
         .updateCareerOpsRunStatus(run.id, session.userId, "failed")
-        .catch(() => undefined);
+        .then(() => true)
+        .catch(() => false);
+      // Swallowing that failure still answered 404, and the client treats a 404
+      // as conclusive: it declared the run failed and re-enabled the composer
+      // while the row stayed active, so the very next submission was refused by
+      // the one-active-run invariant with nothing on screen to explain it. Only
+      // report the run gone once Nexus has recorded that it is; otherwise say
+      // the outcome is unavailable, which polling retries.
+      if (!reconciled) {
+        throw new CareerOpsServiceError(
+          "upstream_error",
+          "The run's outcome could not be recorded",
+        );
+      }
     }
     throw toServiceError(reason);
   }

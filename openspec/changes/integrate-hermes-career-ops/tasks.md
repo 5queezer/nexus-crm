@@ -95,3 +95,5 @@ against the code it replaced.
 - [x] 8.21 Resume an interrupted Firestore run cleanup from an ordinary listing, not only from the next deletion.
 - [x] 8.22 Make an approval outcome a conditional transition on the challenge it was claimed for, so a late outcome cannot overwrite the next gate's audit or resolve its pending state.
 - [x] 8.23 Judge approval disclosure on what survives redaction, so a prompt made entirely of credentials is denial-only rather than appearing disclosed.
+- [x] 8.24 Clear the unknown-run lock when another conversation is selected or created, since it describes the one being left.
+- [x] 8.25 Report a forgotten run as gone only once Nexus has recorded it terminal, so a conclusive 404 never contradicts an active row.

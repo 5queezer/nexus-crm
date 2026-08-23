@@ -1591,6 +1591,34 @@ describe("run controls", () => {
     expect(mocks.db.recoverCareerOpsApprovalGate).toHaveBeenCalledWith("run-1", "user-a");
   });
 
+  it("reports a forgotten run as gone only once Nexus has recorded it", async () => {
+    // Hermes keeps run status for a bounded window; a definitive 404 means the
+    // run no longer exists, and the local row is reconciled to terminal so the
+    // conversation is not wedged by the one-active-run invariant.
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "running" });
+    mocks.client.getRun.mockRejectedValue(new HermesError("not_found", "forgotten"));
+
+    await expect(getCareerOpsRunStatus(SESSION_A, "run-1")).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith("run-1", "user-a", "failed");
+  });
+
+  it("does not answer 404 for a forgotten run it could not reconcile", async () => {
+    // The client treats a 404 as conclusive: it declares the run failed and
+    // re-enables the composer. Answering one while the row is still active left
+    // the next submission refused by the one-active-run invariant, with nothing
+    // on screen to explain it. Report the outcome as unavailable instead, which
+    // polling retries.
+    mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "running" });
+    mocks.client.getRun.mockRejectedValue(new HermesError("not_found", "forgotten"));
+    mocks.db.updateCareerOpsRunStatus.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(getCareerOpsRunStatus(SESSION_A, "run-1")).rejects.toMatchObject({
+      code: "upstream_error",
+    });
+  });
+
   it("does not try to recover a gate for a run that is not waiting", async () => {
     mocks.db.getCareerOpsRun.mockResolvedValue({ ...RUN, status: "running" });
     mocks.client.getRun.mockResolvedValue({

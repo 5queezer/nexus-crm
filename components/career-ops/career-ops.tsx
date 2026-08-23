@@ -364,6 +364,11 @@ export function CareerOps({
       setActiveThreadId(result.thread.id);
       setThreadApplication(withApplication && application ? application : null);
       setTranscriptFailed(false);
+      // A conversation created a moment ago cannot have a run in flight, so the
+      // unknown-run lock left by a failed lookup on the *previous* conversation
+      // does not describe this one. Left set, `busy` kept the composer disabled
+      // on a conversation whose state is not in doubt at all.
+      setRunStateUnknown(false);
       setMessages([]);
       setHistoryOpen(false);
       reset();
@@ -581,6 +586,10 @@ export function CareerOps({
     setHistoryOpen(false);
     setThreadApplication(null);
     setTranscriptFailed(false);
+    // The lock describes the conversation being left, not this one. `loading`
+    // covers the gap until the new conversation has been inspected, and the
+    // rejoin below sets it again if that inspection fails.
+    setRunStateUnknown(false);
     pendingRequestRef.current = null;
     // Drop the previous conversation's transcript before its successor loads.
     // Keeping it on a failed load would show one conversation's history under

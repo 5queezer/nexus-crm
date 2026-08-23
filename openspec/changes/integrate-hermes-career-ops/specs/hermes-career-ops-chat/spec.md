@@ -142,6 +142,11 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 #### Scenario: A conversation that could not be inspected
 - **WHEN** reading a conversation's run state fails
 - **THEN** the system states that the run state is unknown and refuses submission, rather than presenting the conversation as idle
+- **AND** selecting or creating another conversation clears that state, which described the one being left
+
+#### Scenario: Hermes has forgotten a run
+- **WHEN** authenticated run status finds that the upstream run no longer exists
+- **THEN** the system reconciles its own record to a terminal state before reporting the run gone, so a conversation is never left holding an active run the client has already settled
 
 ### Requirement: Cancellation
 The system SHALL offer a stop control while a run is active when the connected Hermes advertises stop support, and SHALL route cancellation through an authenticated, ownership-checked Nexus endpoint.
