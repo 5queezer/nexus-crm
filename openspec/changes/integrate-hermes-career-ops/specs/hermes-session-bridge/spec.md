@@ -113,6 +113,11 @@ The system SHALL delete a Career Ops thread and its run mappings on owner reques
 - **WHEN** the Hermes session deletion request fails
 - **THEN** the Nexus mapping is still removed and the caller receives a success outcome with the upstream failure recorded only in redacted form
 
+#### Scenario: Retrying with the request id that made the reservation
+- **WHEN** a submission whose outcome was never learned is retried with the same client request id, and its reservation is past the point where the system has given up on ever observing it
+- **THEN** the reservation is settled and the id freed so the retry proceeds, rather than being refused for as long as the client keeps reusing the id it was told to reuse
+- **AND** a reservation that has not reached that point still refuses the retry, because the earlier attempt may be executing
+
 #### Scenario: A reservation for an unsubmitted run cannot be released
 - **WHEN** a submission provably never reaches the agent — it is refused, or preparation fails before it is sent — and the reservation holding the conversation's active slot cannot be deleted
 - **THEN** the release is retried and, failing that, the reservation is settled terminal, so the conversation is not blocked for the reservation's whole lifetime over a request that provably started nothing

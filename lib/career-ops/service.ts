@@ -830,7 +830,7 @@ export async function startCareerOpsRun(
   // still exist. A read-then-write sequence cannot decide any of them — two
   // submissions both pass it and both start a privileged agent run against the
   // same Hermes session — so the invariant lives in the database.
-  const claim = await db.claimCareerOpsRun(session.userId, {
+  const claimInput = {
     threadId,
     hermesRunId: "",
     clientRequestId: input.clientRequestId,
@@ -838,8 +838,26 @@ export async function startCareerOpsRun(
     // sent with edited text resolves to the earlier run, and the user is shown
     // an answer to a question they no longer asked.
     requestHash: careerOpsRequestHash(message),
-    status: "queued",
-  });
+    status: "queued" as const,
+  };
+  let claim = await db.claimCareerOpsRun(session.userId, claimInput);
+  // An expired reservation has to be reclaimable from the path the client
+  // actually takes. After a lost response the browser deliberately resends the
+  // *same* request id, so every retry lands in `existing` below — never in
+  // `active_run_exists`, which was the only branch that expired anything. The
+  // bounded recovery the design promises was therefore unreachable: the
+  // conversation stayed blocked past the cutoff unless something else happened
+  // to read the run and the user also invented a new id.
+  //
+  // Past the cutoff Nexus has already decided it will never observe this run,
+  // which is the same judgement the other branch makes. Settle it, free the id,
+  // and let this attempt claim it rather than telling the user to keep waiting.
+  if (claim.outcome === "existing" && isUnbound(claim.run)) {
+    if (await expireUnboundReservation(claim.run, session, config)) {
+      await releaseUnusedReservation(db, claim.run.id, session.userId);
+      claim = await db.claimCareerOpsRun(session.userId, claimInput);
+    }
+  }
   if (claim.outcome === "existing") {
     // An unbound reservation is an ambiguous earlier submission: Hermes may be
     // executing it, and Nexus has no id to observe or stop it with. Returning

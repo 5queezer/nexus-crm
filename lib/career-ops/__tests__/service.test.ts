@@ -986,6 +986,63 @@ describe("startCareerOpsRun", () => {
     expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
+  it("reclaims an expired reservation for a retry that reuses its request id", async () => {
+    // After a lost response the browser deliberately resends the same request
+    // id, so every retry lands on the existing reservation — never on the
+    // active-run branch, which was the only place expiry was attempted. The
+    // bounded recovery was therefore unreachable from the path clients take:
+    // the conversation stayed blocked past the cutoff.
+    const stale = {
+      ...RESERVATION,
+      id: "run-stale",
+      hermesRunId: "",
+      clientRequestId: "client-id-retry",
+    };
+    mocks.db.claimCareerOpsRun
+      .mockResolvedValueOnce({ outcome: "existing", run: stale })
+      .mockResolvedValueOnce({ outcome: "claimed", run: { ...RESERVATION, id: "run-fresh" } });
+    // Past the cutoff: Nexus has given up on ever observing this run.
+    mocks.db.expireCareerOpsRunReservation.mockResolvedValue(true);
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-retry",
+    });
+
+    // Settled, freed, and claimed again — the retry goes through rather than
+    // being told to keep waiting.
+    expect(mocks.db.expireCareerOpsRunReservation).toHaveBeenCalled();
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-stale", "user-a");
+    expect(mocks.db.claimCareerOpsRun).toHaveBeenCalledTimes(2);
+    expect(mocks.client.createRun).toHaveBeenCalled();
+  });
+
+  it("still refuses a retry whose reservation has not expired", async () => {
+    // Before the cutoff the earlier attempt may genuinely be executing, and
+    // Nexus has no id to observe or stop it with. Reclaiming then would start a
+    // second privileged run alongside the first.
+    const stale = {
+      ...RESERVATION,
+      id: "run-stale",
+      hermesRunId: "",
+      clientRequestId: "client-id-retry",
+    };
+    // A second claim would succeed, so if the reservation were reclaimed here
+    // the run would go through — which is exactly what must not happen.
+    mocks.db.claimCareerOpsRun
+      .mockResolvedValueOnce({ outcome: "existing", run: stale })
+      .mockResolvedValue({ outcome: "claimed", run: { ...RESERVATION, id: "run-fresh" } });
+    mocks.db.expireCareerOpsRunReservation.mockResolvedValue(false);
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-retry",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+
   it("settles a reservation it could not delete before submitting", async () => {
     // The pre-submission failures free the slot for the same reason a stated
     // refusal does — nothing reached Hermes — so a lost delete strands the

@@ -139,6 +139,10 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **THEN** the feature reports enabled but unavailable, so the entry point and its retry action stay reachable without reloading the page
 - **AND** a status response missing its capabilities is treated as advertising none, rather than failing to render
 
+#### Scenario: Selecting another conversation while a deletion is in flight
+- **WHEN** a conversation is deleted and the user selects a different one before the deletion responds
+- **THEN** the clean-up applies to the selection as it stands when the response lands, so neither the newly selected conversation is cleared nor a deleted one left on screen
+
 #### Scenario: A transcript that could not be loaded
 - **WHEN** a conversation's transcript fails to load
 - **THEN** submission is refused, because a reply would answer history the user cannot see

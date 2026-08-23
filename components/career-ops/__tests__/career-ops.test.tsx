@@ -936,6 +936,47 @@ describe("application context", () => {
     expect(within(dialog).queryByRole("button", { name: /reject/i })).toBeNull();
   }, 20_000);
 
+  it("does not clear a conversation selected while a deletion was in flight", async () => {
+    // Deletion stays live while the user can still switch conversations, and
+    // the clean-up compared the id captured when the request began. Deleting
+    // the active conversation and selecting another before the response landed
+    // wiped the one just loaded — transcript, scope and all.
+    const user = userEvent.setup();
+    const second = { ...THREAD, id: "thread-2", title: "Second" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [THREAD, second] }));
+    route("GET", /\/threads\/thread-2\/messages$/, () =>
+      json({
+        messages: [{ id: "m9", role: "assistant", content: "second conversation" }],
+        readAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    let releaseDelete: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    route("DELETE", /\/api\/career-ops\/threads\/[^/]+$/, async () => {
+      await held;
+      return json({ deleted: true });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+
+    // Delete the active conversation, then switch before the response lands.
+    void user.click(within(dialog).getAllByRole("button", { name: /delete/i })[0]);
+    await user.click(await within(dialog).findByRole("button", { name: "Second" }));
+    await waitFor(() =>
+      expect(within(dialog).getByText("second conversation")).toBeTruthy(),
+    );
+
+    releaseDelete();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // The conversation the user chose is still the one on screen.
+    expect(within(dialog).getByText("second conversation")).toBeTruthy();
+  });
+
   it("does not carry an unknown-run lock onto a new conversation", async () => {
     // The lock says "this conversation may hold a run I could not see". A
     // conversation created a moment ago cannot, so carrying the flag across

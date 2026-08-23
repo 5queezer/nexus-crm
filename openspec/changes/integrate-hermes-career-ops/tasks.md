@@ -101,3 +101,5 @@ against the code it replaced.
 - [x] 8.27 Refuse submission while a conversation's transcript is unavailable, and offer a retry in its place.
 - [x] 8.28 Release every provably unsubmitted reservation durably, not only the one refused upstream.
 - [x] 8.29 Ignore a status snapshot older than the decision it overlaps, and clear a prompt once the run has left its gate.
+- [x] 8.30 Reclaim an expired reservation on a retry that reuses its request id, so the bounded recovery is reachable from the path clients take.
+- [x] 8.31 Apply deletion clean-up to the selection as it stands when the response lands, not as captured when it began.

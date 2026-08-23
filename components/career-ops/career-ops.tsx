@@ -151,6 +151,21 @@ export function CareerOps({
   }, [run]);
 
   /**
+   * The conversation currently on screen, readable after an await.
+   *
+   * A closure captures `activeThreadId` from the render that created it, and
+   * deletion is live while the user can still switch conversations. Comparing
+   * the captured value after the request had it both ways: deleting the active
+   * conversation and selecting another before the response landed cleared the
+   * newly loaded one, and deleting an inactive conversation the user selected
+   * meanwhile left it on screen as the active one after it was gone.
+   */
+  const activeThreadIdRef = useRef(activeThreadId);
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  /**
    * Read the availability status, and never end up in a state the user cannot
    * leave.
    *
@@ -620,7 +635,8 @@ export function CareerOps({
       return;
     }
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
-    if (activeThreadId === threadId) {
+    // The selection as it stands now, not as it stood when the request began.
+    if (activeThreadIdRef.current === threadId) {
       // Invalidate first. The delete control stays live while a transcript
       // loads, so without this a late `loadMessages` still sees its generation
       // as current and restores the deleted conversation's messages — or its
