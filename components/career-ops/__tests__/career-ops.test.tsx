@@ -733,6 +733,29 @@ describe("application context", () => {
     stream.close();
   });
 
+  it("polls a Hermes build that does not serve the event stream", async () => {
+    // `run_events_sse` is optional -- availability requires run submission,
+    // sessions and run status, because status alone is enough to observe a run.
+    // The capability was surfaced to the browser and then never consulted, so
+    // the drawer opened a stream every such build was certain to refuse. Skip
+    // it and go straight to the recovery path that would have handled it.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/status$/, () =>
+      json({ ...AVAILABLE, capabilities: { stop: true, approvals: true, streaming: false } }),
+    );
+    route("GET", /\/runs\/[^/]+$/, () =>
+      json({ status: "completed", output: "polled answer", error: null }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "no stream here");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => expect(within(dialog).getByText("polled answer")).toBeTruthy());
+    expect(calls.some((call) => call.url.includes("/events"))).toBe(false);
+  });
+
   it("does not switch away from a run started while a conversation was being created", async () => {
     // A slow creation returning after the user moved on used to advance the
     // generation, select the new conversation and reset — aborting the

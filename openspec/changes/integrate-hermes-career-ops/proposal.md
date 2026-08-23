@@ -1,6 +1,6 @@
 ## Why
 
-Nexus is the system of record for applications, contacts, documents, events, submissions, and follow-ups, but the Hermes "Career Ops" agent that actually works that pipeline is only reachable through Telegram. Authenticated Nexus users have no in-product way to talk to the same agent, with the same persona, skills, Nexus MCP access, and long-term memory, while looking at the pipeline the conversation is about.
+Nexus is the system of record for applications, contacts, documents, events, submissions, and follow-ups, but the Hermes "Career Ops" agent that actually works that pipeline is only reachable through Telegram. Authenticated Nexus users have no in-product way to talk to the same agent, with the same persona, skills and Nexus MCP access, while looking at the pipeline the conversation is about.
 
 The existing in-process AI operator (`ai_operator`) solves a different problem: it runs a generic assistant inside Nexus using the user's own OpenAI/Anthropic key. It cannot reach Hermes' Career Ops profile, skills, job-source access, or approval gates, and duplicating those inside Nexus would mean running a second agent runtime. Bridging to the Hermes API server instead keeps exactly one agent runtime and one system of record.
 
@@ -11,7 +11,7 @@ The existing in-process AI operator (`ai_operator`) solves a different problem: 
 - Add an authenticated Nexus BFF under `/api/career-ops/*` (status, threads, thread messages, run start, run status, run events, stop, approval) that resolves every Hermes identifier from an owner-scoped mapping before proxying, with no generic pass-through proxy route.
 - Add a responsive Career Ops drawer to the Nexus workspace: thread switcher, streaming assistant output, visible tool and run progress, stop control, approval prompts, application-context badge, and honest disabled/unavailable/reconnecting/error/empty states.
 - Add optional application-scoped Career Ops threads. Nexus stores only the `applicationId` relationship and passes the verified ID to Hermes as run instructions; Hermes reads current application facts through Nexus MCP rather than from a duplicated snapshot.
-- Add stable long-term memory scoping via `X-Hermes-Session-Key: agent:career-ops:nexus:dm:<opaque-user-id>` so browser threads share Career Ops memory with other channels without exposing PII or reusing the Telegram transcript.
+- Add stable long-term memory scoping via `X-Hermes-Session-Key: agent:career-ops:nexus:dm:<opaque-user-id>` so a user's browser conversations share one memory scope, stable across runs, without exposing PII. The scope is Nexus-specific: it is deliberately separate from Telegram's, so no channel reads or writes another's memory or transcript.
 - Add server-side deduplication of run creation keyed by a bounded client request ID, because the verified Hermes `POST /v1/runs` contract has no request-level idempotency.
 - Add English and German translations, architecture and threat-model documentation, Hermes profile setup and deployment/rollback runbooks, and a mock Hermes server for local development and CI.
 - The feature is **disabled by default**: with no `HERMES_CAREER_OPS_*` configuration the API reports a controlled unavailable status and the UI trigger is not rendered.

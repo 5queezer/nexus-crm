@@ -79,7 +79,18 @@ const POLL_INTERVAL_MS = 1_500;
 const FALLBACK_RUN_LIFETIME_MS = 10 * 60_000;
 
 export function useCareerOpsRun(
-  options: { onSettled?: (phase: RunPhase) => void; runTimeoutMs?: number } = {},
+  options: {
+    onSettled?: (phase: RunPhase) => void;
+    runTimeoutMs?: number;
+    /**
+     * Whether this Hermes build serves `GET /v1/runs/{id}/events`. Availability
+     * does not require it — run status alone is enough to observe a run — so
+     * when it is absent the drawer polls instead of opening a stream that is
+     * certain to be refused. Undefined means the capability is not known yet
+     * and the stream is attempted, which is also the pre-status default.
+     */
+    streaming?: boolean;
+  } = {},
 ) {
   const [state, setState] = useState<RunState>(INITIAL);
   const abortRef = useRef<AbortController | null>(null);
@@ -89,6 +100,7 @@ export function useCareerOpsRun(
   // would report a still-running agent as failed and re-enable submission while
   // it kept working remotely, so the deadline follows the server's own limit.
   const runLifetimeMs = options.runTimeoutMs || FALLBACK_RUN_LIFETIME_MS;
+  const streamingSupported = options.streaming !== false;
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -260,6 +272,13 @@ export function useCareerOpsRun(
 
   const consume = useCallback(
     async (runId: string, signal: AbortSignal) => {
+      // Polling-only deployment: no stream to consume, so do not open one. The
+      // request would be refused upstream and the recovery below is where it
+      // would land anyway -- this only skips a round trip that cannot succeed.
+      if (!streamingSupported) {
+        await settleFromStatus(runId, signal);
+        return;
+      }
       let response: Response;
       try {
         response = await fetch(`/api/career-ops/runs/${runId}/events`, {
@@ -323,7 +342,7 @@ export function useCareerOpsRun(
       if (signal.aborted) return;
       await settleFromStatus(runId, signal);
     },
-    [applyEvent, onSettled, settleFromStatus],
+    [applyEvent, onSettled, settleFromStatus, streamingSupported],
   );
 
   /**

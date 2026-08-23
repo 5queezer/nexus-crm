@@ -29,6 +29,9 @@ const KEY = process.env.MOCK_HERMES_KEY ?? "dev-key";
 const PREFIX = process.env.MOCK_HERMES_PREFIX ?? "/p/career-ops";
 const APPROVALS = process.env.MOCK_HERMES_APPROVALS !== "false";
 const STOP = process.env.MOCK_HERMES_STOP !== "false";
+// A build that serves no run event stream. Nexus does not require one -- run
+// status alone is enough to observe a run -- so this exercises the polling path.
+const EVENTS = process.env.MOCK_HERMES_EVENTS !== "false";
 
 const sessions = new Map();
 const runs = new Map();
@@ -224,7 +227,7 @@ const server = createServer(async (req, res) => {
       features: {
         run_submission: true,
         run_status: true,
-        run_events_sse: true,
+        run_events_sse: EVENTS,
         run_stop: STOP,
         run_approval_response: APPROVALS,
         approval_events: APPROVALS,
@@ -315,7 +318,12 @@ const server = createServer(async (req, res) => {
         error: run.error,
       });
     }
-    if (action === "/events" && req.method === "GET") return streamRun(res, run);
+    if (action === "/events" && req.method === "GET") {
+      // Match a build that does not advertise the capability: refuse it rather
+      // than serving a stream the client was told not to expect.
+      if (!EVENTS) return error(res, 404, "Not found");
+      return streamRun(res, run);
+    }
     if (action === "/stop" && req.method === "POST") {
       if (!STOP) return error(res, 404, "Stop is not supported", "run_not_found");
       run.stopped = true;

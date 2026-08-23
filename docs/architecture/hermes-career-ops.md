@@ -1,6 +1,6 @@
 # Hermes Career Ops architecture
 
-Career Ops gives an authenticated Nexus user a browser conversation with the external **Hermes** Career Ops agent — the same persona, skills, Nexus MCP access, and long-term memory that agent uses on other channels — without leaving the pipeline they are working on.
+Career Ops gives an authenticated Nexus user a browser conversation with the external **Hermes** Career Ops agent — the same persona, skills and Nexus MCP access that agent uses on its other channels — without leaving the pipeline they are working on. Memory is **not** shared across channels; see [Long-term memory scope](#long-term-memory-scope).
 
 The integration deliberately adds **no second agent runtime and no second system of record**. Hermes reasons and runs tools; Nexus owns identity, authorization, and the CRM data. The only new Nexus-side state is a minimal mapping that lets Nexus decide which Hermes session or run a request may touch.
 
@@ -141,7 +141,16 @@ An application-scoped conversation persists only the owner-verified `application
 
 ## Long-term memory scope
 
-Requests carry `X-Hermes-Session-Key: agent:career-ops:nexus:dm:<32 hex>`, where the suffix is `HMAC-SHA256(scope secret, userId)`. It is stable per user, differs between users, contains no email address or other personal identifier, and stays well inside the header's 256-character limit. Browser conversations use Nexus-created Hermes sessions, so they share the agent's long-term memory without reading any other channel's transcript.
+Requests carry `X-Hermes-Session-Key: agent:career-ops:nexus:dm:<32 hex>`, where the suffix is `HMAC-SHA256(scope secret, userId)`. It is stable per user, differs between users, contains no email address or other personal identifier, and stays well inside the header's 256-character limit.
+
+That key names a **Nexus-specific scope**. Every other channel the agent serves sends a different key, so a browser conversation neither reads nor writes those channels' memory: what the user told the agent on Telegram is not available here, and nothing said here reaches Telegram. This is a deliberate isolation boundary, and it is also the honest description of what the key does — an earlier version of this document claimed the opposite.
+
+Continuity therefore comes from two places, neither of them cross-channel:
+
+- **Within one conversation**, from the bounded `conversation_history` Nexus sends with each run. Hermes' Runs API does not hydrate prior turns from `session_id`, so a run that omitted the history would start from nothing.
+- **Across conversations for one user**, only to the extent the Hermes profile persists anything under this scope key.
+
+Whether the profile persists long-term memory at all, and what it keeps, is a property of the Hermes deployment. Nexus cannot determine it and does not claim it. This has not been verified against a live instance.
 
 ## Error mapping
 

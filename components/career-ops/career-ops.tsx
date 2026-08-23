@@ -50,6 +50,9 @@ const HISTORY_PANEL_ID = "career-ops-history";
  * That stream is single-consumer, so aborting it cannot be undone: whatever it
  * would have delivered is gone, and only status polling remains.
  */
+/** What a capability is worth before Hermes has said otherwise: nothing. */
+const UNSUPPORTED = { stop: false, approvals: false, streaming: false } as const;
+
 const LIVE_RUN_PHASES: RunPhase[] = [
   "starting",
   "streaming",
@@ -138,6 +141,7 @@ export function CareerOps({
   const { state: run, start, resume, stop, decideApproval, reset } = useCareerOpsRun({
     onSettled,
     runTimeoutMs: status?.runTimeoutMs,
+    streaming: status?.capabilities.streaming,
   });
 
   // Read the live run inside callbacks without making them depend on it.
@@ -150,7 +154,12 @@ export function CareerOps({
     let cancelled = false;
     careerOpsJson<CareerOpsStatus>("/api/career-ops/status")
       .then((result) => {
-        if (!cancelled) setStatus(result);
+        // The response is JSON, not a `CareerOpsStatus` — the cast is a claim,
+        // not a check. Normalize it so the rest of the component can rely on
+        // the shape: an unexpected body (an old build, a proxy error page
+        // served as JSON) previously reached `status.capabilities.streaming`
+        // and threw inside render, taking the whole page down with it.
+        if (!cancelled) setStatus({ ...result, capabilities: { ...UNSUPPORTED, ...result?.capabilities } });
       })
       .catch(() => {
         if (!cancelled) {

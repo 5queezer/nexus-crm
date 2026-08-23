@@ -2,6 +2,8 @@
 
 Career Ops bridges Nexus to an external Hermes agent. This runbook covers configuring the Hermes side, running the feature locally against a mock, deploying it on the Hetzner/systemd host, and rolling it back.
 
+It assumes **one topology throughout**: Nexus as the `job-tracker` systemd unit and Hermes on the same host bound to loopback. See section 7 for why, and for what a containerised Nexus would change.
+
 Nothing here contains credentials. Replace every placeholder with your own values and keep them out of version control.
 
 ## 0. Prerequisites
@@ -45,18 +47,19 @@ Use a key that is **not** shared with any other profile. Nexus rejects an unauth
 
 ## 3. Configure the Nexus MCP server for the profile
 
-Career Ops must read and write Nexus through the Nexus MCP server rather than a duplicated store. Add it to the profile's MCP configuration:
+Career Ops must read and write Nexus through the Nexus MCP server rather than a duplicated store. Hermes reads MCP servers from the `mcp_servers` key of the profile's **`config.yaml`** — the same file as section 2, not a separate JSON file. Add:
 
-```json
-{
-  "mcpServers": {
-    "nexus": {
-      "url": "https://<your-nexus-host>/api/mcp",
-      "headers": { "Authorization": "Bearer <nexus-api-token>" }
-    }
-  }
-}
+```yaml
+mcp_servers:
+  nexus:
+    url: "https://<your-nexus-host>/api/mcp"     # HTTP transport: `url`, never `command`
+    headers:
+      Authorization: "Bearer <nexus-api-token>"
+    timeout: 120                                  # per tool call, seconds
+    connect_timeout: 60                           # initial connection and discovery
 ```
+
+Restart Hermes afterwards: servers are discovered at startup. Each discovered tool is registered as `mcp_nexus_<tool>` — that prefix is what you name when narrowing the profile's toolset for T8.
 
 The MCP server scopes every operation to the token's owner, so this token defines exactly what Career Ops can reach. Rotate it independently of the Hermes API key.
 
@@ -76,7 +79,17 @@ curl -s -H "Authorization: Bearer $API_SERVER_KEY" \
      http://127.0.0.1:8642/p/career-ops/v1/capabilities | jq .features
 ```
 
-Nexus needs `run_submission`, `run_status`, `run_events_sse`, and `session_resources`. `run_stop` and `run_approval_response` are optional — when absent, Nexus hides the stop control and states the approval limitation rather than inventing behavior.
+Nexus **requires** `run_submission`, `run_status` and `session_resources`. Without any one of them the status endpoint reports the feature *unavailable* rather than degraded: a run that cannot be submitted, observed, or attached to a session is not usable at all.
+
+Everything else is optional, and Nexus degrades explicitly rather than inventing behavior:
+
+| Feature | Absent means |
+|---|---|
+| `run_events_sse` | **Polling only.** The drawer does not open a stream it knows will be refused; it settles each run from `run_status`. Answers arrive complete instead of token by token, tool progress is not shown, and an approval reaches the browser only as the denial-only prompt (the operation details ride on the stream, so they cannot be recovered — see the approval section of the architecture doc). |
+| `run_stop` | The stop control is hidden. A run then ends only by finishing or by reaching the run timeout. |
+| `run_approval_response` | The approval limitation is stated in the drawer; no decision can be submitted from Nexus. |
+
+The event stream is optional on purpose: it is single-consumer and unresumable upstream, so `run_status` is the recovery path in every deployment, and a build without a stream is that recovery path used from the start.
 
 Also confirm the port is *not* reachable from outside the host:
 
@@ -144,18 +157,37 @@ Capability degradation can be exercised too:
 ```bash
 MOCK_HERMES_APPROVALS=false node scripts/mock-hermes.mjs   # approvals unsupported
 MOCK_HERMES_STOP=false      node scripts/mock-hermes.mjs   # stop unsupported
+MOCK_HERMES_EVENTS=false    node scripts/mock-hermes.mjs   # no event stream: polling only
 ```
 
 ## 7. Deploy on the Hetzner/systemd host
 
+**This is the one topology this feature is documented and verified for:** Nexus runs as the `job-tracker` systemd unit directly on the host, and Hermes runs on that same host bound to `127.0.0.1`. Everything above depends on it — the loopback base URL, the "never `0.0.0.0`" rule, and the empty `cors_origins` — because loopback is what keeps the Hermes port unreachable from anywhere but the machine itself. `deploy.sh` is written for exactly this: it builds in place and ends in `systemctl restart`.
+
+The repository also carries a `docker-compose.yml`. Career Ops is **not** set up for it, and the difference is not cosmetic: inside a container `127.0.0.1` is the container, not the host, so `HERMES_CAREER_OPS_BASE_URL` would have to name something reachable across a network boundary — and every guarantee that rests on loopback would then rest on whatever isolates that network instead. Running it that way means re-deriving the transport security yourself. Nothing here has been verified against it.
+
 The existing `deploy.sh` needs no changes; the migration and build are already part of it.
 
-1. Add the `HERMES_CAREER_OPS_*` variables to the deployment env file (`/root/job-tracker/.env.production` or the Compose service environment). Keep the file `chmod 600` and owned by root.
+1. Add the `HERMES_CAREER_OPS_*` variables to `/root/job-tracker/.env.production`. Keep the file `chmod 600` and owned by root.
 2. Deploy as usual:
    ```bash
    ./deploy.sh          # npm ci → prisma generate → prisma migrate deploy → build → systemctl restart
    ```
-   `20260819080000_add_career_ops_session_bridge` and `20260819124500_add_career_ops_approval_audit` are additive: they create `CareerOpsThread` and `CareerOpsRun` and add two nullable approval-attribution columns, altering nothing existing, so both are safe to apply ahead of enabling the feature.
+   Nine migrations belong to this feature, and every one of them is additive — two new tables, one partial unique index, five nullable columns, one column with a default, and one that makes no schema change at all:
+
+   | Migration | Effect |
+   |---|---|
+   | `20260819080000_add_career_ops_session_bridge` | creates `CareerOpsThread` and `CareerOpsRun` with their indexes and foreign keys |
+   | `20260819124500_add_career_ops_approval_audit` | adds the nullable approval-attribution columns |
+   | `20260819170000_career_ops_active_run_invariant` | adds the partial unique index that admits one active run per conversation |
+   | `20260819180000_career_ops_approval_challenge` | adds nullable `approvalChallengeId` |
+   | `20260819190000_career_ops_approval_state` | adds nullable `approvalState` |
+   | `20260819200000_career_ops_pending_approval_challenge` | adds nullable `pendingApprovalChallengeId` |
+   | `20260820160000_career_ops_abandoned_status` | no schema change; records the `abandoned` status and asserts the active-run index still excludes it |
+   | `20260821080000_career_ops_approval_gate_state` | adds nullable `approvalGateOpenedAt` |
+   | `20260821090000_career_ops_request_hash` | adds `requestHash` with a `''` default, so existing rows need no backfill |
+
+   Nothing existing is altered or dropped, so the whole set is safe to apply ahead of enabling the feature.
 3. On a **Firestore** deployment (`DB_PROVIDER=firestore`), deploy the index definitions before enabling the feature:
    ```bash
    firebase deploy --only firestore:indexes
