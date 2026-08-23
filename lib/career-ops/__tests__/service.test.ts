@@ -1584,6 +1584,21 @@ describe("run controls", () => {
     );
   });
 
+  it("keeps the prompt open when its challenge is rejected", async () => {
+    // Verification happens before anything is claimed, so the gate the agent is
+    // at is untouched. That matters most for expiry: a prompt can outlive its
+    // token where the run timeout exceeds the challenge lifetime, and the
+    // browser has already cleared it — without this the run sat there
+    // apparently streaming with no way to answer it. Denial needs no challenge,
+    // so a restored prompt is genuinely usable.
+    atGateWithoutPrompt();
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", "not-a-real-challenge"),
+    ).rejects.toMatchObject({ code: "invalid_request", approvalStillOpen: true });
+    expect(mocks.db.claimCareerOpsApprovalGate).not.toHaveBeenCalled();
+    expect(mocks.client.resolveApproval).not.toHaveBeenCalled();
+  });
+
   it("tells the client whether the prompt it answered is still open", async () => {
     // The error code cannot carry this. `upstream_error` covers both a claim
     // that never took the gate — prompt untouched, answerable — and an outcome

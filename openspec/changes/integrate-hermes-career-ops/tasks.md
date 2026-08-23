@@ -111,3 +111,6 @@ against the code it replaced.
 - [x] 8.37 Treat a request with no authoritative response as unknown, for both run submission and approval decisions.
 - [x] 8.38 Normalize every field of an untrusted status body, so a partial response cannot read as an unconfigured deployment.
 - [x] 8.39 Refuse a configured secret shorter than redaction can strip, from the same constant redaction uses.
+- [x] 8.40 Give the bundled mock and the runbook a default key that clears the configured-secret minimum, guarded by a test.
+- [x] 8.41 Move the active-selection ref in the same statement as the state, so a deletion resolving mid-render cannot read a stale one.
+- [x] 8.42 Report a rejected or expired challenge as leaving the gate open, since nothing was claimed.

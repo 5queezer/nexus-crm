@@ -130,7 +130,10 @@ Then, in another shell:
 ```bash
 export HERMES_CAREER_OPS_ENABLED=true
 export HERMES_CAREER_OPS_BASE_URL="http://127.0.0.1:8642/p/career-ops"
-export HERMES_CAREER_OPS_API_KEY="dev-key"
+# Matches the mock's default. It also has to clear the 16-character minimum
+# Nexus enforces on a configured secret (section 2), or the status endpoint
+# reports `weak_api_key` and the launcher never renders.
+export HERMES_CAREER_OPS_API_KEY="dev-key-for-local-mock"
 # Required. Without it the status endpoint reports `owner_not_configured`,
 # the launcher never renders, and none of the scenarios below can be run.
 # Use the Nexus user id that owns the API token in the Hermes profile.

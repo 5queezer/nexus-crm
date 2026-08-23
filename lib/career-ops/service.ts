@@ -1253,11 +1253,20 @@ export async function resolveCareerOpsApproval(
       choice,
     });
     if (!verified.ok) {
+      // Nothing has been claimed yet, so whatever gate the agent is at is
+      // untouched and still awaiting a decision. That matters most for an
+      // expired challenge: the prompt can outlive its token on a deployment
+      // whose run timeout exceeds the challenge lifetime, and the browser had
+      // already cleared it — so without saying the gate is open it neither
+      // restored the prompt nor recovered, and the run sat there apparently
+      // streaming with no way to answer it.
       throw new CareerOpsServiceError(
         "invalid_request",
         verified.reason === "expired"
           ? "That approval prompt has expired; reload the conversation"
           : "That decision does not match the approval that was shown",
+        null,
+        true,
       );
     }
     // Single use, and only for the gate currently awaiting a decision. A run

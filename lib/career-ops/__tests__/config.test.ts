@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CAREER_OPS_MAX_MESSAGE_LENGTH,
@@ -91,6 +93,23 @@ describe("readCareerOpsConfig", () => {
     if (config.enabled) throw new Error("unreachable");
     expect(config.reason).toBe("weak_scope_secret");
     delete process.env.HERMES_CAREER_OPS_SCOPE_SECRET;
+  });
+
+  it("keeps the bundled mock's default key admissible", () => {
+    // The documented local setup uses the mock's default key. When the minimum
+    // was introduced the 7-character default was left behind, so following the
+    // runbook produced `weak_api_key` and the launcher never rendered — the
+    // constant moved and its fixtures did not.
+    const mock = readFileSync(path.join(process.cwd(), "scripts/mock-hermes.mjs"), "utf8");
+    const runbook = readFileSync(
+      path.join(process.cwd(), "docs/operations/hermes-career-ops-setup.md"),
+      "utf8",
+    );
+    const defaultKey = /MOCK_HERMES_KEY \?\? "([^"]+)"/.exec(mock)?.[1];
+    expect(defaultKey).toBeTruthy();
+    expect(defaultKey!.length).toBeGreaterThanOrEqual(MIN_CAREER_OPS_SECRET_LENGTH);
+    // And the runbook tells the operator to use that same key.
+    expect(runbook).toContain(`HERMES_CAREER_OPS_API_KEY="${defaultKey}"`);
   });
 
   it("accepts and redacts a secret at the minimum length", () => {

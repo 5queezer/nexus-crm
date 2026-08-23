@@ -189,6 +189,10 @@ The system SHALL record only the minimal metadata needed to attribute an approva
 - **WHEN** the agent explicitly refuses a decision, for example because the gate is no longer pending
 - **THEN** the record states that the decision had no effect, rather than leaving it appearing still in flight
 
+#### Scenario: A challenge is expired or does not verify
+- **WHEN** a granting decision's proof of disclosure fails verification, including by expiry
+- **THEN** nothing is claimed and the response says the gate is still open, so the browser can put the prompt back — rejection needs no proof and remains available on it
+
 #### Scenario: A decision gets no answer at all
 - **WHEN** a decision request fails without any response from the system
 - **THEN** the browser neither leaves the prompt cleared nor restores it, but stops reading the run's event stream and settles from authenticated run status, because only that can say whether the gate is still open

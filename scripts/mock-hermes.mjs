@@ -9,7 +9,7 @@
  * real. It runs no model and reaches no network.
  *
  * Usage:
- *   node scripts/mock-hermes.mjs                       # 127.0.0.1:8642, key "dev-key"
+ *   node scripts/mock-hermes.mjs                       # 127.0.0.1:8642, key "dev-key-for-local-mock"
  *   MOCK_HERMES_PORT=9000 MOCK_HERMES_KEY=abc node scripts/mock-hermes.mjs
  *
  * Scenario control — the reply depends on the message text:
@@ -25,7 +25,10 @@ import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.MOCK_HERMES_PORT ?? 8642);
 const HOST = process.env.MOCK_HERMES_HOST ?? "127.0.0.1";
-const KEY = process.env.MOCK_HERMES_KEY ?? "dev-key";
+// Long enough to clear the minimum Nexus enforces on a configured secret: it
+// refuses anything redaction cannot strip, and the old 7-character default made
+// the documented local setup report `weak_api_key` and never enable at all.
+const KEY = process.env.MOCK_HERMES_KEY ?? "dev-key-for-local-mock";
 const PREFIX = process.env.MOCK_HERMES_PREFIX ?? "/p/career-ops";
 const APPROVALS = process.env.MOCK_HERMES_APPROVALS !== "false";
 const STOP = process.env.MOCK_HERMES_STOP !== "false";

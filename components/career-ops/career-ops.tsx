@@ -181,9 +181,18 @@ export function CareerOps({
    * meanwhile left it on screen as the active one after it was gone.
    */
   const activeThreadIdRef = useRef(activeThreadId);
-  useEffect(() => {
-    activeThreadIdRef.current = activeThreadId;
-  }, [activeThreadId]);
+  /**
+   * Set the selection and the ref together.
+   *
+   * Mirroring it from an effect was not enough: the effect runs after the
+   * render commits, so a deletion resolving in between still read the previous
+   * selection — the same stale comparison, in a narrower window. The ref has to
+   * move in the same statement as the state.
+   */
+  const selectActiveThread = useCallback((threadId: string | null) => {
+    activeThreadIdRef.current = threadId;
+    setActiveThreadId(threadId);
+  }, []);
 
   /**
    * Read the availability status, and never end up in a state the user cannot
@@ -394,7 +403,7 @@ export function CareerOps({
       setThreads((current) => [result.thread, ...current]);
       if (!stillCurrent()) return result.thread;
       selectionRef.current += 1;
-      setActiveThreadId(result.thread.id);
+      selectActiveThread(result.thread.id);
       setThreadApplication(withApplication && application ? application : null);
       setTranscriptFailed(false);
       // A conversation created a moment ago cannot have a run in flight, so the
@@ -407,7 +416,7 @@ export function CareerOps({
       reset();
       return result.thread;
     },
-    [application, reset],
+    [application, reset, selectActiveThread],
   );
 
   /**
@@ -478,7 +487,7 @@ export function CareerOps({
           pendingRequestRef.current = null;
           reset();
         }
-        setActiveThreadId(preferred.id);
+        selectActiveThread(preferred.id);
         const readAt = await loadMessages(preferred.id, generation);
         if (!current()) return;
         await rejoinActiveRun(preferred.id, generation, readAt);
@@ -500,7 +509,7 @@ export function CareerOps({
           const created = await createThread(Boolean(application));
           if (selectionRef.current !== before + 1) return;
           generation = selectionRef.current;
-          setActiveThreadId(created.id);
+          selectActiveThread(created.id);
         } finally {
           creatingRef.current = false;
         }
@@ -513,7 +522,15 @@ export function CareerOps({
     } finally {
       if (current()) setLoading(false);
     }
-  }, [activeThreadId, application, createThread, loadMessages, rejoinActiveRun, reset]);
+  }, [
+    activeThreadId,
+    application,
+    createThread,
+    loadMessages,
+    rejoinActiveRun,
+    reset,
+    selectActiveThread,
+  ]);
 
   useEffect(() => {
     if (!open || !status?.available) return;
@@ -615,7 +632,7 @@ export function CareerOps({
     // Claim a generation up front: any load still in flight for the previously
     // selected thread becomes stale here and will discard its own result.
     const generation = ++selectionRef.current;
-    setActiveThreadId(threadId);
+    selectActiveThread(threadId);
     setHistoryOpen(false);
     setThreadApplication(null);
     setTranscriptFailed(false);
@@ -661,7 +678,7 @@ export function CareerOps({
       // failure state — over the cleared drawer.
       selectionRef.current += 1;
       setLoading(false);
-      setActiveThreadId(null);
+      selectActiveThread(null);
       setMessages([]);
       setThreadApplication(null);
       setTranscriptFailed(false);
