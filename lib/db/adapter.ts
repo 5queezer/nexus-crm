@@ -262,6 +262,28 @@ export interface DatabaseAdapter {
   recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean>;
 
   /**
+   * Move a decision that is still `pending` to its final state.
+   *
+   * Conditional on the run still carrying this exact challenge *and* still
+   * being `pending`, because a decision's two writes straddle a network call
+   * and Hermes can reach the next gate in between. An unconditional write let
+   * gate A's delayed outcome land on gate B's row: it replaced B's audit with
+   * A's older choice, and — worse — turned B's `pending` into a resolved state,
+   * which is exactly the condition under which gate recovery reopens a gate.
+   * B's claimed gate could then be answered a second time while its first
+   * decision was still in flight.
+   *
+   * Returns whether the transition happened. A `false` means the row has moved
+   * on and this outcome is no longer the one being recorded.
+   */
+  settleCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<boolean>;
+
+  /**
    * Put a claimed gate back, for a caller that claimed it and then sent
    * nothing. Conditional on the run still being as the claim left it, so a
    * gate the agent has since moved on to is never overwritten.

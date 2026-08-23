@@ -2506,6 +2506,26 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
+  async settleCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<boolean> {
+    const settled = await prisma.careerOpsRun.updateMany({
+      // Only the decision this outcome belongs to, and only while it is still
+      // awaiting one. A decision's two writes straddle a network call, so gate
+      // A's outcome can arrive after gate B's `pending`; unconditional, it
+      // overwrote B's audit and resolved B's state, which is what lets recovery
+      // reopen a gate whose decision is still in flight.
+      where: { id, userId, approvalChallengeId: challengeId, approvalState: "pending" },
+      // `approvalChoice` and `approvalAt` were written with the claim and still
+      // describe this decision; only its lifecycle moves.
+      data: { approvalState: state },
+    });
+    return settled.count === 1;
+  }
+
   async findCareerOpsRunByClientRequestId(
     threadId: string,
     userId: string,

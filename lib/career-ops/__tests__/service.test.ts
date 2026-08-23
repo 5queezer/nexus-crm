@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     getLatestCareerOpsRun: vi.fn(),
     findCareerOpsRunByClientRequestId: vi.fn(),
     recordCareerOpsApprovalDecision: vi.fn(),
+    settleCareerOpsApprovalDecision: vi.fn(),
     openCareerOpsApprovalGate: vi.fn(),
     claimCareerOpsApprovalGate: vi.fn(),
     releaseCareerOpsApprovalGate: vi.fn(),
@@ -136,6 +137,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
+  mocks.db.settleCareerOpsApprovalDecision.mockResolvedValue(true);
   mocks.db.recoverCareerOpsApprovalGate.mockResolvedValue(false);
   mocks.db.openCareerOpsApprovalGate.mockResolvedValue(true);
 });
@@ -1318,10 +1320,11 @@ describe("run controls", () => {
       "",
       "pending",
     );
-    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
+    // The outcome is a *conditional* transition, not another blind write:
+    // Hermes may have reached the next gate while the call was in flight.
+    expect(mocks.db.settleCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
       "run-1",
       "user-a",
-      "deny",
       "",
       "effect_completed",
     );
@@ -1334,10 +1337,9 @@ describe("run controls", () => {
     ).rejects.toBeTruthy();
     // Hermes said no, so nothing happened — and the audit says exactly that
     // rather than leaving the decision looking still in flight.
-    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
+    expect(mocks.db.settleCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
       "run-1",
       "user-a",
-      "once",
       expect.any(String),
       "not_applied",
     );
@@ -1410,10 +1412,9 @@ describe("run controls", () => {
     atGateWithoutPrompt();
 
     await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toBeTruthy();
-    expect(mocks.db.recordCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
+    expect(mocks.db.settleCareerOpsApprovalDecision).toHaveBeenLastCalledWith(
       "run-1",
       "user-a",
-      "deny",
       "",
       "outcome_unknown",
     );

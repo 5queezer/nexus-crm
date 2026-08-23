@@ -2999,13 +2999,45 @@ export class FirestoreAdapter implements DatabaseAdapter {
     state: CareerOpsApprovalState,
   ): Promise<void> {
     const ref = this.careerOpsRuns.doc(id);
-    const snapshot = await ref.get();
-    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
-    await ref.update({
-      approvalChoice: choice,
-      approvalAt: Timestamp.now(),
-      approvalChallengeId: challengeId,
-      approvalState: state,
+    // The claim of the audit slot. One gate admits one decision — the gate
+    // claim is what serializes that — so this write does not need a condition;
+    // its *outcome* does, which is `settleCareerOpsApprovalDecision`.
+    await this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+      tx.update(ref, {
+        approvalChoice: choice,
+        approvalAt: Timestamp.now(),
+        approvalChallengeId: challengeId,
+        approvalState: state,
+        updatedAt: Timestamp.now(),
+      });
+    });
+  }
+
+  async settleCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return false;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return false;
+      // Only the decision this outcome belongs to, and only while it is still
+      // awaiting one. A decision's two writes straddle a network call, so gate
+      // A's outcome can arrive after gate B's `pending`; unconditional, it
+      // overwrote B's audit and resolved B's state, which is what lets recovery
+      // reopen a gate whose decision is still in flight.
+      if (data.approvalChallengeId !== challengeId) return false;
+      if (data.approvalState !== "pending") return false;
+      // `approvalChoice` and `approvalAt` were written with the claim and still
+      // describe this decision; only its lifecycle moves.
+      tx.update(ref, { approvalState: state, updatedAt: Timestamp.now() });
+      return true;
     });
   }
 

@@ -1218,6 +1218,66 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
   });
 
+  it("does not let one gate's outcome land on the next gate's audit", async () => {
+    // A decision writes twice — `pending` before the upstream call, its outcome
+    // after — and Hermes can reach the next gate in between. Unconditional, the
+    // late write replaced the newer gate's audit with the older decision's
+    // choice, and turned its `pending` into a resolved state: exactly the
+    // condition under which gate recovery reopens a gate, so the newer gate
+    // could be answered a second time while its first decision was in flight.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-two-gates",
+      status: "running",
+    });
+
+    // Gate A: decided, upstream call still in flight.
+    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "once", "challenge-a", "pending");
+    // Hermes moves on, and gate B is decided and recorded first.
+    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "challenge-b", "pending");
+
+    // Now A's outcome finally arrives.
+    await expect(
+      db.settleCareerOpsApprovalDecision(run.id, "user-a", "challenge-a", "effect_completed"),
+    ).resolves.toBe(false);
+
+    const after = await db.getCareerOpsRun(run.id, "user-a");
+    expect(after?.approvalChallengeId).toBe("challenge-b");
+    expect(after?.approvalChoice).toBe("deny");
+    // Still awaiting its own outcome, so recovery cannot reopen B's gate.
+    expect(after?.approvalState).toBe("pending");
+
+    // B's own outcome settles normally, and only once.
+    await expect(
+      db.settleCareerOpsApprovalDecision(run.id, "user-a", "challenge-b", "effect_completed"),
+    ).resolves.toBe(true);
+    await expect(
+      db.settleCareerOpsApprovalDecision(run.id, "user-a", "challenge-b", "not_applied"),
+    ).resolves.toBe(false);
+    const settled = await db.getCareerOpsRun(run.id, "user-a");
+    expect(settled?.approvalState).toBe("effect_completed");
+  });
+
+  it("does not settle another owner's decision", async () => {
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-settle-owner",
+      status: "running",
+    });
+    await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "challenge-a", "pending");
+
+    await expect(
+      db.settleCareerOpsApprovalDecision(run.id, "user-b", "challenge-a", "effect_completed"),
+    ).resolves.toBe(false);
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      approvalState: "pending",
+    });
+  });
+
   it("reports whether opening a gate actually happened", async () => {
     // The write is guarded, so "did not throw" is not "opened". The event route
     // discloses approval controls only when this says yes; treating a guarded

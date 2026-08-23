@@ -162,6 +162,10 @@ The system SHALL record only the minimal metadata needed to attribute an approva
 - **WHEN** an approval decision is forwarded
 - **THEN** Nexus retains only the owning user, run, most recent decision, and its timestamp
 
+#### Scenario: One gate's outcome arrives after the next gate's decision
+- **WHEN** a decision's upstream call is still in flight while the agent reaches the next gate and a decision is recorded for it
+- **THEN** the earlier decision's outcome does not overwrite the later one's audit, and does not move it out of the pending state that keeps its gate from being reopened
+
 #### Scenario: A run with several gates
 - **WHEN** one run resolves more than one approval gate
 - **THEN** the record reflects the most recent decision on that run

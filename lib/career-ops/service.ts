@@ -1190,11 +1190,13 @@ export async function resolveCareerOpsApproval(
     // A refusal Hermes stated is a known non-effect; a transport failure is not.
     const undecided =
       !(reason instanceof HermesError) || AMBIGUOUS_UPSTREAM_KINDS.includes(reason.kind);
+    // Conditional: this outcome belongs to the challenge it was claimed for.
+    // Hermes can have reached the next gate while this call was in flight, and
+    // an unconditional write would land that gate's audit on the newer one.
     await getDb()
-      .recordCareerOpsApprovalDecision(
+      .settleCareerOpsApprovalDecision(
         run.id,
         session.userId,
-        choice,
         consumedChallengeId,
         undecided ? "outcome_unknown" : "not_applied",
       )
@@ -1217,10 +1219,12 @@ export async function resolveCareerOpsApproval(
   // failure is reported rather than swallowed — the decision did reach Hermes,
   // which the controlled error says explicitly.
   try {
-    await getDb().recordCareerOpsApprovalDecision(
+    // Conditional for the same reason as the failure path above. A `false` here
+    // is not an error: it means the row has moved on to a later gate, and this
+    // decision's own audit was already written when it was claimed.
+    await getDb().settleCareerOpsApprovalDecision(
       run.id,
       session.userId,
-      choice,
       consumedChallengeId,
       "effect_completed",
     );
