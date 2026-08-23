@@ -94,3 +94,4 @@ against the code it replaced.
 - [x] 8.20 Compare the transcript snapshot and the run settle time on one clock, both server-issued.
 - [x] 8.21 Resume an interrupted Firestore run cleanup from an ordinary listing, not only from the next deletion.
 - [x] 8.22 Make an approval outcome a conditional transition on the challenge it was claimed for, so a late outcome cannot overwrite the next gate's audit or resolve its pending state.
+- [x] 8.23 Judge approval disclosure on what survives redaction, so a prompt made entirely of credentials is denial-only rather than appearing disclosed.

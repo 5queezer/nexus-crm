@@ -2,6 +2,7 @@ import {
   CREDENTIAL_CANDIDATES,
   CREDENTIAL_TOKEN_CHAR,
   REDACTED_ERROR_LIMIT,
+  REDACTION_PLACEHOLDER,
   configuredSecrets,
   redactSecrets,
 } from "./config";
@@ -400,9 +401,14 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       // argument past the display bound, arrived at from the other end, and it
       // gets the same answer: denial only.
       //
-      // Whitespace does not count as a disclosure.
-      const disclosed = Boolean(
-        operation.trim() || summary.trim() || details.trim(),
+      // Neither whitespace nor redaction placeholders count as a disclosure.
+      // Every field can consist entirely of credential-like content, and
+      // redaction turns each into `[redacted]` — non-empty, so the prompt read
+      // as disclosed, kept `once` on offer, and had a challenge signed for it
+      // while the browser showed the user nothing at all. What matters is
+      // whether anything survived redaction, not whether a string survived.
+      const disclosed = [operation, summary, details].some(
+        (field) => field.split(REDACTION_PLACEHOLDER).join("").trim().length > 0,
       );
       const offered: CareerOpsApprovalChoice[] =
         grantable.length > 0 && disclosed ? [...grantable, "deny"] : ["deny"];

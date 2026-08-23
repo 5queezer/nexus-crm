@@ -97,6 +97,7 @@ The system SHALL treat an approval prompt whose disclosed action does not fit th
 #### Scenario: Prompt discloses nothing at all
 - **WHEN** a gate advertises a grant but carries no operation, summary or details
 - **THEN** only rejection is offered, no challenge is signed, and the browser is told the agent did not say what it was asking for
+- **AND** the same applies when every field held only credential-like content, since nothing survives redaction to describe the action
 
 #### Scenario: Gate advertises no usable choice
 - **WHEN** an approval request carries no recognized choices

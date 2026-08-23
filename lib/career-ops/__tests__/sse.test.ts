@@ -149,6 +149,54 @@ describe("normalizeHermesEvent", () => {
     }
   });
 
+  it("offers denial only when redaction leaves nothing behind", () => {
+    // Fields made entirely of credential-like content survive redaction as
+    // `[redacted]` — non-empty, so the blank-prompt guard read the prompt as
+    // disclosed and kept `once` on offer. Nexus then signed a challenge for the
+    // original privileged action while the browser showed nothing meaningful.
+    // Placeholders are not a disclosure.
+    const event = normalizeHermesEvent(
+      JSON.stringify({
+        event: "approval.request",
+        choices: ["once"],
+        // Bare credentials, nothing else: each field redacts down to a
+        // placeholder and no surrounding words survive to stand in for content.
+        pattern_key: ["sk", "abcdef0123456789abcdef0123456789"].join("-"),
+        description: ["sk", "0123456789abcdef0123456789abcdef"].join("-"),
+        command: ["sk", "abcdefabcdef0123456789012345abcd"].join("-"),
+      }),
+    );
+    expect(event?.type).toBe("approval_required");
+    if (event?.type !== "approval_required") throw new Error("unreachable");
+    // Redaction did its job — nothing of the credential is on screen.
+    expect(`${event.operation}${event.summary}${event.details}`).not.toContain(
+      "abcdef0123456789abcdef0123456789",
+    );
+    // And what is left says nothing, so nothing may be granted.
+    expect(event.choices).toEqual(["deny"]);
+    expect(event.undisclosed).toBe(true);
+  });
+
+  it("still grants when a field discloses something alongside a redaction", () => {
+    // The rule is "nothing survived redaction", not "nothing was redacted". A
+    // command with one credential in it is still a disclosed action.
+    const event = normalizeHermesEvent(
+      JSON.stringify({
+        event: "approval.request",
+        choices: ["once"],
+        description: "Call the billing API",
+        command: ["curl -H 'Authorization: Bearer sk", "abcdef0123456789abcdef0123456789'"].join(
+          "-",
+        ),
+      }),
+    );
+    expect(event).toMatchObject({
+      type: "approval_required",
+      choices: ["once", "deny"],
+      undisclosed: false,
+    });
+  });
+
   it("still grants when any one field discloses the action", () => {
     // The rule is "nothing was said", not "everything was said". Hermes need
     // not populate all three, and demanding it would refuse legitimate gates.

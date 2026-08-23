@@ -21,6 +21,16 @@ const DEFAULT_RUN_TIMEOUT_MS = 10 * 60_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 export const REDACTED_ERROR_LIMIT = 300;
 
+/**
+ * What replaces a credential in redacted text.
+ *
+ * Exported because callers have to be able to tell it apart from content: a
+ * string that is nothing but placeholders looks non-empty while saying nothing,
+ * which is the difference between an approval prompt that discloses an action
+ * and one that only appears to.
+ */
+export const REDACTION_PLACEHOLDER = "[redacted]";
+
 export type CareerOpsDisabledReason =
   | "disabled"
   | "not_configured"
@@ -199,9 +209,9 @@ export function redactSecrets(input: unknown): string {
   // the real key with a placeholder — after which the exact key is no longer
   // present to match and its remainder survives.
   for (const secret of configuredSecrets()) {
-    text = text.split(secret).join("[redacted]");
+    text = text.split(secret).join(REDACTION_PLACEHOLDER);
   }
-  for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, "[redacted]");
+  for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, REDACTION_PLACEHOLDER);
   return text;
 }
 
