@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   deleteCareerOpsThread,
-  getActiveCareerOpsRun,
+  getCareerOpsThreadRunState,
   requireOwnedThread,
   resolveCareerOpsThreadApplication,
 } from "@/lib/career-ops/service";
@@ -20,7 +20,7 @@ export async function GET(_request: Request, context: Context) {
   try {
     const { id } = await context.params;
     const thread = await requireOwnedThread(session, id);
-    const activeRun = await getActiveCareerOpsRun(session, thread.id);
+    const { activeRun, settledAt } = await getCareerOpsThreadRunState(session, thread.id);
     // The opportunity this conversation acts on, so the drawer can name it
     // instead of showing an unidentified "other opportunity" badge.
     const application = await resolveCareerOpsThreadApplication(session, thread);
@@ -29,6 +29,10 @@ export async function GET(_request: Request, context: Context) {
         thread: serializeThread(thread),
         application,
         activeRun: activeRun ? serializeRun(activeRun) : null,
+        // When this conversation's last run settled, so a client whose
+        // transcript was read before that moment knows to read it again. Null
+        // while a run is live, and for a conversation that has never run one.
+        settledAt: settledAt ? settledAt.toISOString() : null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

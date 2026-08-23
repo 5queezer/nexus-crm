@@ -48,6 +48,7 @@ import {
   createCareerOpsThread,
   deleteCareerOpsThread,
   getActiveCareerOpsRun,
+  getCareerOpsThreadRunState,
   getCareerOpsRunStatus,
   getCareerOpsStatus,
   listCareerOpsThreadMessages,
@@ -406,6 +407,48 @@ describe("thread lifecycle", () => {
     mocks.db.listCareerOpsThreads.mockResolvedValue([THREAD]);
     await expect(listCareerOpsThreads(SESSION_A)).resolves.toEqual([THREAD]);
     expect(mocks.db.listCareerOpsThreads).toHaveBeenCalledWith("user-a");
+  });
+
+  it("reports when the last run settled, so a stale transcript is detectable", async () => {
+    // The drawer reads the transcript and the run state separately, and a run
+    // that finishes between them is invisible to both. This timestamp is the
+    // only thing that makes the older snapshot detectable.
+    const settledAt = new Date("2026-02-02T10:00:00.000Z");
+    mocks.db.getCareerOpsThread.mockResolvedValue(THREAD);
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      id: "run-1",
+      userId: "user-a",
+      threadId: "thread-1",
+      hermesRunId: "run_done",
+      clientRequestId: "client-id-1",
+      status: "completed",
+      createdAt: new Date(0),
+      updatedAt: settledAt,
+    });
+
+    await expect(getCareerOpsThreadRunState(SESSION_A, "thread-1")).resolves.toEqual({
+      activeRun: null,
+      settledAt,
+    });
+  });
+
+  it("reports no settle time while a run is still in flight", async () => {
+    // Nothing has settled, so there is nothing a transcript could be older
+    // than; the live run is what the drawer rejoins instead.
+    mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+      id: "run-1",
+      userId: "user-a",
+      threadId: "thread-1",
+      hermesRunId: "run_live",
+      clientRequestId: "client-id-1",
+      status: "running",
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+    });
+
+    const state = await getCareerOpsThreadRunState(SESSION_A, "thread-1");
+    expect(state.activeRun?.id).toBe("run-1");
+    expect(state.settledAt).toBeNull();
   });
 
   it("stops an active run before its mapping disappears", async () => {

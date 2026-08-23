@@ -663,6 +663,65 @@ describe("application context", () => {
     await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
   });
 
+  it("re-reads a transcript the reply landed in after it was taken", async () => {
+    // The transcript and the run state are two requests, and no ordering of two
+    // reads makes them one snapshot. A run that finishes between them is
+    // invisible to both: the transcript predates the reply, and the run state
+    // reports nothing in flight. The conversation then showed the question with
+    // no answer, and no live run to produce one, until something else reloaded
+    // it. The settle time the detail response carries is what makes that
+    // detectable.
+    const user = userEvent.setup();
+    const question = { id: "m1", role: "user", content: "what next?" };
+    const reply = { id: "m2", role: "assistant", content: "the late reply" };
+    let reads = 0;
+    route("GET", /\/threads\/[^/]+\/messages$/, () => {
+      reads += 1;
+      return json({ messages: reads === 1 ? [question] : [question, reply] });
+    });
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      // Served after the transcript request, so this settle time is genuinely
+      // later than the snapshot the drawer is holding.
+      json({
+        thread: THREAD,
+        application: null,
+        activeRun: null,
+        settledAt: new Date().toISOString(),
+      }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await waitFor(() => expect(within(dialog).getByText("the late reply")).toBeTruthy());
+  });
+
+  it("leaves a transcript alone when its conversation settled long before", async () => {
+    // The re-read is for a reply that landed inside the window between the two
+    // requests. A conversation that finished earlier is already fully in the
+    // transcript, and reading it again would double every drawer open.
+    const user = userEvent.setup();
+    let reads = 0;
+    route("GET", /\/threads\/[^/]+\/messages$/, () => {
+      reads += 1;
+      return json({ messages: [{ id: "m1", role: "assistant", content: "settled answer" }] });
+    });
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({
+        thread: THREAD,
+        application: null,
+        activeRun: null,
+        settledAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await waitFor(() => expect(within(dialog).getByText("settled answer")).toBeTruthy());
+    expect(reads).toBe(1);
+  });
+
   it("does not present an uninspected conversation as idle", async () => {
     // A failed run lookup is not "no run". Leaving the composer enabled with no
     // Stop invites a submission whose only feedback is the server's conflict,

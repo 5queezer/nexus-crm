@@ -452,17 +452,44 @@ export async function getActiveCareerOpsRun(
   session: CareerOpsSession,
   threadId: string,
 ): Promise<CareerOpsRunRecord | null> {
+  return (await getCareerOpsThreadRunState(session, threadId)).activeRun;
+}
+
+/**
+ * The conversation's run state in one read: the live run if there is one, and
+ * otherwise when its most recent run settled.
+ *
+ * `settledAt` exists because the drawer learns the transcript and the run state
+ * from two separate requests, and no ordering of two reads makes them one
+ * snapshot. A run that finishes between them is invisible to both: the
+ * transcript was taken before the reply existed, and the run state taken after
+ * reports nothing in flight. The conversation then shows a question with no
+ * answer until something else reloads it. Handing the client the settle time
+ * lets it notice that its transcript is the older of the two and re-read.
+ */
+export async function getCareerOpsThreadRunState(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<{ activeRun: CareerOpsRunRecord | null; settledAt: Date | null }> {
   const config = enabledConfig(session);
   const run = await getDb().getLatestCareerOpsRun(threadId, session.userId);
-  if (!run || !ACTIVE_RUN_STATUSES.includes(run.status)) return null;
+  if (!run) return { activeRun: null, settledAt: null };
+  if (!ACTIVE_RUN_STATUSES.includes(run.status)) {
+    return { activeRun: null, settledAt: run.updatedAt };
+  }
   // A reservation nothing can settle stops counting as active once it expires.
   // Settle it here rather than merely ignoring it: the adapters enforce the
   // active-run invariant on the stored status, so a row this function treats as
   // inactive while the database still counts it as active leaves the
   // conversation impossible to delete — and impossible to escape without
   // submitting again to trigger the cleanup elsewhere.
-  if (await expireUnboundReservation(run, session, config)) return null;
-  return run;
+  //
+  // An expiry is a settle like any other, and the client must re-read for the
+  // same reason: the run may have produced output Nexus never saw.
+  if (await expireUnboundReservation(run, session, config)) {
+    return { activeRun: null, settledAt: new Date() };
+  }
+  return { activeRun: run, settledAt: null };
 }
 
 export async function listCareerOpsThreads(

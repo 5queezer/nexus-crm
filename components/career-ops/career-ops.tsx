@@ -203,7 +203,15 @@ export function CareerOps({
       ? "named"
       : "other";
 
+  /**
+   * Load a conversation's transcript, returning when the read was *started*.
+   *
+   * The caller needs that instant, not the moment it finished: the transcript
+   * is a snapshot of Hermes as of the request, and the run-state read that
+   * follows can report a run that settled after it.
+   */
   const loadMessages = useCallback(async (threadId: string, generation: number) => {
+    const readAt = Date.now();
     try {
       const result = await careerOpsJson<{ messages: CareerOpsMessage[] }>(
         `/api/career-ops/threads/${threadId}/messages`,
@@ -211,6 +219,7 @@ export function CareerOps({
       if (selectionRef.current !== generation) return;
       setMessages(result.messages);
       setTranscriptFailed(false);
+      return readAt;
     } catch (reason) {
       if (selectionRef.current !== generation) return;
       // A failed fetch is not an empty conversation. Clearing the transcript
@@ -218,6 +227,9 @@ export function CareerOps({
       // has history, so keep what is on screen and say the load failed.
       setTranscriptFailed(true);
       setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
+      // A failed read is not a snapshot of anything, so there is nothing for
+      // the caller to compare a settle time against.
+      return undefined;
     }
   }, []);
 
@@ -227,12 +239,13 @@ export function CareerOps({
    * cannot observe, stop or approve it, and could start a second one.
    */
   const rejoinActiveRun = useCallback(
-    async (threadId: string, generation: number) => {
+    async (threadId: string, generation: number, transcriptReadAt?: number) => {
       try {
         const result = await careerOpsJson<{
           thread: CareerOpsThread;
           application: CareerOpsApplicationContext | null;
           activeRun: { id: string } | null;
+          settledAt: string | null;
         }>(`/api/career-ops/threads/${threadId}`);
         if (selectionRef.current !== generation) return;
         setRunStateUnknown(false);
@@ -249,6 +262,14 @@ export function CareerOps({
           // finished reply; leaving the hook's completed answer in place would
           // render it a second time.
           reset();
+          // Unless the run settled *after* that transcript was read. Then the
+          // reply is not in it, nothing is in flight to produce it, and the
+          // conversation would sit showing a question with no answer until
+          // something else happened to reload it. Read it once more.
+          const settledAt = result.settledAt ? Date.parse(result.settledAt) : NaN;
+          if (transcriptReadAt !== undefined && settledAt >= transcriptReadAt) {
+            await loadMessages(threadId, generation);
+          }
           return;
         }
         // Already tracking this run — its stream is live and it may hold a
@@ -269,7 +290,7 @@ export function CareerOps({
         setThreadApplication(null);
       }
     },
-    [reset, resume],
+    [loadMessages, reset, resume],
   );
 
   /**
@@ -396,9 +417,9 @@ export function CareerOps({
           reset();
         }
         setActiveThreadId(preferred.id);
-        await loadMessages(preferred.id, generation);
+        const readAt = await loadMessages(preferred.id, generation);
         if (!current()) return;
-        await rejoinActiveRun(preferred.id, generation);
+        await rejoinActiveRun(preferred.id, generation, readAt);
       } else {
         // `createThread` starts a new selection of its own, so adopt that
         // generation rather than treating this load's own creation as stale —
@@ -535,8 +556,8 @@ export function CareerOps({
     // to see what they are replying to.
     setLoading(true);
     try {
-      await loadMessages(threadId, generation);
-      await rejoinActiveRun(threadId, generation);
+      const readAt = await loadMessages(threadId, generation);
+      await rejoinActiveRun(threadId, generation, readAt);
     } finally {
       if (selectionRef.current === generation) setLoading(false);
     }
