@@ -986,6 +986,31 @@ describe("startCareerOpsRun", () => {
     expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
+  it("settles a reservation it could not delete after a stated refusal", async () => {
+    // The reservation holds the conversation's one active slot. Discarding a
+    // failed release blocked the conversation for the whole reservation
+    // lifetime over a request Hermes had explicitly refused: the same request
+    // id reports an ambiguous start, a new one is refused by the active-run
+    // invariant, and nothing on screen explains either.
+    mocks.client.createRun.mockRejectedValue(new HermesError("conflict", "already running"));
+    mocks.db.deleteCareerOpsRun.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-release-fails",
+      }),
+    ).rejects.toBeInstanceOf(CareerOpsServiceError);
+
+    // Retried, then settled terminal so the partial index frees the slot.
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledTimes(3);
+    expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith(
+      "run-1",
+      "user-a",
+      "abandoned",
+    );
+  });
+
   it("releases the reservation when resolving application context fails", async () => {
     // The failure is provably before submission: nothing reached Hermes. Holding
     // the claim would stall the conversation for the whole reservation lifetime

@@ -571,7 +571,7 @@ export function CareerOps({
    * the two agree. The label stays "send" though: nothing is being sent, and
    * saying otherwise would describe a run that does not exist.
    */
-  const busy = running || loading || runStateUnknown;
+  const busy = running || loading || runStateUnknown || transcriptFailed;
 
   async function selectThread(threadId: string) {
     // `running`, not `busy`: switching away from a conversation whose transcript
@@ -886,10 +886,27 @@ export function CareerOps({
                     <p className="text-center text-xs text-slate-400">{t("loading")}</p>
                   )}
 
-                  {!loading && transcriptFailed && messages.length === 0 && (
-                    <p className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
-                      {t("transcript_unavailable")}
-                    </p>
+                  {!loading && transcriptFailed && (
+                    // Submission stays blocked while this is on screen: replying
+                    // to a conversation whose history could not be shown means
+                    // answering something the user cannot see, and the agent
+                    // receives the turns Hermes has rather than the ones they
+                    // think they are continuing. Blocking without a way out
+                    // would strand them, so the retry is part of the state.
+                    <div className="flex flex-col items-center gap-3 py-8 text-center">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {t("transcript_unavailable")}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeThreadId) void selectThread(activeThreadId);
+                        }}
+                        className="nexus-button-ghost nexus-target nexus-focus-ring"
+                      >
+                        {t("retry")}
+                      </button>
+                    </div>
                   )}
 
                   {!loading && !transcriptFailed && messages.length === 0 && !run.answer && (

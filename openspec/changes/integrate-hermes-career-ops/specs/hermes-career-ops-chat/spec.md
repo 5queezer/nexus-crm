@@ -139,6 +139,11 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **THEN** the feature reports enabled but unavailable, so the entry point and its retry action stay reachable without reloading the page
 - **AND** a status response missing its capabilities is treated as advertising none, rather than failing to render
 
+#### Scenario: A transcript that could not be loaded
+- **WHEN** a conversation's transcript fails to load
+- **THEN** submission is refused, because a reply would answer history the user cannot see
+- **AND** a retry is offered in place of the missing transcript, so the conversation is not stranded
+
 #### Scenario: A conversation that could not be inspected
 - **WHEN** reading a conversation's run state fails
 - **THEN** the system states that the run state is unknown and refuses submission, rather than presenting the conversation as idle

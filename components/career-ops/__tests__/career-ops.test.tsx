@@ -852,6 +852,41 @@ describe("application context", () => {
     expect(creations).toBe(1);
   });
 
+  it("does not accept a reply to a conversation whose history failed to load", async () => {
+    // Replying to a transcript that could not be shown means answering
+    // something the user cannot see: the agent receives the turns Hermes holds,
+    // not the ones they believe they are continuing. Blocking without a way out
+    // would strand them, so the retry is part of the state.
+    const user = userEvent.setup();
+    let failing = true;
+    route("GET", /\/threads\/[^/]+\/messages$/, () => {
+      if (failing) return json({ error: "upstream_error" }, 503);
+      return json({
+        messages: [{ id: "m1", role: "assistant", content: "recovered history" }],
+        readAt: "2026-01-01T00:00:00.000Z",
+      });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    const retry = await within(dialog).findByRole("button", { name: /try again/i });
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "reply anyway");
+    expect(
+      within(dialog).getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    failing = false;
+    await user.click(retry);
+
+    await waitFor(() => expect(screen.getByText("recovered history")).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
+  });
+
   it("does not carry an unknown-run lock onto a new conversation", async () => {
     // The lock says "this conversation may hold a run I could not see". A
     // conversation created a moment ago cannot, so carrying the flag across

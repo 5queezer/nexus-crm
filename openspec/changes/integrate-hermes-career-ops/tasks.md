@@ -97,3 +97,5 @@ against the code it replaced.
 - [x] 8.23 Judge approval disclosure on what survives redaction, so a prompt made entirely of credentials is denial-only rather than appearing disclosed.
 - [x] 8.24 Clear the unknown-run lock when another conversation is selected or created, since it describes the one being left.
 - [x] 8.25 Report a forgotten run as gone only once Nexus has recorded it terminal, so a conclusive 404 never contradicts an active row.
+- [x] 8.26 Retry the release of a provably unused reservation and settle it terminal if it cannot be deleted.
+- [x] 8.27 Refuse submission while a conversation's transcript is unavailable, and offer a retry in its place.

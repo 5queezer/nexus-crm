@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
+import type { DatabaseAdapter } from "@/lib/db/adapter";
 import {
   CAREER_OPS_TERMINAL_RUN_STATUSES,
   type CareerOpsRunRecord,
@@ -769,6 +770,36 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Free a reservation for a submission that provably never reached Hermes.
+ *
+ * Discarding the failure here was cheap to write and expensive to be in: the
+ * reservation holds the conversation's single active slot, so a retry with the
+ * same request id reports an ambiguous start and a new one is refused by the
+ * active-run invariant — the conversation is blocked for the whole reservation
+ * lifetime over a request that upstream explicitly refused.
+ *
+ * So retry the delete, and if it still will not go, settle the row terminal
+ * instead: `abandoned` says exactly what happened and frees the slot through
+ * the same partial index. Only when neither can be written does the TTL expiry
+ * remain the backstop, which is the case the caller's error already describes.
+ */
+async function releaseUnusedReservation(
+  db: DatabaseAdapter,
+  runId: string,
+  userId: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await db.deleteCareerOpsRun(runId, userId);
+      return;
+    } catch {
+      if (attempt < 2) await sleep(100 * 2 ** attempt);
+    }
+  }
+  await db.updateCareerOpsRunStatus(runId, userId, "abandoned").catch(() => undefined);
+}
+
 export async function startCareerOpsRun(
   session: CareerOpsSession,
   threadId: string,
@@ -885,7 +916,7 @@ export async function startCareerOpsRun(
     // has no upstream id, so nothing can settle it — it expires instead (see
     // unboundReservationTtlMs) rather than blocking the conversation forever.
     if (definitivelyNotSubmitted(reason)) {
-      await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+      await releaseUnusedReservation(db, reservation.id, session.userId);
     }
     throw toServiceError(reason);
   }
