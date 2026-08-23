@@ -977,6 +977,62 @@ describe("application context", () => {
     expect(within(dialog).getByText("second conversation")).toBeTruthy();
   });
 
+  it("does not claim nothing was sent when the run may have started", async () => {
+    // A submission that timed out after the agent accepted it keeps the
+    // conversation's reservation, precisely because the run may be executing.
+    // Reporting it as a plain failure withdrew the message, handed the draft
+    // back and unlocked the conversation while a privileged run might have been
+    // changing CRM data.
+    const user = userEvent.setup();
+    route("POST", /\/threads\/[^/]+\/runs$/, () =>
+      json({ error: "upstream_error", runMayHaveStarted: true }, 502),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "do the thing");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByText(/could not check whether/i)).toBeTruthy(),
+    );
+    // The message stays in the transcript: it may well have reached the agent.
+    // (The composer is excluded — a textarea's value is its text content too.)
+    expect(
+      within(dialog)
+        .queryAllByText("do the thing")
+        .filter((element) => element.tagName !== "TEXTAREA"),
+    ).toHaveLength(1);
+    // And the conversation stays locked rather than inviting a second run.
+    expect(
+      within(dialog).getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("withdraws a submission the server refused outright", async () => {
+    // The counterpart: a stated refusal releases the reservation, so nothing is
+    // executing and the user should get their draft back rather than being
+    // locked out of a conversation that is idle.
+    const user = userEvent.setup();
+    route("POST", /\/threads\/[^/]+\/runs$/, () => json({ error: "rate_limited" }, 429));
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    const composer = within(dialog).getByLabelText(/message career ops/i);
+    await user.type(composer, "do the thing");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toBeTruthy());
+    expect(
+      within(dialog)
+        .queryAllByText("do the thing")
+        .filter((element) => element.tagName !== "TEXTAREA"),
+    ).toHaveLength(0);
+    await waitFor(() =>
+      expect((composer as HTMLTextAreaElement).value).toBe("do the thing"),
+    );
+  });
+
   it("does not carry an unknown-run lock onto a new conversation", async () => {
     // The lock says "this conversation may hold a run I could not see". A
     // conversation created a moment ago cannot, so carrying the flag across

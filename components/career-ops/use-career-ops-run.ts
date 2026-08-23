@@ -375,9 +375,13 @@ export function useCareerOpsRun(
    * whether the message it optimistically rendered actually went anywhere.
    */
   const start = useCallback(
-    async (threadId: string, message: string, clientRequestId?: string): Promise<boolean> => {
+    async (
+      threadId: string,
+      message: string,
+      clientRequestId?: string,
+    ): Promise<"accepted" | "rejected" | "unknown"> => {
       // A second submit while one is starting must never create a second run.
-      if (startingRef.current) return false;
+      if (startingRef.current) return "rejected";
       startingRef.current = true;
 
       abortRef.current?.abort();
@@ -403,14 +407,29 @@ export function useCareerOpsRun(
         startingRef.current = false;
         const code =
           reason instanceof CareerOpsRequestError ? reason.code : "error_generic";
+        // A submission whose outcome the server calls unknown did not
+        // necessarily fail: it retains the conversation's reservation precisely
+        // because the agent may be executing. Declaring the run `failed` here
+        // told the caller nothing was sent, so the message was withdrawn, the
+        // draft handed back and the conversation unlocked — while a privileged
+        // run might have been changing CRM data.
+        const ambiguous =
+          reason instanceof CareerOpsRequestError && reason.runMayHaveStarted;
+        if (ambiguous) {
+          // No error code here: the caller owns the wording for this state, and
+          // the run's own code would otherwise take precedence and render the
+          // generic message instead.
+          setState((current) => ({ ...current, phase: "idle", errorCode: null, approval: null }));
+          return "unknown";
+        }
         settle("failed", code);
-        return false;
+        return "rejected";
       }
 
       startingRef.current = false;
       setState((current) => ({ ...current, runId, phase: "streaming" }));
       await consume(runId, controller.signal);
-      return true;
+      return "accepted";
     },
     [consume, settle],
   );

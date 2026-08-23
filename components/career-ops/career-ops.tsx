@@ -676,14 +676,24 @@ export function CareerOps({
       { id: optimisticId, role: "user" as const, content: message },
     ]);
 
-    const accepted = await start(activeThreadId, message, requestId);
-    if (accepted) pendingRequestRef.current = null;
-    if (!accepted) {
+    const outcome = await start(activeThreadId, message, requestId);
+    if (outcome === "accepted") pendingRequestRef.current = null;
+    if (outcome === "rejected") {
       // Nothing was sent. Drop only the unsent message: `start` has already
       // reset the live run, so the previous turn's answer now exists only in
       // the copy just made — restoring a pre-submit snapshot would erase it.
       setMessages((current) => current.filter((item) => item.id !== optimisticId));
       setDraft((current) => (current === "" ? message : current));
+    }
+    if (outcome === "unknown") {
+      // The server kept this conversation's reservation because the agent may
+      // be executing. Withdrawing the message and handing the draft back would
+      // say the opposite. Leave the message where it is, keep the request id so
+      // a retry can resolve to the same run rather than being refused as a
+      // second one, and lock the conversation until it can be inspected —
+      // reopening it re-reads the run state and rejoins whatever is there.
+      setRunStateUnknown(true);
+      setErrorCode("error_run_state_unknown");
     }
   }
 

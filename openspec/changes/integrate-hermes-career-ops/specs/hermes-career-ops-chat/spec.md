@@ -143,6 +143,11 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **WHEN** a conversation is deleted and the user selects a different one before the deletion responds
 - **THEN** the clean-up applies to the selection as it stands when the response lands, so neither the newly selected conversation is cleared nor a deleted one left on screen
 
+#### Scenario: A submission whose outcome is unknown
+- **WHEN** a run submission fails in a way that cannot rule out the agent having accepted it, and the conversation's reservation is retained
+- **THEN** the response says so, and the browser keeps the message on screen, keeps its request id for a retry that can resolve to the same run, and refuses further submission — rather than reporting that nothing was sent while a privileged run may be executing
+- **AND** a submission the agent provably refused releases the reservation and returns the draft, because that conversation is idle
+
 #### Scenario: A transcript that could not be loaded
 - **WHEN** a conversation's transcript fails to load
 - **THEN** submission is refused, because a reply would answer history the user cannot see

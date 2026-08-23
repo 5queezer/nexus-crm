@@ -107,3 +107,4 @@ against the code it replaced.
 - [x] 8.33 Adopt refreshed contact rows after an agent run, keeping rows the user has unsaved edits on.
 - [x] 8.34 Key contact-row adoption to the contact list itself, since no backend moves the application's timestamp for a contact-only change.
 - [x] 8.35 Report whether a refused decision's gate is still open, and restore the prompt only then.
+- [x] 8.36 Report whether a failed submission may still be executing, and keep the conversation locked rather than claiming nothing was sent.

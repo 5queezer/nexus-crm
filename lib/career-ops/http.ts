@@ -44,6 +44,10 @@ export function careerOpsErrorResponse(reason: unknown): NextResponse {
         // Only present when it is true, and only meaningful on the approval
         // route: it tells the browser the prompt it just cleared is still open.
         ...(reason.approvalStillOpen ? { approvalStillOpen: true } : {}),
+        // Only present when true, and only meaningful on the run-creation
+        // route: it tells the browser a run may be executing despite the error,
+        // so the conversation must not be presented as idle.
+        ...(reason.runMayHaveStarted ? { runMayHaveStarted: true } : {}),
       },
       { status, headers },
     );

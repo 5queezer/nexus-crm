@@ -1067,6 +1067,32 @@ describe("startCareerOpsRun", () => {
     );
   });
 
+  it("says whether a run may be executing after a failed submission", async () => {
+    // The reservation is retained exactly when the outcome is unknown, and the
+    // error code cannot express that: a submission that timed out after Hermes
+    // accepted it produces the same `upstream_error` as one that never left.
+    mocks.client.createRun.mockRejectedValue(new HermesError("timeout", "gone quiet"));
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-ambiguous",
+      }),
+    ).rejects.toMatchObject({ code: "upstream_error", runMayHaveStarted: true });
+    // Retained, because nothing can rule out an executing run.
+    expect(mocks.db.deleteCareerOpsRun).not.toHaveBeenCalled();
+
+    // A stated refusal is provably nothing: the reservation goes, and the
+    // caller is told the conversation is idle.
+    mocks.client.createRun.mockRejectedValue(new HermesError("conflict", "already running"));
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-refused-outright",
+      }),
+    ).rejects.toMatchObject({ runMayHaveStarted: false });
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalled();
+  });
+
   it("settles a reservation it could not delete after a stated refusal", async () => {
     // The reservation holds the conversation's one active slot. Discarding a
     // failed release blocked the conversation for the whole reservation

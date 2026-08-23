@@ -75,6 +75,17 @@ export class CareerOpsServiceError extends Error {
      * unanswerable prompt on screen after every timeout.
      */
     readonly approvalStillOpen = false,
+    /**
+     * Whether a run may be executing upstream despite this failure.
+     *
+     * The error code cannot say. A submission that timed out after Hermes
+     * accepted it produces the same `upstream_error` as one that provably never
+     * left, and the retained reservation is exactly the difference. The browser
+     * reported "nothing was sent" for both: it withdrew the message, gave the
+     * draft back and unlocked the conversation while a privileged agent might
+     * have been changing CRM data.
+     */
+    readonly runMayHaveStarted = false,
   ) {
     super(message);
     this.name = "CareerOpsServiceError";
@@ -881,6 +892,9 @@ export async function startCareerOpsRun(
       throw new CareerOpsServiceError(
         "conflict",
         "An earlier attempt may still be starting; wait before retrying",
+        null,
+        false,
+        true,
       );
     }
     return claim.run;
@@ -948,10 +962,20 @@ export async function startCareerOpsRun(
     // client request id start a second privileged run. The retained reservation
     // has no upstream id, so nothing can settle it — it expires instead (see
     // unboundReservationTtlMs) rather than blocking the conversation forever.
-    if (definitivelyNotSubmitted(reason)) {
+    const provablyUnsent = definitivelyNotSubmitted(reason);
+    if (provablyUnsent) {
       await releaseUnusedReservation(db, reservation.id, session.userId);
     }
-    throw toServiceError(reason);
+    // The reservation is retained precisely when the outcome is unknown, so the
+    // caller must not be told nothing was sent.
+    const settled = toServiceError(reason);
+    throw new CareerOpsServiceError(
+      settled.code,
+      settled.message,
+      settled.retryAfterSeconds,
+      false,
+      !provablyUnsent,
+    );
   }
 
   let bound: CareerOpsRunRecord | null;
@@ -975,7 +999,16 @@ export async function startCareerOpsRun(
         .updateCareerOpsRunStatus(reservation.id, session.userId, "stopping")
         .catch(() => undefined);
     }
-    throw toServiceError(reason);
+    // Confirmed terminal means the run provably stopped; anything else means it
+    // may still be executing, and the caller has to be told which.
+    const settled = toServiceError(reason);
+    throw new CareerOpsServiceError(
+      settled.code,
+      settled.message,
+      settled.retryAfterSeconds,
+      false,
+      !confirmed,
+    );
   }
   if (!bound) {
     // The reservation vanished under us (concurrent thread delete). Same

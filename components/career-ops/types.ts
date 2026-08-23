@@ -103,6 +103,12 @@ export class CareerOpsRequestError extends Error {
      * that never took the gate and one the agent may already have applied.
      */
     readonly approvalStillOpen = false,
+    /**
+     * Set by the run-creation route when a run may be executing upstream
+     * despite the failure. The code alone cannot say: a submission that timed
+     * out after the agent accepted it looks exactly like one that never left.
+     */
+    readonly runMayHaveStarted = false,
   ) {
     super(code);
     this.name = "CareerOpsRequestError";
@@ -114,14 +120,20 @@ export async function careerOpsJson<T>(input: string, init?: RequestInit): Promi
   if (!response.ok) {
     let code = "error_generic";
     let approvalStillOpen = false;
+    let runMayHaveStarted = false;
     try {
-      const body = (await response.json()) as { error?: string; approvalStillOpen?: boolean };
+      const body = (await response.json()) as {
+        error?: string;
+        approvalStillOpen?: boolean;
+        runMayHaveStarted?: boolean;
+      };
       if (typeof body.error === "string") code = body.error;
       approvalStillOpen = body.approvalStillOpen === true;
+      runMayHaveStarted = body.runMayHaveStarted === true;
     } catch {
       // A non-JSON error body is still an error; the generic code stands.
     }
-    throw new CareerOpsRequestError(response.status, code, approvalStillOpen);
+    throw new CareerOpsRequestError(response.status, code, approvalStillOpen, runMayHaveStarted);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
