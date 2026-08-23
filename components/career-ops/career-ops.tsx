@@ -79,6 +79,13 @@ export function CareerOps({
   const [errorCode, setErrorCode] = useState<string | null>(null);
   /** True when the last transcript load failed, so the empty state is wrong. */
   const [transcriptFailed, setTranscriptFailed] = useState(false);
+  /**
+   * True when the active run could not be looked up.
+   *
+   * Distinct from "no run": an uninspected conversation may hold one, and
+   * submitting into that state only earns a server-side conflict.
+   */
+  const [runStateUnknown, setRunStateUnknown] = useState(false);
   // The opportunity the *active* thread acts on, as resolved by the server.
   // Needed because that thread is often not the one whose page is on screen.
   const [threadApplication, setThreadApplication] = useState<CareerOpsApplicationContext | null>(
@@ -219,6 +226,7 @@ export function CareerOps({
           activeRun: { id: string } | null;
         }>(`/api/career-ops/threads/${threadId}`);
         if (selectionRef.current !== generation) return;
+        setRunStateUnknown(false);
         // Refresh the stored record too. The scope badge is derived from it,
         // and deleting an application detaches the conversation server-side —
         // so a stale snapshot would keep naming an opportunity the agent is no
@@ -241,8 +249,14 @@ export function CareerOps({
         await resume(result.activeRun.id);
       } catch {
         if (selectionRef.current !== generation) return;
-        // A thread that cannot be inspected simply stays idle. Its context is
-        // unknown rather than absent, so fall back to the unnamed badge.
+        // A conversation that could not be inspected is not known to be idle.
+        // Both callers have already reset the run hook, so leaving it here
+        // would show an enabled composer with no Stop and no approval controls
+        // for a conversation that may well have a run in flight — and the only
+        // feedback would be the server's conflict on the next submission.
+        // Block submission and say the state is unknown; reopening retries.
+        setRunStateUnknown(true);
+        setErrorCode("error_run_state_unknown");
         setThreadApplication(null);
       }
     },
@@ -485,7 +499,7 @@ export function CareerOps({
    * the two agree. The label stays "send" though: nothing is being sent, and
    * saying otherwise would describe a run that does not exist.
    */
-  const busy = running || loading;
+  const busy = running || loading || runStateUnknown;
 
   async function selectThread(threadId: string) {
     // `running`, not `busy`: switching away from a conversation whose transcript
@@ -939,6 +953,9 @@ export function CareerOps({
                         if (code === "error_status_unknown") return t("error_status_unknown");
                         if (code === "error_approval_unavailable") {
                           return t("error_approval_unavailable");
+                        }
+                        if (code === "error_run_state_unknown") {
+                          return t("error_run_state_unknown");
                         }
                         return t("error_generic");
                       })()}

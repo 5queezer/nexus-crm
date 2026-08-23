@@ -663,6 +663,27 @@ describe("application context", () => {
     await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
   });
 
+  it("does not present an uninspected conversation as idle", async () => {
+    // A failed run lookup is not "no run". Leaving the composer enabled with no
+    // Stop invites a submission whose only feedback is the server's conflict,
+    // for a conversation that may well have a run in flight.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({ error: "upstream_error" }, 503),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await waitFor(() =>
+      expect(within(dialog).getByText(/could not check whether/i)).toBeTruthy(),
+    );
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "hello");
+    expect(
+      within(dialog).getByRole("button", { name: /^send$/i }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
   it("surfaces an approval that could not be shown instead of streaming forever", async () => {
     // Hermes pauses on an unanswered approval. When the gate could not be
     // opened the route says so, and dropping that event left the drawer

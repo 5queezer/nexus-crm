@@ -2935,20 +2935,23 @@ export class FirestoreAdapter implements DatabaseAdapter {
     threadId: string,
     userId: string,
   ): Promise<CareerOpsRunRecord | null> {
+    // Ask the backend for the one row this needs. Reading every historical run
+    // of a conversation and sorting in memory made each drawer open cost reads
+    // and latency proportional to the conversation's whole lifetime.
+    //
+    // The `threadId ASC, userId ASC, createdAt DESC` index already declared for
+    // this collection serves it. Firestore appends an implicit `__name__` tie
+    // break in the direction of the last `orderBy`, so descending `createdAt`
+    // gives the same deterministic winner as the relational backend's
+    // `[{ createdAt: "desc" }, { id: "desc" }]`.
     const snapshot = await this.careerOpsRuns
       .where("threadId", "==", threadId)
       .where("userId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .limit(1)
       .get();
-    const runs = snapshot.docs.map((document) =>
-      this.mapCareerOpsRun(document.id, document.data()),
-    );
-    if (runs.length === 0) return null;
-    runs.sort((left, right) => {
-      const byCreated = right.createdAt.getTime() - left.createdAt.getTime();
-      if (byCreated !== 0) return byCreated;
-      return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
-    });
-    return runs[0];
+    const document = snapshot.docs[0];
+    return document ? this.mapCareerOpsRun(document.id, document.data()) : null;
   }
 
   /**

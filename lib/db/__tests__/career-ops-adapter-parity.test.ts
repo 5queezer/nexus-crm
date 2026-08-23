@@ -251,6 +251,7 @@ function makeQuery(
   store: Map<string, Row>,
   filters: Array<{ field: string; operator: string; value: unknown }> = [],
   sorts: Array<{ field: string; direction: "asc" | "desc" }> = [],
+  take?: number,
 ) {
   const normalize = (value: unknown) => {
     if (value && typeof value === "object" && "toDate" in value) {
@@ -266,13 +267,17 @@ function makeQuery(
   };
   return {
     where(field: string, operator: string, value: unknown) {
-      return makeQuery(store, [...filters, { field, operator, value }], sorts);
+      return makeQuery(store, [...filters, { field, operator, value }], sorts, take);
     },
     orderBy(field: string, direction: "asc" | "desc" = "asc") {
-      return makeQuery(store, filters, [...sorts, { field, direction }]);
+      return makeQuery(store, filters, [...sorts, { field, direction }], take);
     },
-    limit() {
-      return makeQuery(store, filters, sorts);
+    limit(count: number) {
+      // Honour it. A no-op `limit` hides the difference between a query that
+      // asks the backend for one document and one that reads the whole
+      // collection and takes the first — which is the entire point of the
+      // bounded-read tests.
+      return makeQuery(store, filters, sorts, count);
     },
     async get() {
       const entries = Array.from(store.entries()).filter(([id, data]) =>
@@ -294,9 +299,10 @@ function makeQuery(
         }
         return 0;
       });
+      const limited = typeof take === "number" ? entries.slice(0, take) : entries;
       return {
-        empty: entries.length === 0,
-        docs: entries.map(([id, data]) => ({
+        empty: limited.length === 0,
+        docs: limited.map(([id, data]) => ({
           id,
           exists: true,
           data: () => data,
@@ -1268,6 +1274,30 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
         status: "queued",
       }),
     ).resolves.toMatchObject({ outcome: "existing" });
+  });
+
+  it("asks the backend for one run, not the conversation's whole history", async () => {
+    // Reading every historical run and sorting in memory made each drawer open
+    // cost reads and latency proportional to the conversation's lifetime. Both
+    // backends must return the same newest row from a bounded query.
+    const thread = await seedThread("user-a");
+    let newest = "";
+    for (let index = 0; index < 5; index += 1) {
+      const { run } = await claimRun("user-a", {
+        threadId: thread.id,
+        hermesRunId: `run_${index}`,
+        clientRequestId: `client-id-latest-${index}`,
+        status: "queued",
+      });
+      newest = run.id;
+      await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    }
+
+    await expect(db.getLatestCareerOpsRun(thread.id, "user-a")).resolves.toMatchObject({
+      id: newest,
+    });
+    // And never another user's conversation.
+    await expect(db.getLatestCareerOpsRun(thread.id, "user-b")).resolves.toBeNull();
   });
 
   it("does not let one terminal result overwrite another", async () => {
