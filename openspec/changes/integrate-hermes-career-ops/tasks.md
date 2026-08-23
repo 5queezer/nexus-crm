@@ -108,3 +108,5 @@ against the code it replaced.
 - [x] 8.34 Key contact-row adoption to the contact list itself, since no backend moves the application's timestamp for a contact-only change.
 - [x] 8.35 Report whether a refused decision's gate is still open, and restore the prompt only then.
 - [x] 8.36 Report whether a failed submission may still be executing, and keep the conversation locked rather than claiming nothing was sent.
+- [x] 8.37 Treat a request with no authoritative response as unknown, for both run submission and approval decisions.
+- [x] 8.38 Normalize every field of an untrusted status body, so a partial response cannot read as an unconfigured deployment.

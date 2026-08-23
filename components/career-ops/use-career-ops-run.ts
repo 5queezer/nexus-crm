@@ -413,8 +413,14 @@ export function useCareerOpsRun(
         // told the caller nothing was sent, so the message was withdrawn, the
         // draft handed back and the conversation unlocked — while a privileged
         // run might have been changing CRM data.
+        // A `CareerOpsRequestError` means the server answered and said which
+        // this was. Anything else — the connection dropped, the response never
+        // parsed — means the browser has no authoritative answer at all, and
+        // Nexus may well have started and bound the run before it was lost.
+        // Reading that as "refused" withdrew the message and unlocked the
+        // conversation on exactly the evidence that proves nothing.
         const ambiguous =
-          reason instanceof CareerOpsRequestError && reason.runMayHaveStarted;
+          reason instanceof CareerOpsRequestError ? reason.runMayHaveStarted : true;
         if (ambiguous) {
           // No error code here: the caller owns the wording for this state, and
           // the run's own code would otherwise take precedence and render the
@@ -502,6 +508,21 @@ export function useCareerOpsRun(
         });
       } catch (reason) {
         const code = reason instanceof CareerOpsRequestError ? reason.code : "error_generic";
+        if (!(reason instanceof CareerOpsRequestError)) {
+          // No answer from the server at all: the request may never have
+          // reached it, leaving Hermes paused at a gate that is still open —
+          // or it may have landed. Neither the cleared prompt nor a restored
+          // one is honest, and the stream that would have said so may now
+          // carry nothing but keepalives until it times out. Leave it and let
+          // the ownership-checked status endpoint settle the question; if the
+          // gate is still open, recovery surfaces it again.
+          setState((current) => ({ ...current, errorCode: code }));
+          abortRef.current?.abort();
+          const controller = new AbortController();
+          abortRef.current = controller;
+          await settleFromStatus(runId, controller.signal);
+          return;
+        }
         // A decision that never reached Hermes leaves the run waiting, and
         // dropping the prompt would strand it with no way forward but a reload
         // — so put it back, but only when the server says the gate is still
@@ -510,8 +531,7 @@ export function useCareerOpsRun(
         // the decision, so the server leaves the gate closed on purpose and the
         // restored controls could only ever conflict. That left an unanswerable
         // prompt on screen, which status recovery then kept resurfacing.
-        const stillPending =
-          reason instanceof CareerOpsRequestError && reason.approvalStillOpen;
+        const stillPending = reason.approvalStillOpen;
         setState((current) => ({
           ...current,
           errorCode: code,
@@ -521,7 +541,7 @@ export function useCareerOpsRun(
         }));
       }
     },
-    [state.approval, state.runId],
+    [settleFromStatus, state.approval, state.runId],
   );
 
   return { state, start, resume, stop, decideApproval, reset };

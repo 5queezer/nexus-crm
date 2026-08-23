@@ -49,7 +49,15 @@ function openSse(chunks: string[]) {
     start(controller) {
       const encoder = new TextEncoder();
       for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-      close = () => controller.close();
+      // Tolerant: the client legitimately cancels a stream it has left, which
+      // closes the controller — a test tearing one down must not then throw.
+      close = () => {
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the consumer.
+        }
+      };
     },
   });
   const response = new Response(stream, {
@@ -1031,6 +1039,77 @@ describe("application context", () => {
     await waitFor(() =>
       expect((composer as HTMLTextAreaElement).value).toBe("do the thing"),
     );
+  });
+
+  it("does not claim nothing was sent when the browser got no answer at all", async () => {
+    // A dropped connection is not a refusal. The server may have started and
+    // bound the run before the response was lost, so "no authoritative answer"
+    // has to mean unknown — reading it as refused withdrew the message and
+    // unlocked the conversation on the evidence that proves least.
+    const user = userEvent.setup();
+    route("POST", /\/threads\/[^/]+\/runs$/, () => {
+      throw new Error("network down");
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "do the thing");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByText(/could not check whether/i)).toBeTruthy(),
+    );
+    expect(
+      within(dialog)
+        .queryAllByText("do the thing")
+        .filter((element) => element.tagName !== "TEXTAREA"),
+    ).toHaveLength(1);
+  });
+
+  it("settles from status when a decision gets no answer at all", async () => {
+    // The request may never have reached Nexus, leaving Hermes paused at a gate
+    // that is still open — or it may have landed. Neither the cleared prompt
+    // nor a restored one is honest, and the stream that would have said so can
+    // sit on keepalives until it times out. The status endpoint decides.
+    const user = userEvent.setup();
+    const stream = openSse([
+      'data: {"type":"approval_required","operation":"shell:rm","summary":"Delete a temporary folder","details":"rm -rf /tmp/x","choices":["once","deny"]}\n\n',
+    ]);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("POST", /\/runs\/[^/]+\/approval$/, () => {
+      throw new Error("network down");
+    });
+    route("GET", /\/runs\/[^/]+$/, () =>
+      json({ status: "waiting_for_approval", output: "", error: null }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "clean up");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await within(dialog).findByText(/needs your approval/i);
+
+    await user.click(within(dialog).getByRole("button", { name: /approve once/i }));
+
+    // Recovery finds the gate still open and surfaces it — denial only, because
+    // the operation details cannot be re-disclosed.
+    await waitFor(() =>
+      expect(within(dialog).getByText(/details could not be recovered/i)).toBeTruthy(),
+    );
+    expect(within(dialog).getByRole("button", { name: /reject/i })).toBeTruthy();
+    stream.close();
+  }, 20_000);
+
+  it("keeps the launcher when the status body is unrecognizable", async () => {
+    // `enabled` missing reads as "not configured", which removes the launcher
+    // outright — so a partial body made the feature disappear along with the
+    // retry that would have recovered it.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/status$/, () => json({}));
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    expect(await within(dialog).findByRole("button", { name: /try again/i })).toBeTruthy();
   });
 
   it("does not carry an unknown-run lock onto a new conversation", async () => {

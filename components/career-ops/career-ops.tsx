@@ -53,6 +53,26 @@ const HISTORY_PANEL_ID = "career-ops-history";
 /** What a capability is worth before Hermes has said otherwise: nothing. */
 const UNSUPPORTED = { stop: false, approvals: false, streaming: false } as const;
 
+/**
+ * Make an untrusted status body into a `CareerOpsStatus` that is actually one.
+ *
+ * Defaulting only `capabilities` left the rest unchecked, and the field that
+ * matters most fails in the worst direction: `enabled` missing reads as
+ * "this deployment has not configured Career Ops", which removes the launcher
+ * outright — so a mixed-version response or a proxy body of `{}` made the
+ * feature disappear along with the retry that would have recovered it. An
+ * unrecognizable body is enabled-but-unavailable, the state the user can leave.
+ */
+function normalizeStatus(body: Partial<CareerOpsStatus> | null | undefined): CareerOpsStatus {
+  return {
+    enabled: body?.enabled !== false,
+    available: body?.available === true,
+    reason: typeof body?.reason === "string" ? body.reason : body?.available === true ? null : "degraded",
+    capabilities: { ...UNSUPPORTED, ...body?.capabilities },
+    runTimeoutMs: typeof body?.runTimeoutMs === "number" ? body.runTimeoutMs : 0,
+  };
+}
+
 const LIVE_RUN_PHASES: RunPhase[] = [
   "starting",
   "streaming",
@@ -185,9 +205,7 @@ export function CareerOps({
   const loadStatus = useCallback(async (accept: () => boolean = () => true) => {
     try {
       const result = await careerOpsJson<CareerOpsStatus>("/api/career-ops/status");
-      if (accept()) {
-        setStatus({ ...result, capabilities: { ...UNSUPPORTED, ...result?.capabilities } });
-      }
+      if (accept()) setStatus(normalizeStatus(result));
     } catch {
       if (accept()) {
         setStatus({

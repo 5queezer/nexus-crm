@@ -137,7 +137,7 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 #### Scenario: The availability read fails
 - **WHEN** the status request fails transiently
 - **THEN** the feature reports enabled but unavailable, so the entry point and its retry action stay reachable without reloading the page
-- **AND** a status response missing its capabilities is treated as advertising none, rather than failing to render
+- **AND** a status response the system cannot recognize is treated the same way, in every field — a missing `enabled` must not read as an unconfigured deployment and remove the entry point along with its retry
 
 #### Scenario: Selecting another conversation while a deletion is in flight
 - **WHEN** a conversation is deleted and the user selects a different one before the deletion responds
@@ -147,6 +147,7 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **WHEN** a run submission fails in a way that cannot rule out the agent having accepted it, and the conversation's reservation is retained
 - **THEN** the response says so, and the browser keeps the message on screen, keeps its request id for a retry that can resolve to the same run, and refuses further submission — rather than reporting that nothing was sent while a privileged run may be executing
 - **AND** a submission the agent provably refused releases the reservation and returns the draft, because that conversation is idle
+- **AND** a submission the browser received no authoritative answer to counts as unknown, not refused, since the run may already have been started and recorded
 
 #### Scenario: A transcript that could not be loaded
 - **WHEN** a conversation's transcript fails to load
