@@ -101,6 +101,19 @@ export function useCareerOpsRun(
   // it kept working remotely, so the deadline follows the server's own limit.
   const runLifetimeMs = options.runTimeoutMs || FALLBACK_RUN_LIFETIME_MS;
   const streamingSupported = options.streaming !== false;
+  /**
+   * How many approval decisions this hook has submitted.
+   *
+   * Status recovery and a decision overlap: a poll can be in flight when the
+   * user answers, come back saying `waiting_for_approval` from before the
+   * decision landed, and reinstate the prompt the decision just cleared. A
+   * successful decision writes no further state, and a later `running`
+   * snapshot did not clear approvals, so the drawer stayed locked on a stale
+   * Reject button until the run ended. A poll compares this against what it
+   * read before its own request and declines to speak for a run that has been
+   * answered since.
+   */
+  const decisionsRef = useRef(0);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -198,6 +211,7 @@ export function useCareerOpsRun(
         // Stop polling once the caller is gone. Without this a drawer that was
         // unmounted keeps polling for the whole run lifetime.
         if (signal?.aborted) return;
+        const decisionsBefore = decisionsRef.current;
         let snapshot: RunSnapshot;
         try {
           snapshot = await careerOpsJson<RunSnapshot>(`/api/career-ops/runs/${runId}`, {
@@ -234,8 +248,12 @@ export function useCareerOpsRun(
           // gone, so the operation details cannot be recovered. Surface the
           // decision anyway — with the missing detail stated, not implied —
           // rather than polling a waiting run until it looks failed.
+          //
+          // Unless this snapshot predates a decision the user has since made:
+          // it would then reinstate the prompt that decision cleared, for an
+          // action already on its way upstream.
           setState((current) =>
-            current.approval
+            current.approval || decisionsRef.current !== decisionsBefore
               ? current
               : {
                   ...current,
@@ -253,6 +271,12 @@ export function useCareerOpsRun(
                   },
                 },
           );
+        } else {
+          // The run is no longer at a gate, so any prompt on screen is spent —
+          // whether a decision resolved it or Hermes moved on by itself.
+          // Leaving it up kept the drawer locked on a Reject button that could
+          // only ever conflict.
+          setState((current) => (current.approval ? { ...current, approval: null } : current));
         }
         await sleepUnlessAborted(POLL_INTERVAL_MS, signal);
       }
@@ -446,6 +470,9 @@ export function useCareerOpsRun(
       const runId = state.runId;
       if (!runId) return;
       const pending = state.approval;
+      // Before the request, not after: a poll already in flight must be able to
+      // see that this run has been answered.
+      decisionsRef.current += 1;
       setState((current) => ({ ...current, approval: null, phase: "streaming" }));
       try {
         await careerOpsJson(`/api/career-ops/runs/${runId}/approval`, {

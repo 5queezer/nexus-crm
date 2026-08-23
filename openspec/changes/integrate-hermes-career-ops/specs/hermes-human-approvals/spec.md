@@ -31,6 +31,11 @@ The system SHALL present an approval request as a non-technical summary of the o
 - **THEN** no gate is opened and no approval controls are disclosed, because a decision against them could only conflict
 - **AND** rolling back a claimed gate on a run that has since settled does not reinstate it
 
+#### Scenario: A status snapshot predates the decision it overlaps
+- **WHEN** a run-status request taken before a decision returns after it, still reporting the run as waiting for approval
+- **THEN** the prompt that decision cleared is not reinstated, because the action it describes is already on its way upstream
+- **AND** a snapshot showing the run no longer at a gate clears any prompt still on screen
+
 #### Scenario: Polling is the first to see a gate
 - **WHEN** authenticated run status reports a run waiting for approval and no prompt has reached the browser for it
 - **THEN** the system opens a gate the owner can refuse, including for a run on which no decision has ever been made, so the agent is not left blocked with nobody able to answer it

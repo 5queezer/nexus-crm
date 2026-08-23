@@ -986,6 +986,30 @@ describe("startCareerOpsRun", () => {
     expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
+  it("settles a reservation it could not delete before submitting", async () => {
+    // The pre-submission failures free the slot for the same reason a stated
+    // refusal does — nothing reached Hermes — so a lost delete strands the
+    // conversation just as thoroughly. One durable release covers all of them.
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getApplication.mockRejectedValue(new Error("database unavailable"));
+    mocks.db.deleteCareerOpsRun.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-presubmit-release-fails",
+      }),
+    ).rejects.toBeInstanceOf(CareerOpsServiceError);
+
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledTimes(3);
+    expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith(
+      "run-1",
+      "user-a",
+      "abandoned",
+    );
+  });
+
   it("settles a reservation it could not delete after a stated refusal", async () => {
     // The reservation holds the conversation's one active slot. Discarding a
     // failed release blocked the conversation for the whole reservation

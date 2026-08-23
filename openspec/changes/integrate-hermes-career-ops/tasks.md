@@ -99,3 +99,5 @@ against the code it replaced.
 - [x] 8.25 Report a forgotten run as gone only once Nexus has recorded it terminal, so a conclusive 404 never contradicts an active row.
 - [x] 8.26 Retry the release of a provably unused reservation and settle it terminal if it cannot be deleted.
 - [x] 8.27 Refuse submission while a conversation's transcript is unavailable, and offer a retry in its place.
+- [x] 8.28 Release every provably unsubmitted reservation durably, not only the one refused upstream.
+- [x] 8.29 Ignore a status snapshot older than the decision it overlaps, and clear a prompt once the run has left its gate.

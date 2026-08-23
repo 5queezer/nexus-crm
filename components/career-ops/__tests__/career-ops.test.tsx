@@ -887,6 +887,55 @@ describe("application context", () => {
     );
   });
 
+  it("does not reinstate an approval the user has already answered", async () => {
+    // Recovery polling and a decision overlap. A poll in flight when the user
+    // rejects comes back saying `waiting_for_approval` — true when it was
+    // taken, stale by the time it lands — and reinstated the prompt the
+    // decision had just cleared. A successful decision writes no further
+    // state, and later snapshots did not clear approvals, so the drawer stayed
+    // locked on a Reject button that could only conflict.
+    const user = userEvent.setup();
+    let polls = 0;
+    let releaseStalePoll: () => void = () => {};
+    // The second poll is held open across the decision, so its answer is true
+    // when taken and stale when it lands — the exact overlap that reinstated
+    // the prompt. Without holding it the two never race and the test cannot
+    // tell the fix from its absence.
+    const stalePoll = new Promise<void>((resolve) => {
+      releaseStalePoll = resolve;
+    });
+    route("GET", /\/runs\/[^/]+\/events$/, () => json({ error: "no stream" }, 404));
+    route("GET", /\/runs\/[^/]+$/, async () => {
+      polls += 1;
+      if (polls === 2) {
+        await stalePoll;
+        return json({ status: "waiting_for_approval", output: "", error: null });
+      }
+      // Before the decision the run is waiting; afterwards Hermes has resumed.
+      const status = polls === 1 ? "waiting_for_approval" : "running";
+      return json({ status, output: "", error: null });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "do the thing");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    const reject = await within(dialog).findByRole("button", { name: /reject/i });
+    // Let the second poll start before answering.
+    await waitFor(() => expect(polls).toBeGreaterThanOrEqual(2), { timeout: 5_000 });
+    await user.click(reject);
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.includes("/approval"))).toBe(true),
+    );
+
+    // Only now does the pre-decision snapshot land.
+    releaseStalePoll();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(within(dialog).queryByRole("button", { name: /reject/i })).toBeNull();
+  }, 20_000);
+
   it("does not carry an unknown-run lock onto a new conversation", async () => {
     // The lock says "this conversation may hold a run I could not see". A
     // conversation created a moment ago cannot, so carrying the flag across

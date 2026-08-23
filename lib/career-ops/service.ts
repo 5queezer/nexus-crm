@@ -880,8 +880,10 @@ export async function startCareerOpsRun(
     // claim must be released. Holding it would strand the conversation for the
     // whole reservation lifetime over a transient read failure — retries with
     // the same request id would return the unbound row and fresh ids would
-    // conflict with it.
-    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    // conflict with it. Same durable release as the refusal path below: a
+    // one-shot delete that fails leaves exactly the reservation this is here to
+    // remove.
+    await releaseUnusedReservation(db, reservation.id, session.userId);
     throw toServiceError(reason);
   }
 
@@ -894,8 +896,8 @@ export async function startCareerOpsRun(
     history = boundedHistory(await client(config).listSessionMessages(thread.hermesSessionId));
   } catch (reason) {
     // Provably before submission, so the claim must be released — the same
-    // reasoning as the instructions read above.
-    await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+    // reasoning, and the same durable release, as the instructions read above.
+    await releaseUnusedReservation(db, reservation.id, session.userId);
     throw toServiceError(reason);
   }
 
@@ -934,7 +936,9 @@ export async function startCareerOpsRun(
     // than running two agents against one session.
     const confirmed = await stopAndConfirmTerminal(config, runId).catch(() => false);
     if (confirmed) {
-      await db.deleteCareerOpsRun(reservation.id, session.userId).catch(() => undefined);
+      // Confirmed terminal upstream, so the slot is provably free: release it
+      // durably rather than losing the attempt to a transient write failure.
+      await releaseUnusedReservation(db, reservation.id, session.userId);
     } else {
       await db
         .updateCareerOpsRunStatus(reservation.id, session.userId, "stopping")
