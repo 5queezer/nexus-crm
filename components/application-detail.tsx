@@ -117,6 +117,15 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   const [copied, setCopied] = useState(false);
   const [displayApplication, setDisplayApplication] = useState(application);
 
+  // Same one-time read as the form baseline had: `router.refresh()` delivered a
+  // newer server record and the page went on rendering the one from mount, so
+  // the refresh after an agent run changed nothing the user could see. Adopt a
+  // strictly newer record only — a save answers with one newer than this prop,
+  // and going back to the prop afterwards would undo it on screen.
+  if (Date.parse(application.updatedAt) > Date.parse(displayApplication.updatedAt)) {
+    setDisplayApplication(application);
+  }
+
   const updateMutation = useMutation({
     mutationFn: ({
       data,

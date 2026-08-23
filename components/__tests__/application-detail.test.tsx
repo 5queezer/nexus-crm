@@ -74,8 +74,8 @@ function fixtureApplication(overrides: Partial<Application> = {}): Application {
   };
 }
 
-function renderDetail(application: Application) {
-  return render(
+function detailElement(application: Application) {
+  return (
     <QueryClientProvider
       client={
         new QueryClient({
@@ -93,8 +93,17 @@ function renderDetail(application: Application) {
         application={application}
         canonicalPath="/applications/application-1/acme-engineer"
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderDetail(application: Application) {
+  const view = render(detailElement(application));
+  return {
+    ...view,
+    /** What `router.refresh()` does: the same page, a newer server record. */
+    refreshWith: (next: Application) => view.rerender(detailElement(next)),
+  };
 }
 
 function notesTextarea(): HTMLTextAreaElement {
@@ -161,6 +170,73 @@ describe("ApplicationDetail", () => {
     for (const button of saveButtons()) {
       expect(button.disabled).toBe(false);
     }
+  });
+
+  it("adopts a newer server record delivered by a refresh", async () => {
+    // `useState` reads its initializer once, so the baseline was frozen at
+    // mount. A Career Ops run that changes the record calls `router.refresh()`,
+    // which re-renders this page with a newer one — and the form went on
+    // holding the mount-time concurrency token, so the next save answered 409
+    // for a change the user had already been shown.
+    const patchBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          patchBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return { ok: true, status: 200, json: async () => fixtureApplication() } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    const view = renderDetail(fixtureApplication());
+
+    view.refreshWith(
+      fixtureApplication({
+        jobSummary: "Rewritten by the agent",
+        updatedAt: "2026-07-05T00:00:00.000Z",
+      }),
+    );
+
+    // The refresh is visible, not merely fetched.
+    await waitFor(() => expect(screen.getByText("Rewritten by the agent")).toBeTruthy());
+
+    await user.type(notesTextarea(), " after refresh");
+    await user.click(saveButtons()[0]);
+
+    await waitFor(() => expect(patchBodies.length).toBe(1));
+    expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-05T00:00:00.000Z");
+  });
+
+  it("keeps a stale token rather than dropping unsaved edits on a refresh", async () => {
+    // With edits in hand the stale token is the protection: the 409 is what
+    // tells the user their copy is behind. Adopting the new one silently would
+    // let them overwrite the change they were never shown, and replacing the
+    // form would throw their edit away.
+    const patchBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          patchBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return { ok: true, status: 200, json: async () => fixtureApplication() } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    const view = renderDetail(fixtureApplication());
+
+    await user.type(notesTextarea(), " my edit");
+    view.refreshWith(
+      fixtureApplication({ notes: "agent overwrote this", updatedAt: "2026-07-05T00:00:00.000Z" }),
+    );
+
+    expect(notesTextarea().value).toBe("Erste Notiz my edit");
+    await user.click(saveButtons()[0]);
+    await waitFor(() => expect(patchBodies.length).toBe(1));
+    expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-01T00:00:00.000Z");
   });
 
   it("sends expectedUpdatedAt and renews the baseline after each save", async () => {
