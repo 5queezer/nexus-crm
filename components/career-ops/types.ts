@@ -97,6 +97,12 @@ export class CareerOpsRequestError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    /**
+     * Set by the approval route when the prompt this request answered is still
+     * open. The code alone cannot say: `upstream_error` covers both a decision
+     * that never took the gate and one the agent may already have applied.
+     */
+    readonly approvalStillOpen = false,
   ) {
     super(code);
     this.name = "CareerOpsRequestError";
@@ -107,13 +113,15 @@ export async function careerOpsJson<T>(input: string, init?: RequestInit): Promi
   const response = await fetch(input, { credentials: "same-origin", ...init });
   if (!response.ok) {
     let code = "error_generic";
+    let approvalStillOpen = false;
     try {
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as { error?: string; approvalStillOpen?: boolean };
       if (typeof body.error === "string") code = body.error;
+      approvalStillOpen = body.approvalStillOpen === true;
     } catch {
       // A non-JSON error body is still an error; the generic code stands.
     }
-    throw new CareerOpsRequestError(response.status, code);
+    throw new CareerOpsRequestError(response.status, code, approvalStillOpen);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;

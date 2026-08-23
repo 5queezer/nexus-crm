@@ -1558,6 +1558,35 @@ describe("run controls", () => {
     );
   });
 
+  it("tells the client whether the prompt it answered is still open", async () => {
+    // The error code cannot carry this. `upstream_error` covers both a claim
+    // that never took the gate — prompt untouched, answerable — and an outcome
+    // the agent may already have applied, where the gate stays closed on
+    // purpose. Conflating them left an unanswerable prompt on screen.
+    mocks.client.resolveApproval.mockRejectedValue(new HermesError("timeout", "gone quiet"));
+    atGateWithoutPrompt();
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
+      code: "upstream_error",
+      approvalStillOpen: false,
+    });
+
+    // A stated refusal is a provable non-effect: the gate is reopened, so the
+    // prompt may come back.
+    atGateWithoutPrompt();
+    mocks.client.resolveApproval.mockRejectedValue(new HermesError("rate_limited", "slow down"));
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
+      approvalStillOpen: true,
+    });
+
+    // And a claim that never landed leaves it answerable too.
+    atGateWithoutPrompt();
+    mocks.db.claimCareerOpsApprovalGate.mockRejectedValueOnce(new Error("db down"));
+    await expect(resolveCareerOpsApproval(SESSION_A, "run-1", "deny")).rejects.toMatchObject({
+      code: "upstream_error",
+      approvalStillOpen: true,
+    });
+  });
+
   it("leaves the challenge answerable when the decision could not be recorded", async () => {
     // Nothing was sent upstream, and the gate was never claimed — so there is
     // nothing to put back, which is the point of closing the gate and recording

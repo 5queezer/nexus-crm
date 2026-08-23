@@ -1768,13 +1768,20 @@ describe("recovery is resilient to transient failures", () => {
     });
   }, 20_000);
 
-  it("restores the approval prompt when the decision could not be delivered", async () => {
+  it("restores the approval prompt when the server says the gate is still open", async () => {
+    // The decision never took the gate — the write that claims it failed — so
+    // the prompt is untouched upstream and has to stay answerable. Only the
+    // server can say that: the status code cannot, because the same
+    // `upstream_error` also covers an outcome the agent may already have
+    // applied.
     const user = userEvent.setup();
     const stream = openSse([
       'data: {"type":"approval_required","operation":"shell:rm","summary":"Delete a temporary folder","details":"rm -rf /tmp/x","choices":["once","deny"]}\n\n',
     ]);
     route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
-    route("POST", /\/runs\/[^/]+\/approval$/, () => json({ error: "upstream_error" }, 502));
+    route("POST", /\/runs\/[^/]+\/approval$/, () =>
+      json({ error: "upstream_error", approvalStillOpen: true }, 502),
+    );
 
     renderCareerOps();
     const dialog = await openDrawer(user);
@@ -1789,6 +1796,33 @@ describe("recovery is resilient to transient failures", () => {
       expect(within(dialog).getByRole("button", { name: /approve once/i })).toBeTruthy(),
     );
     expect(within(dialog).getByRole("alert")).toBeTruthy();
+    stream.close();
+  }, 15_000);
+
+  it("does not restore a prompt after an outcome the agent may have applied", async () => {
+    // A timed-out decision is undecided, not undone: the server leaves the gate
+    // closed because Hermes may already have acted on it. Putting the controls
+    // back left a prompt whose every button could only conflict, and status
+    // recovery kept resurfacing it until the run ended.
+    const user = userEvent.setup();
+    const stream = openSse([
+      'data: {"type":"approval_required","operation":"shell:rm","summary":"Delete a temporary folder","details":"rm -rf /tmp/x","choices":["once","deny"]}\n\n',
+    ]);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    // No `approvalStillOpen`: the gate stayed closed.
+    route("POST", /\/runs\/[^/]+\/approval$/, () => json({ error: "upstream_error" }, 502));
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "clean up");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await within(dialog).findByText(/needs your approval/i);
+
+    await user.click(within(dialog).getByRole("button", { name: /approve once/i }));
+
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toBeTruthy());
+    expect(within(dialog).queryByRole("button", { name: /approve once/i })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /reject/i })).toBeNull();
     stream.close();
   }, 15_000);
 });

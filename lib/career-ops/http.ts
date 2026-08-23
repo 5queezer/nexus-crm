@@ -37,7 +37,16 @@ export function careerOpsErrorResponse(reason: unknown): NextResponse {
       reason.retryAfterSeconds !== null
         ? { "Retry-After": String(reason.retryAfterSeconds) }
         : undefined;
-    return NextResponse.json({ error: reason.code, message: reason.message }, { status, headers });
+    return NextResponse.json(
+      {
+        error: reason.code,
+        message: reason.message,
+        // Only present when it is true, and only meaningful on the approval
+        // route: it tells the browser the prompt it just cleared is still open.
+        ...(reason.approvalStillOpen ? { approvalStillOpen: true } : {}),
+      },
+      { status, headers },
+    );
   }
   return NextResponse.json({ error: "upstream_error", message: "Career Ops failed" }, { status: 502 });
 }

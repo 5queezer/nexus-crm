@@ -63,6 +63,18 @@ export class CareerOpsServiceError extends Error {
     readonly code: CareerOpsErrorCode,
     message: string,
     readonly retryAfterSeconds: number | null = null,
+    /**
+     * Whether the approval prompt this request answered is still open, so the
+     * browser may put its controls back.
+     *
+     * The error code cannot say this. `upstream_error` covers both a claim that
+     * never took the gate — where the prompt is untouched and answerable — and
+     * an outcome Hermes may already have applied, where the gate is
+     * deliberately left closed and a retry could only conflict. The client
+     * guessed "anything but a conflict means still pending" and left an
+     * unanswerable prompt on screen after every timeout.
+     */
+    readonly approvalStillOpen = false,
   ) {
     super(message);
     this.name = "CareerOpsServiceError";
@@ -1193,6 +1205,8 @@ export async function resolveCareerOpsApproval(
       throw new CareerOpsServiceError(
         "upstream_error",
         "The decision could not be recorded, so it was not sent",
+        null,
+        true,
       );
     }
     if (!claim) {
@@ -1233,6 +1247,8 @@ export async function resolveCareerOpsApproval(
       throw new CareerOpsServiceError(
         "upstream_error",
         "The decision could not be recorded, so it was not sent",
+        null,
+        true,
       );
     }
     if (!claim) {
@@ -1280,7 +1296,16 @@ export async function resolveCareerOpsApproval(
         .releaseCareerOpsApprovalGate(run.id, session.userId, consumedChallengeId)
         .catch(() => undefined);
     }
-    throw toServiceError(reason);
+    // Only a reopened gate may put the controls back. After an ambiguous
+    // outcome the gate stays closed on purpose — Hermes may already have
+    // applied the decision — so a restored prompt could only ever conflict.
+    const settled = toServiceError(reason);
+    throw new CareerOpsServiceError(
+      settled.code,
+      settled.message,
+      settled.retryAfterSeconds,
+      !undecided,
+    );
   }
   // Attribution only: which owner decided what, and when. The command and its
   // arguments are never written to Nexus. The spec requires this record, so a

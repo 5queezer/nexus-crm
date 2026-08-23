@@ -483,10 +483,16 @@ export function useCareerOpsRun(
         });
       } catch (reason) {
         const code = reason instanceof CareerOpsRequestError ? reason.code : "error_generic";
-        // A decision that never reached Hermes leaves the run waiting. Dropping
-        // the prompt would strand it with no way forward but a reload, so put
-        // it back unless the run has since moved on.
-        const stillPending = !(reason instanceof CareerOpsRequestError && reason.code === "conflict");
+        // A decision that never reached Hermes leaves the run waiting, and
+        // dropping the prompt would strand it with no way forward but a reload
+        // — so put it back, but only when the server says the gate is still
+        // open. Inferring it from "anything but a conflict" was wrong for the
+        // case that matters: after a timeout the agent may already have applied
+        // the decision, so the server leaves the gate closed on purpose and the
+        // restored controls could only ever conflict. That left an unanswerable
+        // prompt on screen, which status recovery then kept resurfacing.
+        const stillPending =
+          reason instanceof CareerOpsRequestError && reason.approvalStillOpen;
         setState((current) => ({
           ...current,
           errorCode: code,

@@ -198,7 +198,11 @@ describe("ApplicationDetail", () => {
 
     view.refreshWith(
       fixtureApplication({
-        updatedAt: "2026-07-06T00:00:00.000Z",
+        // Deliberately unchanged. No backend touches the application row when a
+        // contact is created, updated or deleted, so keying adoption to this
+        // timestamp — as the first attempt did — never fires for exactly the
+        // case it was written for.
+        updatedAt: "2026-07-01T00:00:00.000Z",
         contacts: [
           // The agent renamed the row the user is editing, and added another.
           { id: "c1", name: "Ada B.", email: "", role: "", linkedIn: "" },

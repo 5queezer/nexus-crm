@@ -53,17 +53,28 @@ function mergeContactRows(
  * `persistPending` once the application exists; otherwise rows are
  * created/updated/deleted inline against the API.
  */
+/**
+ * A stable digest of the server's contact list.
+ *
+ * The list is its own revision, deliberately. Keying adoption to the parent
+ * application's `updatedAt` looked right and did nothing: no backend touches
+ * the application row when a contact is created, updated or deleted, so a run
+ * that only changed a contact left the timestamp identical and the refreshed
+ * list was never adopted. Sorted by id, so a reordered response is not mistaken
+ * for a changed one.
+ */
+function contactsRevision(contacts: Contact[]): string {
+  return contacts
+    .map((contact) =>
+      [contact.id, contact.name, contact.email, contact.role, contact.linkedIn].join("\u0000"),
+    )
+    .sort()
+    .join("\u0001");
+}
+
 export function useContactRows(
   applicationId: string | null,
   initialContacts: Contact[] | undefined,
-  /**
-   * Revision of the record these contacts came from — the application's
-   * `updatedAt`. Rows were read from a `useState` initializer and never again,
-   * so a Career Ops run that added or changed a contact left the page showing
-   * the pre-run list: a new contact stayed invisible, and saving a stale row
-   * overwrote what the agent had just written.
-   */
-  revision?: string,
 ) {
   const queryClient = useQueryClient();
   const t = useTranslations("modal");
@@ -75,20 +86,22 @@ export function useContactRows(
     null,
   );
   const [contactError, setContactError] = useState<string | null>(null);
+  const serverContacts = initialContacts ?? [];
+  const revision = contactsRevision(serverContacts);
   const [syncedRevision, setSyncedRevision] = useState(revision);
 
+  // Rows were read from a `useState` initializer and never again, so a Career
+  // Ops run that added or changed a contact left the page on the pre-run list:
+  // the new contact was invisible, and saving a stale row overwrote what the
+  // agent had just written.
+  //
   // Not while a row's own write is in flight: that request targets a row by
   // `clientId` and reports by index, and reshuffling underneath it would make
   // the progress indicator describe a different row. The revision stays
   // unadopted, so this runs again once the write settles.
-  if (
-    revision !== undefined &&
-    revision !== syncedRevision &&
-    savingContactIdx === null &&
-    deletingContactId === null
-  ) {
+  if (revision !== syncedRevision && savingContactIdx === null && deletingContactId === null) {
     setSyncedRevision(revision);
-    setContacts((previous) => mergeContactRows(previous, initialContacts ?? []));
+    setContacts((previous) => mergeContactRows(previous, serverContacts));
   }
 
   function handleContactChange(

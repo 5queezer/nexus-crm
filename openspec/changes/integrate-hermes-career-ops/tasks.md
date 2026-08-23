@@ -105,3 +105,5 @@ against the code it replaced.
 - [x] 8.31 Apply deletion clean-up to the selection as it stands when the response lands, not as captured when it began.
 - [x] 8.32 Record the pending decision inside the atomic gate claim, so no interval exists in which recovery can reopen a gate a decision is answering.
 - [x] 8.33 Adopt refreshed contact rows after an agent run, keeping rows the user has unsaved edits on.
+- [x] 8.34 Key contact-row adoption to the contact list itself, since no backend moves the application's timestamp for a contact-only change.
+- [x] 8.35 Report whether a refused decision's gate is still open, and restore the prompt only then.

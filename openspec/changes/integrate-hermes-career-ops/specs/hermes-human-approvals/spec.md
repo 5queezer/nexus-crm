@@ -189,6 +189,11 @@ The system SHALL record only the minimal metadata needed to attribute an approva
 - **WHEN** the agent explicitly refuses a decision, for example because the gate is no longer pending
 - **THEN** the record states that the decision had no effect, rather than leaving it appearing still in flight
 
+#### Scenario: The browser learns whether a refused decision may be retried
+- **WHEN** a decision fails
+- **THEN** the response states whether the gate it answered is still open, and the browser restores the prompt's controls only when it is
+- **AND** after an outcome the agent may already have applied, the controls are not restored, because a retry could only conflict
+
 #### Scenario: Decision outcome is undetermined
 - **WHEN** the call carrying a decision fails in a way that does not reveal whether the agent applied it
 - **THEN** the record states that the outcome is unknown, so it can be reconciled rather than assumed either way
@@ -209,6 +214,7 @@ The system SHALL refresh the Nexus data views that an approved Career Ops action
 - **WHEN** a run changes a record the user is editing and the refreshed record arrives
 - **THEN** the unsaved edits are kept and the form continues to save against the token it already held, so the conflict is reported rather than silently overwritten
 - **AND** rows the user has not touched still adopt the refreshed values, so one unsaved edit does not hold the whole surface stale
+- **AND** related rows are tracked by their own content, not by the parent record's revision, which a change to those rows alone does not move
 
 #### Scenario: Rejected action
 - **WHEN** a run's gated operation is rejected
