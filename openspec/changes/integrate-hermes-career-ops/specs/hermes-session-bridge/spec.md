@@ -113,6 +113,10 @@ The system SHALL delete a Career Ops thread and its run mappings on owner reques
 - **WHEN** the Hermes session deletion request fails
 - **THEN** the Nexus mapping is still removed and the caller receives a success outcome with the upstream failure recorded only in redacted form
 
+#### Scenario: Run mappings cannot all be removed with the thread
+- **WHEN** a backend cannot remove a deleted conversation's run mappings in the same operation that removes the conversation, and their removal afterwards fails
+- **THEN** the caller is still told the conversation is deleted, and the outstanding removal is recorded durably so a later operation finishes it, rather than leaving the mappings behind permanently
+
 #### Scenario: User deleted
 - **WHEN** a user record is deleted from the relational store
 - **THEN** that user's Career Ops thread and run mappings are removed by the relational cascade

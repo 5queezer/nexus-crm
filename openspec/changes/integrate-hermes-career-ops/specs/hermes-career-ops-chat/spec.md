@@ -121,6 +121,22 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **WHEN** the user reopens a thread whose last run is still running
 - **THEN** the system reports that run's current status and settles the UI when it reaches a terminal state
 
+#### Scenario: Hermes serves no event stream
+- **WHEN** the connected Hermes does not advertise streamed run events
+- **THEN** the system still reports the feature available, resolves each run from authenticated run status, and opens no event stream
+
+#### Scenario: The stream reports that it cannot deliver the outcome
+- **WHEN** a run's event stream reports that an approval could not be presented, or that a terminal status could not be recorded
+- **THEN** the client stops reading that stream and resolves the run from authenticated run status, rather than waiting on a connection that carries nothing further
+
+#### Scenario: A run settles between the transcript and the run-state read
+- **WHEN** a conversation's transcript is read, its last run then reaches a terminal state, and the run state is read afterwards
+- **THEN** the system re-reads the transcript, so the reply that landed in between is shown rather than leaving the conversation displaying a message with no answer
+
+#### Scenario: A conversation that could not be inspected
+- **WHEN** reading a conversation's run state fails
+- **THEN** the system states that the run state is unknown and refuses submission, rather than presenting the conversation as idle
+
 ### Requirement: Cancellation
 The system SHALL offer a stop control while a run is active when the connected Hermes advertises stop support, and SHALL route cancellation through an authenticated, ownership-checked Nexus endpoint.
 

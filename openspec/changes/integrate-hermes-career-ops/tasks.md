@@ -66,3 +66,24 @@
 - [x] 7.6 `npx prisma generate` and migration validation pass.
 - [x] 7.7 Secret scan over the diff, `git diff --check`, and `git status --short` are clean.
 - [x] 7.8 Production-like smoke test against the mock Hermes server, with desktop and mobile browser verification and screenshots.
+
+## 8. Review hardening (RED → GREEN)
+
+Everything below was added during review, each with a test verified to fail
+against the code it replaced.
+
+- [x] 8.1 Move the one-active-run invariant into the database: a Postgres partial unique index and a deterministic Firestore document id, claimed before Hermes is contacted, so a lost response resolves to the same run instead of a second one.
+- [x] 8.2 Bind the idempotency key to the request it was claimed for (`requestHash`), so a reused id with edited text is refused rather than answering the earlier question.
+- [x] 8.3 Bind an approval decision to the disclosed action with a signed, single-use, TTL-bounded challenge minted where the sanitized prompt is shown; grants are single-use only.
+- [x] 8.4 Give the approval gate its own column, claimed by one conditional write for grants and denials alike, with recovery when polling is the first observer — including on a run that has never had a decision.
+- [x] 8.5 Strip credentials from every string taken from an upstream frame, redacting before bounding, with a boundary-aware redactor that never cuts inside a credential shape.
+- [x] 8.6 Send bounded `conversation_history` with each run: the Runs API does not hydrate prior turns from `session_id`.
+- [x] 8.7 Require `HERMES_CAREER_OPS_OWNER_USER_ID` and fail closed for anyone else, because the Hermes profile holds one Nexus MCP token and every run acts as its owner.
+- [x] 8.8 Never free a run's active slot on a Nexus-local timeout; expire only an unbindable reservation, as `abandoned`.
+- [x] 8.9 Treat every "check, then act" in this subsystem as a race: run admission, thread deletion, session uniqueness, challenge consumption, gate claiming and gate opening are each decided by an index, a foreign key, a transaction, a conditional write, or a row lock.
+- [x] 8.10 Record an interrupted Firestore child cleanup durably so a later operation finishes it.
+- [x] 8.11 Re-read a transcript whose conversation settled after it was taken; never present a conversation whose run state could not be read as idle.
+- [x] 8.12 Leave an event stream that reports it cannot deliver the outcome, and settle from run status; poll from the start on a Hermes that serves no event stream.
+- [x] 8.13 Adopt a refreshed server record on the application detail page, including the form's concurrency token, without discarding unsaved edits.
+- [x] 8.14 Correct the documentation this change shipped with: cross-channel memory, the Hermes MCP configuration format, the required capability set, and one deployment topology.
+- [x] 8.15 Correct every test double found agreeing with broken code — SQL `NOT IN` null semantics, Firestore write isolation, batch limits and failures, abort signals, query limits.

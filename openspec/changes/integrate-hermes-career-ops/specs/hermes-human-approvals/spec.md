@@ -26,6 +26,10 @@ The system SHALL present an approval request as a non-technical summary of the o
 - **WHEN** the approval details contain credential-like content
 - **THEN** the displayed prompt omits that content
 
+#### Scenario: Polling is the first to see a gate
+- **WHEN** authenticated run status reports a run waiting for approval and no prompt has reached the browser for it
+- **THEN** the system opens a gate the owner can refuse, including for a run on which no decision has ever been made, so the agent is not left blocked with nobody able to answer it
+
 #### Scenario: Details cannot be recovered
 - **WHEN** a run awaiting a decision is rejoined after a disconnect, so the operation and its arguments are no longer retrievable
 - **THEN** the system states that the details could not be recovered
@@ -176,6 +180,11 @@ The system SHALL refresh the Nexus data views that an approved Career Ops action
 #### Scenario: Approved action changes application state
 - **WHEN** an approved run completes
 - **THEN** the application-facing queries are invalidated so the workspace reloads current Nexus data
+- **AND** a surface rendering a record from a server-side read adopts the refreshed record, including the concurrency token its edit form saves against, so the user's next save is not refused for a change they have already been shown
+
+#### Scenario: The user has unsaved edits when the data refreshes
+- **WHEN** a run changes a record the user is editing and the refreshed record arrives
+- **THEN** the unsaved edits are kept and the form continues to save against the token it already held, so the conflict is reported rather than silently overwritten
 
 #### Scenario: Rejected action
 - **WHEN** a run's gated operation is rejected
