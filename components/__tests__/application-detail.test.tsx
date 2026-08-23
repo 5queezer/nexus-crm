@@ -172,6 +172,48 @@ describe("ApplicationDetail", () => {
     }
   });
 
+  it("shows contacts an agent added, and keeps an unsaved row edit", async () => {
+    // Contact rows were read from a `useState` initializer and never again, so
+    // a Career Ops run that added or changed a contact left the page on the
+    // pre-run list: the new contact was invisible, and saving a stale row
+    // overwrote what the agent had just written. Adoption must not cost the
+    // user an edit they have in hand either.
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const view = renderDetail(
+      fixtureApplication({
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    // Edit the existing row without saving it.
+    const nameInputs = screen.getAllByDisplayValue("Ada");
+    await user.clear(nameInputs[0]);
+    await user.type(nameInputs[0], "Ada Lovelace");
+
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-06T00:00:00.000Z",
+        contacts: [
+          // The agent renamed the row the user is editing, and added another.
+          { id: "c1", name: "Ada B.", email: "", role: "", linkedIn: "" },
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    // The agent's new contact is visible…
+    await waitFor(() => expect(screen.getAllByDisplayValue("Grace").length).toBe(1));
+    // …and the unsaved edit survived rather than being overwritten.
+    expect(screen.getAllByDisplayValue("Ada Lovelace").length).toBe(1);
+    expect(screen.queryByDisplayValue("Ada B.")).toBeNull();
+  });
+
   it("adopts a newer server record delivered by a refresh", async () => {
     // `useState` reads its initializer once, so the baseline was frozen at
     // mount. A Career Ops run that changes the record calls `router.refresh()`,

@@ -203,11 +203,12 @@ The system SHALL refresh the Nexus data views that an approved Career Ops action
 #### Scenario: Approved action changes application state
 - **WHEN** an approved run completes
 - **THEN** the application-facing queries are invalidated so the workspace reloads current Nexus data
-- **AND** a surface rendering a record from a server-side read adopts the refreshed record, including the concurrency token its edit form saves against, so the user's next save is not refused for a change they have already been shown
+- **AND** a surface rendering a record from a server-side read adopts the refreshed record, including the concurrency token its edit form saves against and its related rows, so the user's next save is not refused for a change they have already been shown and a record the agent added is not left invisible
 
 #### Scenario: The user has unsaved edits when the data refreshes
 - **WHEN** a run changes a record the user is editing and the refreshed record arrives
 - **THEN** the unsaved edits are kept and the form continues to save against the token it already held, so the conflict is reported rather than silently overwritten
+- **AND** rows the user has not touched still adopt the refreshed values, so one unsaved edit does not hold the whole surface stale
 
 #### Scenario: Rejected action
 - **WHEN** a run's gated operation is rejected

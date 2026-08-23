@@ -104,3 +104,4 @@ against the code it replaced.
 - [x] 8.30 Reclaim an expired reservation on a retry that reuses its request id, so the bounded recovery is reachable from the path clients take.
 - [x] 8.31 Apply deletion clean-up to the selection as it stands when the response lands, not as captured when it began.
 - [x] 8.32 Record the pending decision inside the atomic gate claim, so no interval exists in which recovery can reopen a gate a decision is answering.
+- [x] 8.33 Adopt refreshed contact rows after an agent run, keeping rows the user has unsaved edits on.

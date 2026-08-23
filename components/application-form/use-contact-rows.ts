@@ -11,6 +11,43 @@ import {
 } from "./form-data";
 
 /**
+ * Fold a refreshed server list into the rows on screen.
+ *
+ * Server wins for every row the user has not touched, and the user wins for
+ * every row they have: an unsaved edit is not something a background refresh
+ * may discard, including one whose contact the agent deleted — that row stays
+ * so the person can see what became of their edit rather than watching it
+ * vanish. Rows keep their `clientId`, because in-flight updaters target it.
+ */
+function mergeContactRows(
+  local: ContactFormRow[],
+  server: Contact[],
+): ContactFormRow[] {
+  const dirtyById = new Map<string, ContactFormRow>();
+  const unsaved: ContactFormRow[] = [];
+  for (const row of local) {
+    if (!row.isDirty) continue;
+    if (row.id) dirtyById.set(row.id, row);
+    else unsaved.push(row);
+  }
+  const localById = new Map(
+    local.filter((row) => row.id).map((row) => [row.id as string, row] as const),
+  );
+  const merged = server.map((contact) => {
+    const dirty = dirtyById.get(contact.id);
+    if (dirty) return dirty;
+    const existing = localById.get(contact.id);
+    const row = contactToRow(contact);
+    return existing ? { ...row, clientId: existing.clientId } : row;
+  });
+  const serverIds = new Set(server.map((contact) => contact.id));
+  const orphanedEdits = [...dirtyById.values()].filter(
+    (row) => !serverIds.has(row.id as string),
+  );
+  return [...merged, ...orphanedEdits, ...unsaved];
+}
+
+/**
  * Contact row state for the application form. In create mode
  * (`applicationId === null`) rows are buffered locally and flushed with
  * `persistPending` once the application exists; otherwise rows are
@@ -19,6 +56,14 @@ import {
 export function useContactRows(
   applicationId: string | null,
   initialContacts: Contact[] | undefined,
+  /**
+   * Revision of the record these contacts came from — the application's
+   * `updatedAt`. Rows were read from a `useState` initializer and never again,
+   * so a Career Ops run that added or changed a contact left the page showing
+   * the pre-run list: a new contact stayed invisible, and saving a stale row
+   * overwrote what the agent had just written.
+   */
+  revision?: string,
 ) {
   const queryClient = useQueryClient();
   const t = useTranslations("modal");
@@ -30,6 +75,21 @@ export function useContactRows(
     null,
   );
   const [contactError, setContactError] = useState<string | null>(null);
+  const [syncedRevision, setSyncedRevision] = useState(revision);
+
+  // Not while a row's own write is in flight: that request targets a row by
+  // `clientId` and reports by index, and reshuffling underneath it would make
+  // the progress indicator describe a different row. The revision stays
+  // unadopted, so this runs again once the write settles.
+  if (
+    revision !== undefined &&
+    revision !== syncedRevision &&
+    savingContactIdx === null &&
+    deletingContactId === null
+  ) {
+    setSyncedRevision(revision);
+    setContacts((previous) => mergeContactRows(previous, initialContacts ?? []));
+  }
 
   function handleContactChange(
     idx: number,

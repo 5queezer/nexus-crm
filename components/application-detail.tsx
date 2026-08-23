@@ -106,7 +106,11 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     markSaved,
     refreshBaselineUpdatedAt,
   } = useApplicationForm(application);
-  const contactRows = useContactRows(application.id, application.contacts);
+  const contactRows = useContactRows(
+    application.id,
+    application.contacts,
+    application.updatedAt,
+  );
   // Contact rows persist individually; unsaved row edits must still guard
   // navigation even when the application form itself is clean.
   const hasUnsavedChanges = formDirty || contactRows.hasDirtyRows;
