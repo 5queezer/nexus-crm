@@ -2435,7 +2435,17 @@ export class PrismaAdapter implements DatabaseAdapter {
         // Never while a decision is unresolved: `pending` means one is in
         // flight and `outcome_unknown` means one may already have landed, so
         // opening a gate would let a second decision answer the first's action.
-        approvalState: { notIn: ["pending", "outcome_unknown"] },
+        //
+        // A bare `notIn` would not say that. Postgres evaluates
+        // `approvalState NOT IN (...)` to NULL for a run that has never seen a
+        // decision, and a NULL predicate excludes the row -- so the common case
+        // (polling is the first observer of an approval gate on a fresh run)
+        // matched nothing, the owner got no prompt to deny, and Hermes stayed
+        // blocked. "No decision yet" has to be admitted explicitly.
+        OR: [
+          { approvalState: null },
+          { approvalState: { notIn: ["pending", "outcome_unknown"] } },
+        ],
       },
       // No challenge: nothing was disclosed, so nothing may be granted. The
       // prompt this recovers is denial-only by construction.

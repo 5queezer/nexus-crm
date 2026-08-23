@@ -704,6 +704,35 @@ describe("application context", () => {
     stream.close();
   });
 
+  it("recovers a way out of an approval that could not be shown", async () => {
+    // Saying the prompt is missing is not enough on its own. Hermes stays
+    // blocked until somebody answers, and this stream will never carry the
+    // answer -- it is the stream that failed to present it. Reading on just
+    // waits for the idle timeout. The reader has to stop and settle from the
+    // status endpoint, which is where the denial-only prompt that unblocks
+    // Hermes comes from. The stream below deliberately stays open, so nothing
+    // but leaving it deliberately can reach that prompt.
+    const user = userEvent.setup();
+    const stream = openSse(['data: {"type":"error","message":"approval_unavailable"}\n\n']);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("GET", /\/runs\/[^/]+$/, () =>
+      json({ status: "waiting_for_approval", output: "", error: null }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "do the thing");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByText(/details could not be recovered/i)).toBeTruthy(),
+    );
+    // Denial only: nothing was disclosed, so nothing may be granted.
+    expect(within(dialog).getByRole("button", { name: /reject/i })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /approve/i })).toBeNull();
+    stream.close();
+  });
+
   it("does not switch away from a run started while a conversation was being created", async () => {
     // A slow creation returning after the user moved on used to advance the
     // generation, select the new conversation and reset — aborting the

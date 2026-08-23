@@ -60,10 +60,21 @@ const ACTIVE_STATUSES = ["queued", "running", "waiting_for_approval", "stopping"
 
 function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
+    // Prisma turns a nested `OR` into a disjunction over the same row.
+    if (key === "OR" && Array.isArray(value)) {
+      return (value as Row[]).some((branch) => matches(row, branch));
+    }
     // The monotonic status guard filters with `notIn`, so the fake has to model
     // it or the guard would look effective here while doing nothing.
     if (value && typeof value === "object" && "notIn" in (value as Row)) {
       const excluded = (value as { notIn: unknown[] }).notIn;
+      // Postgres evaluates `column NOT IN (...)` to NULL when the column is
+      // NULL, and a NULL predicate excludes the row. Prisma emits exactly that
+      // and adds no `OR IS NULL`. Modelling `notIn` as plain JavaScript
+      // exclusion let a filter match unset columns here that production
+      // silently skipped -- a guard could look effective in tests and touch
+      // zero rows against the database.
+      if (row[key] === null || row[key] === undefined) return false;
       return !excluded.includes(row[key]);
     }
     // The deletion guard selects active runs with `in`; without this the fake
@@ -220,6 +231,28 @@ interface MockRef {
   delete: () => Promise<void>;
 }
 
+/**
+ * Firestore gives a bare `get()` then `update()` pair no isolation: another
+ * writer may commit in the window between them. In this fake both resolve in a
+ * microtask, so that window is too narrow for a test to land inside. This latch
+ * widens it on demand. It changes *when* a non-transactional write applies,
+ * never whether it applies, and it does not touch transaction commits — those
+ * flush through `__store` directly.
+ */
+let heldWrites: Promise<void> | null = null;
+
+function holdDocumentWrites(): () => void {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  heldWrites = held;
+  return () => {
+    if (heldWrites === held) heldWrites = null;
+    release();
+  };
+}
+
 function makeRef(store: Map<string, Row>, id: string): MockRef {
   const ref: MockRef = {
     id,
@@ -236,6 +269,7 @@ function makeRef(store: Map<string, Row>, id: string): MockRef {
       store.set(id, data);
     },
     async update(data: Row) {
+      if (heldWrites) await heldWrites;
       const current = store.get(id);
       if (!current) throw new Error("not_found");
       store.set(id, { ...current, ...data });
@@ -457,6 +491,7 @@ function resetStores() {
   for (const store of Object.values(prismaTables)) store.clear();
   for (const store of Object.values(firestoreStores)) store.clear();
   autoId = 0;
+  heldWrites = null;
 }
 
 describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdapter) => {
@@ -1165,6 +1200,37 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     // And never on a finished run.
     await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
     await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+  });
+
+  it("does not open a gate on a run that settled while the gate was opening", async () => {
+    // The approval frame and the poll that records a terminal status are two
+    // writers on one row. The terminal write clears the gate; if opening it is
+    // a read of the status followed by a separate write, the poll can land in
+    // between and the gate is reinstated on a finished run -- where a stale
+    // denial can still claim it and be forwarded upstream for an action nobody
+    // is waiting on. Deciding on the row, not on a snapshot of it, is what
+    // closes that window.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gate-settle-race",
+      status: "running",
+    });
+
+    const release = holdDocumentWrites();
+    const opening = db.openCareerOpsApprovalGate(run.id, "user-a", "challenge-late");
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    release();
+    await opening;
+
+    const settled = await db.getCareerOpsRun(run.id, "user-a");
+    expect(settled?.status).toBe("completed");
+    expect(settled?.approvalGateOpenedAt ?? null).toBeNull();
+    // And so nothing is left for a late decision to answer.
+    await expect(
+      db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-late"),
+    ).resolves.toBeNull();
   });
 
   it("tells a genuine retry from a reused request id", async () => {

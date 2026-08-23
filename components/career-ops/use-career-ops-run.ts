@@ -279,6 +279,15 @@ export function useCareerOpsRun(
       const decoder = new TextDecoder();
       let buffer = "";
       let terminal = false;
+      // An `error` frame is this stream saying it will not deliver the outcome:
+      // `approval_unavailable` means Hermes is blocked on a prompt the browser
+      // never received, `stream_interrupted` that the terminal status did not
+      // persist. Neither is answered by anything that could arrive later on the
+      // same connection, so reading on only waits out the idle timeout while
+      // the run sits unresolved. Leave, and settle from the ownership-checked
+      // status endpoint — which is also the only place the denial-only prompt
+      // that unblocks Hermes can come from.
+      let interrupted = false;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -291,10 +300,17 @@ export function useCareerOpsRun(
             if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
               terminal = true;
             }
+            if (event.type === "error") interrupted = true;
           }
+          if (interrupted) break;
         }
       } catch {
         // Fall through to status recovery below.
+      } finally {
+        // Breaking out leaves the response body unconsumed, and an abandoned
+        // reader holds the connection open. Cancelling after the stream already
+        // ended is a no-op.
+        await reader.cancel().catch(() => undefined);
       }
 
       if (terminal) {
