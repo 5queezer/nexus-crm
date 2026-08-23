@@ -11,6 +11,10 @@ The system SHALL communicate with Hermes exclusively from the server using opera
 - **WHEN** any Career Ops endpoint returns a success or error response
 - **THEN** the response body, headers, and status text contain no Hermes bearer token and no upstream `Authorization` value
 
+#### Scenario: A secret too short to redact
+- **WHEN** the configured bearer token or scope secret is shorter than the length exact redaction strips
+- **THEN** the feature reports itself unconfigured and issues no upstream request, because a secret the system accepts but cannot remove from upstream text would reach logs and the browser intact
+
 #### Scenario: Upstream error text is sanitized
 - **WHEN** Hermes returns an error whose body embeds a credential, token, or internal host detail
 - **THEN** the system returns a controlled error message with the secret-bearing text removed and records the redacted form only

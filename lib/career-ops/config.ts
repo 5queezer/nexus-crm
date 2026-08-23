@@ -31,10 +31,29 @@ export const REDACTED_ERROR_LIMIT = 300;
  */
 export const REDACTION_PLACEHOLDER = "[redacted]";
 
+/**
+ * Shortest secret this deployment will accept, and the shortest one exact
+ * redaction will strip. One constant for both on purpose.
+ *
+ * They were two numbers and they disagreed: configuration accepted a key of any
+ * length while redaction skipped anything under four characters, so a very
+ * short key was live *and* unredactable — the generic credential patterns
+ * require longer tokens, so an upstream error or transcript echoing it would
+ * have carried the bearer secret through to the logs and the browser intact. A
+ * key too short to redact is a key too short to hold.
+ *
+ * Sixteen because that is the floor at which a bearer token is a credential at
+ * all; the runbook already tells operators to generate 64 hex characters.
+ */
+export const MIN_CAREER_OPS_SECRET_LENGTH = 16;
+
 export type CareerOpsDisabledReason =
   | "disabled"
   | "not_configured"
   | "invalid_base_url"
+  /** A secret shorter than redaction can strip; see MIN_CAREER_OPS_SECRET_LENGTH. */
+  | "weak_api_key"
+  | "weak_scope_secret"
   | "owner_not_configured"
   | "not_owner";
 
@@ -82,6 +101,14 @@ export function readCareerOpsConfig(): CareerOpsConfig {
   const apiKey = process.env.HERMES_CAREER_OPS_API_KEY?.trim();
 
   if (!rawBaseUrl || !apiKey) return { enabled: false, reason: "not_configured" };
+  // Fail closed rather than run with a secret redaction cannot strip.
+  if (apiKey.length < MIN_CAREER_OPS_SECRET_LENGTH) {
+    return { enabled: false, reason: "weak_api_key" };
+  }
+  const rawScopeSecret = process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim();
+  if (rawScopeSecret && rawScopeSecret.length < MIN_CAREER_OPS_SECRET_LENGTH) {
+    return { enabled: false, reason: "weak_scope_secret" };
+  }
   if (flag !== "true" && flag !== "1") return { enabled: false, reason: "disabled" };
 
   const baseUrl = normalizeBaseUrl(rawBaseUrl);
@@ -116,7 +143,7 @@ export function readCareerOpsConfig(): CareerOpsConfig {
   // Non-enumerable so the secret survives neither JSON.stringify nor {...config}.
   Object.defineProperty(config, "secret", { value: apiKey, enumerable: false });
   Object.defineProperty(config, "scopeSecret", {
-    value: process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim() || apiKey,
+    value: rawScopeSecret || apiKey,
     enumerable: false,
   });
 
@@ -221,7 +248,9 @@ export function configuredSecrets(): string[] {
     process.env.HERMES_CAREER_OPS_API_KEY?.trim(),
     process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim(),
   ]
-    .filter((value): value is string => !!value && value.length >= 4)
+    // The same bound configuration enforces, so every accepted secret is one
+    // this can actually strip.
+    .filter((value): value is string => !!value && value.length >= MIN_CAREER_OPS_SECRET_LENGTH)
     .sort((a, b) => b.length - a.length);
 }
 

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CAREER_OPS_MAX_MESSAGE_LENGTH,
+  MIN_CAREER_OPS_SECRET_LENGTH,
   careerOpsMemoryScope,
+  configuredSecrets,
   readCareerOpsConfig,
   redactUpstreamError,
 } from "../config";
@@ -64,6 +66,42 @@ describe("readCareerOpsConfig", () => {
     expect(config.enabled).toBe(false);
     if (config.enabled) throw new Error("unreachable");
     expect(config.reason).toBe("not_configured");
+  });
+
+  it("refuses a secret too short for redaction to strip", () => {
+    // Configuration accepted a key of any length while exact redaction skipped
+    // short ones, and the generic credential patterns need longer tokens — so a
+    // very short key was live *and* unredactable. An upstream error or
+    // transcript echoing it would have carried the bearer secret straight into
+    // the logs and the browser. The two bounds are now one constant.
+    enable();
+    process.env.HERMES_CAREER_OPS_API_KEY = "abc";
+    let config = readCareerOpsConfig();
+    expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
+    expect(config.reason).toBe("weak_api_key");
+    // And nothing that short is treated as a redactable secret either.
+    expect(configuredSecrets()).not.toContain("abc");
+
+    // An explicitly set scope secret is held to the same bound.
+    process.env.HERMES_CAREER_OPS_API_KEY = "a".repeat(MIN_CAREER_OPS_SECRET_LENGTH);
+    process.env.HERMES_CAREER_OPS_SCOPE_SECRET = "short";
+    config = readCareerOpsConfig();
+    expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
+    expect(config.reason).toBe("weak_scope_secret");
+    delete process.env.HERMES_CAREER_OPS_SCOPE_SECRET;
+  });
+
+  it("accepts and redacts a secret at the minimum length", () => {
+    // The bound has to admit what it accepts: a key exactly at the floor must
+    // both enable the feature and be stripped from upstream text.
+    enable();
+    const key = `k${"1234567890".repeat(3)}`.slice(0, MIN_CAREER_OPS_SECRET_LENGTH);
+    process.env.HERMES_CAREER_OPS_API_KEY = key;
+    expect(readCareerOpsConfig().enabled).toBe(true);
+    expect(configuredSecrets()).toContain(key);
+    expect(redactUpstreamError(`upstream said ${key}`)).not.toContain(key);
   });
 
   it("is disabled when the base URL is not an absolute http(s) URL", () => {

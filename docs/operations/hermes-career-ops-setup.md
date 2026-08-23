@@ -45,6 +45,8 @@ API_SERVER_KEY=<generate with: openssl rand -hex 32>
 
 Use a key that is **not** shared with any other profile. Nexus rejects an unauthenticated `X-Hermes-Session-Key`, so this key is what makes per-user memory scoping safe.
 
+Nexus refuses to enable the feature with an API key (or an explicit `HERMES_CAREER_OPS_SCOPE_SECRET`) shorter than **16 characters**, and reports it unconfigured. That is the same bound its redaction uses: a secret shorter than that is not stripped from upstream text, so a key Nexus accepted but could not redact would ride an error message or a transcript straight into the logs and the browser. `openssl rand -hex 32` is well past it.
+
 ## 3. Configure the Nexus MCP server for the profile
 
 Career Ops must read and write Nexus through the Nexus MCP server rather than a duplicated store. Hermes reads MCP servers from the `mcp_servers` key of the profile's **`config.yaml`** — the same file as section 2, not a separate JSON file. Add:
