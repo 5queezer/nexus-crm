@@ -47,6 +47,13 @@ export type ApprovalRequest = {
   /** True when the action text did not fit the display bound. */
   truncated?: boolean;
   /**
+   * True when the prompt carried no operation, summary or details at all — the
+   * agent asked for authorization without saying what for. Denial-only, and
+   * distinct from `truncated` (too much to show) and `detailsUnavailable` (the
+   * payload was lost with the stream).
+   */
+  undisclosed?: boolean;
+  /**
    * True when the run was rejoined after a disconnect: Hermes' run status
    * reports that a decision is pending but carries no operation payload, and
    * the event stream that had it is single-consumer and gone.
@@ -67,6 +74,7 @@ export type CareerOpsStreamEvent =
       choices: string[];
       challenge?: string;
       truncated?: boolean;
+      undisclosed?: boolean;
     }
   | { type: "approval_resolved"; choice: string }
   | { type: "completed"; output: string }

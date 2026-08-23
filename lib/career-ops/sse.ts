@@ -33,6 +33,12 @@ export type CareerOpsEvent =
        * prompt is denial-only.
        */
       truncated: boolean;
+      /**
+       * True when the prompt disclosed nothing at all — operation, summary and
+       * details were all absent or empty. Also denial-only: an approval prompt
+       * that cannot say what is being approved must not authorize it.
+       */
+      undisclosed: boolean;
       /** Set by the event route: proof this exact prompt was disclosed. */
       challenge?: string;
     }
@@ -385,8 +391,21 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       // or sends only unrecognized ones would mint a valid, signed challenge
       // for a permission the gate never advertised.
       const grantable = choices.filter((choice) => choice === "once");
+      // A prompt that says nothing about the action is not approvable. Hermes
+      // may omit or malform every one of `pattern_key`, `description` and
+      // `command`; all three then normalize to empty, and nothing is
+      // `truncated`, so the gate would offer `once` over a blank prompt and
+      // Nexus would sign a challenge for a privileged operation the user was
+      // shown no information about. That is the same failure as clipping an
+      // argument past the display bound, arrived at from the other end, and it
+      // gets the same answer: denial only.
+      //
+      // Whitespace does not count as a disclosure.
+      const disclosed = Boolean(
+        operation.trim() || summary.trim() || details.trim(),
+      );
       const offered: CareerOpsApprovalChoice[] =
-        grantable.length > 0 ? [...grantable, "deny"] : ["deny"];
+        grantable.length > 0 && disclosed ? [...grantable, "deny"] : ["deny"];
       return {
         type: "approval_required",
         operation: operation.slice(0, 120),
@@ -394,6 +413,9 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
         details: details.slice(0, APPROVAL_TEXT_LIMIT),
         choices: truncated ? ["deny"] : offered,
         truncated,
+        // So the browser can say *why* only rejection is on offer, rather than
+        // showing an empty prompt with an unexplained missing button.
+        undisclosed: !disclosed,
       };
     }
     case "approval.responded": {

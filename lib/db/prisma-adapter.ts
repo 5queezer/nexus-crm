@@ -2372,8 +2372,8 @@ export class PrismaAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     challengeId: string | null,
-  ): Promise<void> {
-    await prisma.careerOpsRun.updateMany({
+  ): Promise<boolean> {
+    const opened = await prisma.careerOpsRun.updateMany({
       where: {
         id,
         userId,
@@ -2387,6 +2387,10 @@ export class PrismaAdapter implements DatabaseAdapter {
       // write status, and either would otherwise reopen a claimed gate.
       data: { approvalGateOpenedAt: new Date(), pendingApprovalChallengeId: challengeId },
     });
+    // The guard above can legitimately match nothing, and the caller has to be
+    // able to tell that from success: disclosing controls for a gate that was
+    // never opened leaves the user clicking buttons that can only conflict.
+    return opened.count === 1;
   }
 
   async claimCareerOpsApprovalGate(
@@ -2463,7 +2467,19 @@ export class PrismaAdapter implements DatabaseAdapter {
       // Only if the gate is still exactly as the claim left it: closed with
       // nothing outstanding. A gate the agent has since reached is not this
       // caller's to reopen.
-      where: { id, userId, approvalGateOpenedAt: null, pendingApprovalChallengeId: null },
+      //
+      // And never on a settled run. A terminal transition clears the gate, so
+      // its columns match this predicate exactly; without the status guard a
+      // rollback would reinstate a gate on a finished run, where a delayed
+      // denial can still claim it, be forwarded upstream for an action nobody
+      // is waiting on, and overwrite that run's approval audit.
+      where: {
+        id,
+        userId,
+        approvalGateOpenedAt: null,
+        pendingApprovalChallengeId: null,
+        status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+      },
       data: {
         approvalGateOpenedAt: new Date(),
         pendingApprovalChallengeId: challengeId || null,

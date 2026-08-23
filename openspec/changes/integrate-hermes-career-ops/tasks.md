@@ -87,3 +87,9 @@ against the code it replaced.
 - [x] 8.13 Adopt a refreshed server record on the application detail page, including the form's concurrency token, without discarding unsaved edits.
 - [x] 8.14 Correct the documentation this change shipped with: cross-channel memory, the Hermes MCP configuration format, the required capability set, and one deployment topology.
 - [x] 8.15 Correct every test double found agreeing with broken code — SQL `NOT IN` null semantics, Firestore write isolation, batch limits and failures, abort signals, query limits.
+- [x] 8.16 Offer denial only for an approval prompt that discloses no operation, summary or details, and say so in the drawer.
+- [x] 8.17 Report from the adapters whether a guarded gate open actually happened, and never reinstate a released gate on a settled run.
+- [x] 8.18 Keep the status entry point and its retry reachable after a failed read, and normalize the status shape on both read paths.
+- [x] 8.19 Take the creation lock for the drawer's automatic first conversation, not only for direct clicks.
+- [x] 8.20 Compare the transcript snapshot and the run settle time on one clock, both server-issued.
+- [x] 8.21 Resume an interrupted Firestore run cleanup from an ordinary listing, not only from the next deletion.

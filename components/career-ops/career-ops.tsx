@@ -150,32 +150,49 @@ export function CareerOps({
     runRef.current = run;
   }, [run]);
 
+  /**
+   * Read the availability status, and never end up in a state the user cannot
+   * leave.
+   *
+   * Two rules, and both paths need both — the initial read and the retry button
+   * used to disagree on each of them:
+   *
+   * - A failed read is `enabled: true, available: false`. `enabled: false` is
+   *   reserved for a deployment that has not configured Career Ops at all, and
+   *   it removes the launcher entirely — so answering a transient network blip
+   *   with it hid the very drawer whose retry action is the way back, and only
+   *   a full page reload recovered.
+   * - The response is JSON, not a `CareerOpsStatus`; the cast is a claim, not a
+   *   check. Normalize it, or an unexpected body (an old build, a proxy error
+   *   page served as JSON) reaches `status.capabilities.streaming` and throws
+   *   inside render, taking the page down with it.
+   */
+  const loadStatus = useCallback(async (accept: () => boolean = () => true) => {
+    try {
+      const result = await careerOpsJson<CareerOpsStatus>("/api/career-ops/status");
+      if (accept()) {
+        setStatus({ ...result, capabilities: { ...UNSUPPORTED, ...result?.capabilities } });
+      }
+    } catch {
+      if (accept()) {
+        setStatus({
+          enabled: true,
+          available: false,
+          reason: "unreachable",
+          capabilities: { ...UNSUPPORTED },
+          runTimeoutMs: 0,
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    careerOpsJson<CareerOpsStatus>("/api/career-ops/status")
-      .then((result) => {
-        // The response is JSON, not a `CareerOpsStatus` — the cast is a claim,
-        // not a check. Normalize it so the rest of the component can rely on
-        // the shape: an unexpected body (an old build, a proxy error page
-        // served as JSON) previously reached `status.capabilities.streaming`
-        // and threw inside render, taking the whole page down with it.
-        if (!cancelled) setStatus({ ...result, capabilities: { ...UNSUPPORTED, ...result?.capabilities } });
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStatus({
-            enabled: false,
-            available: false,
-            reason: "unreachable",
-            capabilities: { stop: false, approvals: false, streaming: false },
-            runTimeoutMs: 0,
-          });
-        }
-      });
+    void loadStatus(() => !cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadStatus]);
 
   useEffect(() => setMounted(true), []);
 
@@ -204,22 +221,26 @@ export function CareerOps({
       : "other";
 
   /**
-   * Load a conversation's transcript, returning when the read was *started*.
+   * Load a conversation's transcript, returning when the server took the
+   * snapshot.
    *
-   * The caller needs that instant, not the moment it finished: the transcript
-   * is a snapshot of Hermes as of the request, and the run-state read that
-   * follows can report a run that settled after it.
+   * The caller needs that instant, not the moment the response arrived: the
+   * transcript describes Hermes as of the read, and the run-state request that
+   * follows can report a run that settled after it. The instant comes from the
+   * server, deliberately — comparing it against `Date.now()` here would make
+   * the check depend on how far this browser's clock had drifted from Nexus',
+   * and a clock a second fast silently skipped the corrective reload.
    */
   const loadMessages = useCallback(async (threadId: string, generation: number) => {
-    const readAt = Date.now();
     try {
-      const result = await careerOpsJson<{ messages: CareerOpsMessage[] }>(
+      const result = await careerOpsJson<{ messages: CareerOpsMessage[]; readAt?: string }>(
         `/api/career-ops/threads/${threadId}/messages`,
       );
       if (selectionRef.current !== generation) return;
       setMessages(result.messages);
       setTranscriptFailed(false);
-      return readAt;
+      const readAt = result.readAt ? Date.parse(result.readAt) : NaN;
+      return Number.isNaN(readAt) ? undefined : readAt;
     } catch (reason) {
       if (selectionRef.current !== generation) return;
       // A failed fetch is not an empty conversation. Clearing the transcript
@@ -266,6 +287,9 @@ export function CareerOps({
           // reply is not in it, nothing is in flight to produce it, and the
           // conversation would sit showing a question with no answer until
           // something else happened to reload it. Read it once more.
+          // Both instants come from the Nexus server clock, so this compares
+          // like with like. A missing or unparseable one means the comparison
+          // cannot be made, and the reload is skipped rather than guessed at.
           const settledAt = result.settledAt ? Date.parse(result.settledAt) : NaN;
           if (transcriptReadAt !== undefined && settledAt >= transcriptReadAt) {
             await loadMessages(threadId, generation);
@@ -420,18 +444,31 @@ export function CareerOps({
         const readAt = await loadMessages(preferred.id, generation);
         if (!current()) return;
         await rejoinActiveRun(preferred.id, generation, readAt);
-      } else {
-        // `createThread` starts a new selection of its own, so adopt that
-        // generation rather than treating this load's own creation as stale —
-        // otherwise the guard below never runs and the drawer stays on the
-        // loading state forever for a first-time user. A concurrent load would
-        // have bumped it further, which this still detects.
-        const before = selectionRef.current;
-        const created = await createThread(Boolean(application));
-        if (selectionRef.current !== before + 1) return;
-        generation = selectionRef.current;
-        setActiveThreadId(created.id);
+      } else if (!creatingRef.current) {
+        // The same lock the New-conversation control takes, for the same
+        // reason. A first-time user opening the drawer starts this creation,
+        // and the history panel's control is live while it is in flight: two
+        // Hermes sessions and two Nexus conversations came out of one click
+        // landing here. Serializing only the direct clicks left this path
+        // outside the lock, which is where the second one came from.
+        creatingRef.current = true;
+        try {
+          // `createThread` starts a new selection of its own, so adopt that
+          // generation rather than treating this load's own creation as stale —
+          // otherwise the guard below never runs and the drawer stays on the
+          // loading state forever for a first-time user. A concurrent load
+          // would have bumped it further, which this still detects.
+          const before = selectionRef.current;
+          const created = await createThread(Boolean(application));
+          if (selectionRef.current !== before + 1) return;
+          generation = selectionRef.current;
+          setActiveThreadId(created.id);
+        } finally {
+          creatingRef.current = false;
+        }
       }
+      // Otherwise a creation is already running — it will select what it
+      // creates, and starting a second one here is the duplicate this guards.
     } catch (reason) {
       if (!current()) return;
       setErrorCode(reason instanceof CareerOpsRequestError ? reason.code : "error_generic");
@@ -826,17 +863,7 @@ export function CareerOps({
                   type="button"
                   onClick={() => {
                     setStatus(null);
-                    void careerOpsJson<CareerOpsStatus>("/api/career-ops/status")
-                      .then(setStatus)
-                      .catch(() =>
-                        setStatus({
-                          enabled: true,
-                          available: false,
-                          reason: "unreachable",
-                          capabilities: { stop: false, approvals: false, streaming: false },
-                          runTimeoutMs: 0,
-                        }),
-                      );
+                    void loadStatus();
                   }}
                   className="nexus-button-ghost nexus-target nexus-focus-ring"
                 >
@@ -930,7 +957,9 @@ export function CareerOps({
                       <p className="mt-2 text-xs leading-5 text-amber-900/90 dark:text-amber-100/90">
                         {run.approval.detailsUnavailable
                           ? t("approval_details_unavailable")
-                          : run.approval.summary}
+                          : run.approval.undisclosed
+                            ? t("approval_undisclosed")
+                            : run.approval.summary}
                       </p>
                       {run.approval.operation && (
                         <p className="mt-2 text-[11px] text-amber-900/80 dark:text-amber-100/80">

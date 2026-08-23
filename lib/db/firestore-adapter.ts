@@ -2517,6 +2517,16 @@ export class FirestoreAdapter implements DatabaseAdapter {
   }
 
   async listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]> {
+    // Finish any run-document cleanup an earlier deletion could not complete.
+    //
+    // Doing this only on the next deletion made recovery depend on the user
+    // happening to delete another conversation: if they never did, the
+    // tombstone and its run documents persisted indefinitely despite being
+    // recorded. Listing is the operation that actually recurs — the drawer runs
+    // it every time it opens — so the work resumes on its own. It is bounded to
+    // one tombstone here because this is a user-facing read, and it never fails
+    // the listing.
+    await this.resumeCareerOpsThreadDeletions(userId, 1);
     const snapshot = await this.careerOpsThreads
       .where("userId", "==", userId)
       .orderBy("updatedAt", "desc")
@@ -2861,7 +2871,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
     id: string,
     userId: string,
     challengeId: string | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const ref = this.careerOpsRuns.doc(id);
     // One transaction, because the check and the write are a single decision.
     // Read the status, then write outside it, and the poll that records a
@@ -2869,14 +2879,17 @@ export class FirestoreAdapter implements DatabaseAdapter {
     // write clears the gate, and this write puts the gate back on a finished
     // run for a stale denial to claim. The relational backend expresses the
     // same thing as one conditional update.
-    await this.db.runTransaction(async (tx) => {
+    // The result says whether the guarded write happened, not merely that
+    // nothing threw: disclosing controls for a gate that was never opened
+    // leaves the user clicking buttons that can only conflict.
+    return this.db.runTransaction<boolean>(async (tx) => {
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return false;
       // Never on a finished run.
       if (
         (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(snapshot.data()!.status)
       ) {
-        return;
+        return false;
       }
       // The gate lives here, not in `status`: recovery and the event route both
       // write status, and either would otherwise reopen a claimed gate.
@@ -2884,6 +2897,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         approvalGateOpenedAt: Timestamp.now(),
         pendingApprovalChallengeId: challengeId,
       });
+      return true;
     });
   }
 
@@ -2963,6 +2977,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
       // caller's to reopen.
       if (data.approvalGateOpenedAt) return;
       if (data.pendingApprovalChallengeId) return;
+      // And never on a settled run. A terminal transition clears the gate, so
+      // its fields look exactly like the ones this claim left behind; without
+      // this check a rollback would reinstate a gate on a finished run, where a
+      // delayed denial can still claim it, be forwarded upstream for an action
+      // nobody is waiting on, and overwrite that run's approval audit.
+      if ((CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(data.status)) return;
       tx.update(ref, {
         approvalGateOpenedAt: Timestamp.now(),
         pendingApprovalChallengeId: challengeId || null,

@@ -142,7 +142,7 @@ beforeEach(() => {
   mocks.db.getLatestCareerOpsRun.mockResolvedValue(null);
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
-  mocks.db.openCareerOpsApprovalGate.mockResolvedValue(undefined);
+  mocks.db.openCareerOpsApprovalGate.mockResolvedValue(true);
   mocks.db.claimCareerOpsApprovalGate.mockResolvedValue({ challengeId: "" });
   mocks.db.releaseCareerOpsApprovalGate.mockResolvedValue(undefined);
   mocks.db.recoverCareerOpsApprovalGate.mockResolvedValue(false);

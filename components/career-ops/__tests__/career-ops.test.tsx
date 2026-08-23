@@ -677,7 +677,12 @@ describe("application context", () => {
     let reads = 0;
     route("GET", /\/threads\/[^/]+\/messages$/, () => {
       reads += 1;
-      return json({ messages: reads === 1 ? [question] : [question, reply] });
+      // The snapshot instant comes from the server, so the comparison never
+      // depends on this browser's clock.
+      return json({
+        messages: reads === 1 ? [question] : [question, reply],
+        readAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      });
     });
     route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
       // Served after the transcript request, so this settle time is genuinely
@@ -686,7 +691,8 @@ describe("application context", () => {
         thread: THREAD,
         application: null,
         activeRun: null,
-        settledAt: new Date().toISOString(),
+        // Later than the transcript snapshot above, on the same clock.
+        settledAt: new Date("2026-01-01T00:00:01.000Z").toISOString(),
       }),
     );
 
@@ -694,6 +700,43 @@ describe("application context", () => {
     const dialog = await openDrawer(user);
 
     await waitFor(() => expect(within(dialog).getByText("the late reply")).toBeTruthy());
+  });
+
+  it("does not let a skewed browser clock skip the re-read", async () => {
+    // The comparison must be between two instants from the Nexus server clock.
+    // Taking the transcript instant here instead made it depend on how far this
+    // browser's clock had drifted: a clock a second fast made every settle look
+    // older than the snapshot, and the corrective reload never ran.
+    const user = userEvent.setup();
+    const question = { id: "m1", role: "user", content: "what next?" };
+    const reply = { id: "m2", role: "assistant", content: "the late reply" };
+    // Well ahead of the server instants below, which is exactly the case that
+    // used to break.
+    const skewed = Date.parse("2026-06-01T00:00:00.000Z");
+    vi.spyOn(Date, "now").mockReturnValue(skewed);
+
+    let reads = 0;
+    route("GET", /\/threads\/[^/]+\/messages$/, () => {
+      reads += 1;
+      return json({
+        messages: reads === 1 ? [question] : [question, reply],
+        readAt: "2026-01-01T00:00:00.000Z",
+      });
+    });
+    route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
+      json({
+        thread: THREAD,
+        application: null,
+        activeRun: null,
+        settledAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+
+    await waitFor(() => expect(within(dialog).getByText("the late reply")).toBeTruthy());
+    vi.mocked(Date.now).mockRestore();
   });
 
   it("leaves a transcript alone when its conversation settled long before", async () => {
@@ -704,14 +747,17 @@ describe("application context", () => {
     let reads = 0;
     route("GET", /\/threads\/[^/]+\/messages$/, () => {
       reads += 1;
-      return json({ messages: [{ id: "m1", role: "assistant", content: "settled answer" }] });
+      return json({
+        messages: [{ id: "m1", role: "assistant", content: "settled answer" }],
+        readAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      });
     });
     route("GET", /\/api\/career-ops\/threads\/[^/]+$/, () =>
       json({
         thread: THREAD,
         application: null,
         activeRun: null,
-        settledAt: new Date(Date.now() - 60_000).toISOString(),
+        settledAt: new Date("2025-12-31T23:59:00.000Z").toISOString(),
       }),
     );
 
@@ -720,6 +766,90 @@ describe("application context", () => {
 
     await waitFor(() => expect(within(dialog).getByText("settled answer")).toBeTruthy());
     expect(reads).toBe(1);
+  });
+
+  it("keeps the retry reachable when the status request fails", async () => {
+    // `enabled: false` means the deployment has not configured Career Ops, and
+    // it removes the launcher entirely. Answering a transient network failure
+    // with it hid the very drawer whose retry action is the way back, so the
+    // only recovery was a full page reload.
+    const user = userEvent.setup();
+    let failing = true;
+    route("GET", /\/api\/career-ops\/status$/, () => {
+      if (failing) throw new Error("network down");
+      return json(AVAILABLE);
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    const retry = await within(dialog).findByRole("button", { name: /try again/i });
+
+    failing = false;
+    await user.click(retry);
+
+    // Recovered in place: the composer is back without reloading the page.
+    // Re-queried because the drawer re-renders from scratch while the retry is
+    // in flight, so the handle above points at a detached node.
+    await waitFor(() => expect(screen.getByLabelText(/message career ops/i)).toBeTruthy());
+  });
+
+  it("survives a status response that omits its capabilities", async () => {
+    // The response is JSON, not a `CareerOpsStatus`; the cast is a claim, not a
+    // check. A body without `capabilities` — an older build, a proxy error page
+    // served as JSON — reached `status.capabilities.streaming` and threw inside
+    // render, taking the page down. Both the initial read and the retry have to
+    // normalize it; only the initial one did.
+    const user = userEvent.setup();
+    let reads = 0;
+    route("GET", /\/api\/career-ops\/status$/, () => {
+      reads += 1;
+      // First read fails, so the drawer offers its retry. The retry then gets a
+      // body with no `capabilities` at all — the shape only the initial read
+      // was normalizing.
+      if (reads === 1) throw new Error("network down");
+      return json({ enabled: true, available: true, reason: null, runTimeoutMs: 20_000 });
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.click(await within(dialog).findByRole("button", { name: /try again/i }));
+
+    // Still rendering rather than throwing inside render: every capability
+    // defaults to unsupported, so the drawer degrades instead of crashing.
+    await waitFor(() => expect(screen.getByLabelText(/message career ops/i)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /^stop$/i })).toBeNull();
+  });
+
+  it("creates one conversation when a click races the first-open creation", async () => {
+    // The drawer creates a conversation for a first-time user, and the history
+    // panel's New-conversation control is live while that POST is in flight.
+    // Serializing only the direct clicks left the automatic creation outside
+    // the lock, so one click produced two Hermes sessions and two Nexus
+    // conversations.
+    const user = userEvent.setup();
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [] }));
+    let creations = 0;
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    route("POST", /\/api\/career-ops\/threads$/, async () => {
+      creations += 1;
+      await held;
+      return json({ thread: { ...THREAD, id: `thread-${creations}` } }, 201);
+    });
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await waitFor(() => expect(creations).toBe(1));
+
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(creations).toBe(1);
   });
 
   it("does not present an uninspected conversation as idle", async () => {

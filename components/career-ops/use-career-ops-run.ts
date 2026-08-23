@@ -149,6 +149,7 @@ export function useCareerOpsRun(
               choices: event.choices,
               challenge: event.challenge,
               truncated: event.truncated,
+              undisclosed: event.undisclosed,
             },
           };
         case "approval_resolved":

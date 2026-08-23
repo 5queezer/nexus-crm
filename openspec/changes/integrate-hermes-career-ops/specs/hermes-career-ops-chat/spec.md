@@ -132,6 +132,12 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 #### Scenario: A run settles between the transcript and the run-state read
 - **WHEN** a conversation's transcript is read, its last run then reaches a terminal state, and the run state is read afterwards
 - **THEN** the system re-reads the transcript, so the reply that landed in between is shown rather than leaving the conversation displaying a message with no answer
+- **AND** both instants compared come from the server, so the outcome does not depend on the viewer's clock
+
+#### Scenario: The availability read fails
+- **WHEN** the status request fails transiently
+- **THEN** the feature reports enabled but unavailable, so the entry point and its retry action stay reachable without reloading the page
+- **AND** a status response missing its capabilities is treated as advertising none, rather than failing to render
 
 #### Scenario: A conversation that could not be inspected
 - **WHEN** reading a conversation's run state fails

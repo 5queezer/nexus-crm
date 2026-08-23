@@ -26,6 +26,11 @@ The system SHALL present an approval request as a non-technical summary of the o
 - **WHEN** the approval details contain credential-like content
 - **THEN** the displayed prompt omits that content
 
+#### Scenario: The run settles while its gate is being opened
+- **WHEN** a run reaches a terminal state before the gate for an approval frame is recorded
+- **THEN** no gate is opened and no approval controls are disclosed, because a decision against them could only conflict
+- **AND** rolling back a claimed gate on a run that has since settled does not reinstate it
+
 #### Scenario: Polling is the first to see a gate
 - **WHEN** authenticated run status reports a run waiting for approval and no prompt has reached the browser for it
 - **THEN** the system opens a gate the owner can refuse, including for a run on which no decision has ever been made, so the agent is not left blocked with nobody able to answer it
@@ -88,6 +93,10 @@ The system SHALL treat an approval prompt whose disclosed action does not fit th
 #### Scenario: Action fits
 - **WHEN** the whole disclosed action fits within the display bound
 - **THEN** the prompt offers the choices the gate advertised
+
+#### Scenario: Prompt discloses nothing at all
+- **WHEN** a gate advertises a grant but carries no operation, summary or details
+- **THEN** only rejection is offered, no challenge is signed, and the browser is told the agent did not say what it was asking for
 
 #### Scenario: Gate advertises no usable choice
 - **WHEN** an approval request carries no recognized choices

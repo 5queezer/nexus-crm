@@ -103,6 +103,8 @@ describe("normalizeHermesEvent", () => {
       // authorize operations the user never sees.
       choices: ["once", "deny"],
       truncated: false,
+      // The prompt says what the operation is, so a grant may be offered.
+      undisclosed: false,
     });
   });
 
@@ -120,6 +122,49 @@ describe("normalizeHermesEvent", () => {
         }),
       );
       expect(event).toMatchObject({ type: "approval_required", choices: ["deny"] });
+    }
+  });
+
+  it("offers denial only for a prompt that discloses nothing", () => {
+    // A gate can advertise `once` while omitting or malforming every field that
+    // says what the operation is. All three then normalize to empty and nothing
+    // is truncated, so the prompt was offered for approval — Nexus would sign a
+    // challenge and the user would authorize a privileged action they were told
+    // nothing about. Same failure as clipping an argument past the display
+    // bound, reached from the other end, and it gets the same answer.
+    for (const disclosure of [
+      {},
+      { pattern_key: "", description: "", command: "" },
+      { pattern_key: "   ", description: "\n", command: "\t" },
+      { pattern_key: 42, description: null, command: { nested: true } },
+    ]) {
+      const event = normalizeHermesEvent(
+        JSON.stringify({ event: "approval.request", choices: ["once"], ...disclosure }),
+      );
+      expect(event).toMatchObject({
+        type: "approval_required",
+        choices: ["deny"],
+        undisclosed: true,
+      });
+    }
+  });
+
+  it("still grants when any one field discloses the action", () => {
+    // The rule is "nothing was said", not "everything was said". Hermes need
+    // not populate all three, and demanding it would refuse legitimate gates.
+    for (const disclosure of [
+      { pattern_key: "shell" },
+      { description: "Update application 42" },
+      { command: "nexus update 42" },
+    ]) {
+      const event = normalizeHermesEvent(
+        JSON.stringify({ event: "approval.request", choices: ["once"], ...disclosure }),
+      );
+      expect(event).toMatchObject({
+        type: "approval_required",
+        choices: ["once", "deny"],
+        undisclosed: false,
+      });
     }
   });
 
@@ -220,6 +265,7 @@ describe("approval prompts that do not fit the display bound", () => {
         details: command,
         choices: ["once", "deny"],
         truncated: false,
+        undisclosed: false,
       });
     }
   });

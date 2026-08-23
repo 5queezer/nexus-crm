@@ -1061,8 +1061,14 @@ export async function careerOpsApprovalChallengeFor(
   if (!jti) return null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await getDb().openCareerOpsApprovalGate(runId, session.userId, jti);
-      return token;
+      // The write is guarded — a run that has already settled has no gate — so
+      // "did not throw" is not "opened". Returning the token either way put
+      // actionable controls in front of a gate that does not exist, where the
+      // first click conflicts and takes the prompt away. A refusal is final,
+      // not transient: retrying cannot un-settle the run.
+      return (await getDb().openCareerOpsApprovalGate(runId, session.userId, jti))
+        ? token
+        : null;
     } catch {
       if (attempt === 2) return null;
       await sleep(100 * 2 ** attempt);

@@ -1218,6 +1218,56 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
   });
 
+  it("reports whether opening a gate actually happened", async () => {
+    // The write is guarded, so "did not throw" is not "opened". The event route
+    // discloses approval controls only when this says yes; treating a guarded
+    // no-op as success put actionable buttons in front of a gate that does not
+    // exist, where the first click conflicts and takes the prompt away.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gate-open-result",
+      status: "running",
+    });
+
+    await expect(db.openCareerOpsApprovalGate(run.id, "user-a", "c1")).resolves.toBe(true);
+    // Another user's run is not theirs to open.
+    await expect(db.openCareerOpsApprovalGate(run.id, "user-b", "c1")).resolves.toBe(false);
+
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+    await expect(db.openCareerOpsApprovalGate(run.id, "user-a", "c2")).resolves.toBe(false);
+  });
+
+  it("does not reinstate a gate on a run that settled after the claim", async () => {
+    // Rolling a claim back restores the gate the caller took. A terminal
+    // transition clears the gate too, leaving exactly the columns the claim
+    // left behind — so an unguarded rollback reinstates a gate on a finished
+    // run, where a delayed denial can still claim it and be forwarded upstream
+    // for an action nobody is waiting on.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gate-release-terminal",
+      status: "running",
+    });
+
+    await db.openCareerOpsApprovalGate(run.id, "user-a", "challenge-1");
+    const claim = await db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-1");
+    expect(claim).not.toBeNull();
+    await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
+
+    // The decision failed definitively, so the caller rolls its claim back.
+    await db.releaseCareerOpsApprovalGate(run.id, "user-a", "challenge-1");
+
+    const settled = await db.getCareerOpsRun(run.id, "user-a");
+    expect(settled?.approvalGateOpenedAt ?? null).toBeNull();
+    await expect(
+      db.claimCareerOpsApprovalGate(run.id, "user-a", "challenge-1"),
+    ).resolves.toBeNull();
+  });
+
   it("does not open a gate on a run that settled while the gate was opening", async () => {
     // The approval frame and the poll that records a terminal status are two
     // writers on one row. The terminal write clears the gate; if opening it is
@@ -1678,6 +1728,33 @@ describe("Firestore deletes a conversation's runs durably", () => {
 
     expect(firestoreStores.careerOpsRuns.size).toBe(0);
     expect(firestoreStores.careerOpsThreadDeletions.size).toBe(0);
+  });
+
+  it("finishes an interrupted cleanup on an ordinary listing", async () => {
+    // Resuming only on the next deletion made recovery depend on the user
+    // happening to delete another conversation. Listing is what actually
+    // recurs — the drawer does it every time it opens — so the outstanding
+    // work is finished without anything else having to happen.
+    const { db, thread } = await seedDeletedThread();
+    failBatchCommits = 1;
+    await db.deleteCareerOpsThread(thread.id, "user-a");
+    expect(firestoreStores.careerOpsRuns.size).toBe(1);
+
+    await db.listCareerOpsThreads("user-a");
+
+    expect(firestoreStores.careerOpsRuns.size).toBe(0);
+    expect(firestoreStores.careerOpsThreadDeletions.size).toBe(0);
+  });
+
+  it("does not collect another owner's outstanding deletion", async () => {
+    const { db, thread } = await seedDeletedThread();
+    failBatchCommits = 1;
+    await db.deleteCareerOpsThread(thread.id, "user-a");
+
+    await db.listCareerOpsThreads("user-b");
+
+    expect(firestoreStores.careerOpsThreadDeletions.size).toBe(1);
+    expect(firestoreStores.careerOpsRuns.size).toBe(1);
   });
 
   it("clears the record once nothing is left to collect", async () => {

@@ -210,11 +210,19 @@ export interface DatabaseAdapter {
    * as a conflict — the client drops the prompt and Hermes stays blocked with
    * nobody able to answer.
    */
+  /**
+   * Open the gate a run is waiting at, unless the run has already settled.
+   *
+   * Returns whether the write actually happened. It is guarded — a terminal run
+   * has no gate — so "did not throw" is not "opened": treating the two alike
+   * put actionable approval controls in front of a gate that does not exist,
+   * where the first click conflicts and takes the prompt away.
+   */
   openCareerOpsApprovalGate(
     id: string,
     userId: string,
     challengeId: string | null,
-  ): Promise<void>;
+  ): Promise<boolean>;
 
   /**
    * Atomically claim the decision for the gate a run is currently at.

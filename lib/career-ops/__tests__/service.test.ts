@@ -137,7 +137,7 @@ beforeEach(() => {
   mocks.db.findCareerOpsRunByClientRequestId.mockResolvedValue(null);
   mocks.db.recordCareerOpsApprovalDecision.mockResolvedValue(undefined);
   mocks.db.recoverCareerOpsApprovalGate.mockResolvedValue(false);
-  mocks.db.openCareerOpsApprovalGate.mockResolvedValue(undefined);
+  mocks.db.openCareerOpsApprovalGate.mockResolvedValue(true);
 });
 
 describe("getCareerOpsStatus", () => {
@@ -1223,12 +1223,19 @@ describe("run controls", () => {
     runStatus = RUN.status;
     mocks.db.openCareerOpsApprovalGate.mockImplementation(
       async (_id: string, _userId: string, challengeId: string | null) => {
+        // Guarded in both backends: a run that has already settled has no gate,
+        // and the write reports that rather than throwing. A fake that always
+        // succeeds cannot tell a disclosed prompt from a refused one.
+        if (["completed", "failed", "cancelled", "abandoned"].includes(runStatus)) {
+          return false;
+        }
         outstandingChallenge = challengeId;
         // Disclosing a prompt means the run *is* at a gate: the event route
         // records `waiting_for_approval` as it emits. Leaving the fixture at
         // `running` is what made the old race test pass for the wrong reason —
         // denial was refused for having no gate, not for losing one.
         if (challengeId) runStatus = "waiting_for_approval";
+        return true;
       },
     );
     // Models the adapters' single conditional claim. Crucially it also moves

@@ -116,6 +116,7 @@ The system SHALL delete a Career Ops thread and its run mappings on owner reques
 #### Scenario: Run mappings cannot all be removed with the thread
 - **WHEN** a backend cannot remove a deleted conversation's run mappings in the same operation that removes the conversation, and their removal afterwards fails
 - **THEN** the caller is still told the conversation is deleted, and the outstanding removal is recorded durably so a later operation finishes it, rather than leaving the mappings behind permanently
+- **AND** listing the owner's conversations finishes it, so recovery does not depend on them deleting another one
 
 #### Scenario: User deleted
 - **WHEN** a user record is deleted from the relational store
