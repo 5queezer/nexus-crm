@@ -131,3 +131,4 @@ against the code it replaced.
 - [x] 8.57 Tell the browser the prompt is still open when the limiter refuses an approval decision.
 - [x] 8.58 Restore a challenge-refused prompt as deniable only, and say that it expired.
 - [x] 8.59 Never adopt a contact snapshot taken before a local write; re-read the server instead.
+- [x] 8.60 Make conversation creation idempotent on a browser request key, in both backends.

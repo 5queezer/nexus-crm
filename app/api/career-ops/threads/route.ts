@@ -39,6 +39,10 @@ export async function POST(request: Request) {
     const thread = await createCareerOpsThread(session, {
       title: optionalString(body.title, CAREER_OPS_MAX_TITLE_LENGTH),
       applicationId: optionalString(body.applicationId, 64) ?? null,
+      // Optional, and the browser always sends one: it is what makes a retry
+      // after a lost response resolve to the conversation already created
+      // rather than a second one.
+      clientRequestId: optionalString(body.clientRequestId, 64) ?? null,
     });
     return NextResponse.json({ thread: serializeThread(thread) }, { status: 201 });
   } catch (reason) {

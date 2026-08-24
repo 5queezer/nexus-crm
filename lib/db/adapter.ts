@@ -143,6 +143,17 @@ export interface DatabaseAdapter {
   listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]>;
   /** Fetch one thread, or null when it does not exist or belongs to someone else. */
   getCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null>;
+  /**
+   * The conversation a creation request already made, if any.
+   *
+   * Looked up before the upstream session is minted, so a retry after a lost
+   * response returns the conversation it already has instead of a second one.
+   */
+  getCareerOpsThreadByRequestId(
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsThreadRecord | null>;
+
   createCareerOpsThread(userId: string, data: CreateCareerOpsThreadInput): Promise<CareerOpsThreadRecord>;
   /** Rename a thread the user owns. Returns null when it is not theirs. */
   renameCareerOpsThread(id: string, userId: string, title: string): Promise<CareerOpsThreadRecord | null>;

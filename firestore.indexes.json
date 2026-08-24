@@ -361,6 +361,20 @@
       ]
     },
     {
+      "collectionGroup": "careerOpsThreads",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "clientRequestId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "careerOpsRuns",
       "queryScope": "COLLECTION",
       "fields": [

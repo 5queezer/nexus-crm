@@ -557,10 +557,24 @@ function defaultTitle(company: string, role: string): string {
 
 export async function createCareerOpsThread(
   session: CareerOpsSession,
-  input: { title?: string; applicationId?: string | null },
+  input: { title?: string; applicationId?: string | null; clientRequestId?: string | null },
 ): Promise<CareerOpsThreadRecord> {
   const config = enabledConfig(session);
   const db = getDb();
+
+  const clientRequestId = input.clientRequestId?.trim() || null;
+  if (clientRequestId && !CAREER_OPS_CLIENT_REQUEST_ID_PATTERN.test(clientRequestId)) {
+    throw new CareerOpsServiceError("invalid_request", "Invalid request id");
+  }
+  // Before Hermes is asked for anything. A lost response leaves the session and
+  // the conversation persisted, and the retry the browser sends carries this
+  // same key — resolving it here is what keeps that retry from minting a second
+  // upstream session and a duplicate conversation. The other uniqueness key
+  // contains the freshly generated session id, so it can never match a retry.
+  if (clientRequestId) {
+    const already = await db.getCareerOpsThreadByRequestId(session.userId, clientRequestId);
+    if (already) return already;
+  }
 
   let applicationId: string | null = null;
   let title = (input.title ?? "").trim().slice(0, CAREER_OPS_MAX_TITLE_LENGTH);
@@ -595,11 +609,13 @@ export async function createCareerOpsThread(
     throw toServiceError(reason);
   }
 
+  let thread: CareerOpsThreadRecord;
   try {
-    return await db.createCareerOpsThread(session.userId, {
+    thread = await db.createCareerOpsThread(session.userId, {
       hermesSessionId,
       title,
       applicationId,
+      clientRequestId,
     });
   } catch (reason) {
     // The upstream session exists but nothing in Nexus points at it. Without
@@ -618,6 +634,23 @@ export async function createCareerOpsThread(
       });
     throw toServiceError(reason);
   }
+
+  // The write can answer with the conversation an earlier retry already made:
+  // two retries of one lost response race past the read above, and the request
+  // key decides between them. The session this attempt minted is then
+  // referenced by nothing, so it is cleaned up here rather than left for an
+  // operator to find — the same reasoning as the failure path above.
+  if (thread.hermesSessionId !== hermesSessionId) {
+    await client(config)
+      .deleteSession(hermesSessionId)
+      .catch((cleanupFailure) => {
+        console.warn(
+          "career-ops: orphaned upstream session, manual cleanup required",
+          redactUpstreamError(cleanupFailure),
+        );
+      });
+  }
+  return thread;
 }
 
 export async function deleteCareerOpsThread(

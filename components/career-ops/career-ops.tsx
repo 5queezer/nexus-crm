@@ -125,6 +125,13 @@ export function CareerOps({
   /** True while a conversation is being created, so a double click makes one. */
   const creatingRef = useRef(false);
   /**
+   * The creation key in flight for each intent — one for the global
+   * conversation, one per application. Held until that intent's creation
+   * succeeds, so every retry of a lost response carries the key the server can
+   * resolve to the conversation it already made.
+   */
+  const creationKeysRef = useRef(new Map<string, string>());
+  /**
    * A submission whose outcome the browser never learned, with the text it
    * carried. The id may only be reused for that same text: the server resolves
    * it to the run that already exists, so reusing it for an edited draft would
@@ -395,7 +402,18 @@ export function CareerOps({
   const createThread = useCallback(
     async (withApplication: boolean, stillCurrent: () => boolean = () => true) => {
       setErrorCode(null);
-      const body = withApplication && application ? { applicationId: application.id } : {};
+      // One key per intent, kept until a creation for that intent succeeds. A
+      // lost response leaves the conversation created upstream and in Nexus,
+      // and a fresh key on the retry would make a second of each; this one
+      // resolves to the conversation the lost response had already made.
+      const intent = withApplication && application ? `app-${application.id}` : "global";
+      const clientRequestId =
+        creationKeysRef.current.get(intent) ?? newClientRequestId();
+      creationKeysRef.current.set(intent, clientRequestId);
+      const body = {
+        ...(withApplication && application ? { applicationId: application.id } : {}),
+        clientRequestId,
+      };
       const result = await careerOpsJson<{ thread: CareerOpsThread }>("/api/career-ops/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -405,6 +423,7 @@ export function CareerOps({
       // conditional is *selecting* it: a slow creation returning after the user
       // moved on would switch away from — and reset — a run that is still
       // executing, aborting its single-consumer stream for good.
+      creationKeysRef.current.delete(intent);
       setThreads((current) => [result.thread, ...current]);
       if (!stillCurrent()) return result.thread;
       selectionRef.current += 1;

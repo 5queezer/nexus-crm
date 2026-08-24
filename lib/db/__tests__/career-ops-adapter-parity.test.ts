@@ -109,7 +109,8 @@ function matches(row: Row, where: Row): boolean {
 
 function makeTable(
   name: keyof typeof prismaTables,
-  uniqueBy: string[],
+  /** Each entry is one unique index over the listed columns. */
+  uniqueBy: string[][],
   options: {
     activeRunIndex?: boolean;
     parent?: keyof typeof prismaTables;
@@ -135,8 +136,15 @@ function makeTable(
       ) {
         throw new PrismaForeignKeyError();
       }
-      const duplicate = Array.from(store.values()).some((row) =>
-        uniqueBy.every((key) => row[key] === data[key]),
+      const duplicate = uniqueBy.some(
+        (keys) =>
+          // Postgres treats NULL as distinct in a unique index, so a row with
+          // an unset column in the key collides with nothing — which is what
+          // lets conversations created without a request key coexist. Modelled
+          // here, or the nullable key would look far stricter in tests than it
+          // is against the database.
+          keys.every((key) => data[key] !== null && data[key] !== undefined) &&
+          Array.from(store.values()).some((row) => keys.every((key) => row[key] === data[key])),
       );
       if (duplicate) throw new PrismaUniqueError();
       if (
@@ -199,10 +207,10 @@ function makeTable(
 
 vi.mock("@/lib/prisma", () => {
   const client: Record<string, unknown> = {
-    careerOpsThread: makeTable("careerOpsThread", ["userId", "hermesSessionId"], {
+    careerOpsThread: makeTable("careerOpsThread", [["userId", "hermesSessionId"], ["userId", "clientRequestId"]], {
       optionalParent: { table: "application", field: "applicationId" },
     }),
-    careerOpsRun: makeTable("careerOpsRun", ["threadId", "clientRequestId"], {
+    careerOpsRun: makeTable("careerOpsRun", [["threadId", "clientRequestId"]], {
       activeRunIndex: true,
       parent: "careerOpsThread",
     }),
@@ -1799,6 +1807,42 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     });
   });
 
+  it("returns the same conversation for a repeated creation key", async () => {
+    // A lost response leaves the Hermes session and this row persisted, and the
+    // browser retries with the same key — but with a *new* session id, so the
+    // (owner, session) key can never catch it. Both backends decide on the
+    // creation key instead: relationally a unique index, in Firestore a read
+    // inside the write.
+    const first = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-first",
+      title: "Pipeline",
+      clientRequestId: "create-key-1",
+    });
+    const retried = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-second",
+      title: "Pipeline",
+      clientRequestId: "create-key-1",
+    });
+
+    expect(retried.id).toBe(first.id);
+    expect(retried.hermesSessionId).toBe("sess-first");
+    await expect(db.getCareerOpsThreadByRequestId("user-a", "create-key-1")).resolves.toMatchObject(
+      { id: first.id },
+    );
+    // Another owner's identical key is a different conversation.
+    await expect(db.getCareerOpsThreadByRequestId("user-b", "create-key-1")).resolves.toBeNull();
+    // And a conversation created without a key is not deduplicated against.
+    const keyless = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-keyless-a",
+      title: "One",
+    });
+    const otherKeyless = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-keyless-b",
+      title: "Two",
+    });
+    expect(otherKeyless.id).not.toBe(keyless.id);
+  });
+
   it("stores no credential material on either record", async () => {
     const thread = await seedThread("user-a");
     const { run } = await claimRun("user-a", {
@@ -2019,6 +2063,18 @@ describe("Firestore index configuration", () => {
         index.collectionGroup === "careerOpsThreads" &&
         index.fields.some((field) => field.fieldPath === "userId") &&
         index.fields.some((field) => field.fieldPath === "updatedAt"),
+    );
+    expect(found).toBeDefined();
+  });
+
+  it("declares the creation-key index the idempotent create queries", () => {
+    // That query runs inside the creation transaction, so a missing index does
+    // not degrade — it makes every conversation creation fail.
+    const found = indexes.indexes.find(
+      (index) =>
+        index.collectionGroup === "careerOpsThreads" &&
+        index.fields.some((field) => field.fieldPath === "userId") &&
+        index.fields.some((field) => field.fieldPath === "clientRequestId"),
     );
     expect(found).toBeDefined();
   });

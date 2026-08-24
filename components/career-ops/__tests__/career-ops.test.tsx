@@ -334,6 +334,38 @@ describe("threads", () => {
     );
   });
 
+  it("reuses one creation key after a lost response", async () => {
+    // The response to a creation can be lost after the Hermes session and the
+    // Nexus conversation are both persisted. A fresh key on the retry made a
+    // second of each — the server can only recognise the retry by the key the
+    // browser sends, so it has to be the same one.
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    let attempt = 0;
+    route("POST", /\/api\/career-ops\/threads$/, async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { clientRequestId?: string };
+      keys.push(body.clientRequestId ?? "");
+      attempt += 1;
+      // The first attempt's response never arrives.
+      if (attempt === 1) return json({ error: "upstream_error" }, 502);
+      return json({ thread: THREAD }, 201);
+    });
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [] }));
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await waitFor(() => expect(keys.length).toBe(1));
+
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+
+    await waitFor(() => expect(keys.length).toBe(2));
+    // A key at all — an absent one is what let the server treat the retry as a
+    // new conversation — and the same one both times.
+    expect(keys[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   it("creates a new conversation", async () => {
     const user = userEvent.setup();
     renderCareerOps();

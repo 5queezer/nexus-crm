@@ -735,6 +735,15 @@ export interface CareerOpsThreadRecord {
    * outlives the link so the run is refused instead.
    */
   applicationScoped: boolean;
+  /**
+   * The browser's key for the creation request that made this conversation.
+   *
+   * A lost response leaves the Hermes session and this row persisted, and the
+   * retry carries the same key. Without it the retry minted a second session
+   * and a duplicate conversation: the other uniqueness key contains the freshly
+   * generated session id, so it can never match a retry.
+   */
+  clientRequestId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -743,6 +752,7 @@ export interface CreateCareerOpsThreadInput {
   hermesSessionId: string;
   title: string;
   applicationId?: string | null;
+  clientRequestId?: string | null;
 }
 
 export interface CareerOpsRunRecord {

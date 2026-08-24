@@ -2144,22 +2144,47 @@ export class PrismaAdapter implements DatabaseAdapter {
     return row ? mapCareerOpsThread(row) : null;
   }
 
+  async getCareerOpsThreadByRequestId(
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const row = await prisma.careerOpsThread.findFirst({ where: { userId, clientRequestId } });
+    return row ? mapCareerOpsThread(row) : null;
+  }
+
   async createCareerOpsThread(
     userId: string,
     data: CreateCareerOpsThreadInput,
   ): Promise<CareerOpsThreadRecord> {
-    const row = await prisma.careerOpsThread.create({
-      data: {
-        userId,
-        hermesSessionId: data.hermesSessionId,
-        title: data.title,
-        applicationId: data.applicationId ? nid(data.applicationId) : null,
-        // Set once, at creation, and never written again — the link can be
-        // cleared by a delete, the scope it recorded cannot.
-        applicationScoped: !!data.applicationId,
-      },
-    });
-    return mapCareerOpsThread(row);
+    const clientRequestId = data.clientRequestId ?? null;
+    try {
+      const row = await prisma.careerOpsThread.create({
+        data: {
+          userId,
+          hermesSessionId: data.hermesSessionId,
+          title: data.title,
+          applicationId: data.applicationId ? nid(data.applicationId) : null,
+          // Set once, at creation, and never written again — the link can be
+          // cleared by a delete, the scope it recorded cannot.
+          applicationScoped: !!data.applicationId,
+          clientRequestId,
+        },
+      });
+      return mapCareerOpsThread(row);
+    } catch (reason) {
+      // Two retries of one lost response can race past the read that resolves
+      // the key, so the index decides. The loser gets the winner's row, which
+      // is exactly what the caller asked for: the conversation this request
+      // made. `null` here is a caller with no key, whose rows are all distinct.
+      // Matched on the code rather than the class, the way the run claim does:
+      // what identifies a unique violation is P2002, and an adapter that only
+      // recognises it through Prisma's own class cannot be exercised by a fake.
+      if (clientRequestId && (reason as { code?: string }).code === "P2002") {
+        const existing = await this.getCareerOpsThreadByRequestId(userId, clientRequestId);
+        if (existing) return existing;
+      }
+      throw reason;
+    }
   }
 
   async renameCareerOpsThread(
@@ -2590,6 +2615,7 @@ function mapCareerOpsThread(row: {
   title: string;
   applicationId: number | null;
   applicationScoped: boolean;
+  clientRequestId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsThreadRecord {
@@ -2600,6 +2626,7 @@ function mapCareerOpsThread(row: {
     title: row.title,
     applicationId: row.applicationId === null ? null : sid(row.applicationId),
     applicationScoped: row.applicationScoped,
+    clientRequestId: row.clientRequestId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

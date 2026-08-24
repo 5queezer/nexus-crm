@@ -2476,6 +2476,8 @@ export class FirestoreAdapter implements DatabaseAdapter {
         typeof data.applicationScoped === "boolean"
           ? data.applicationScoped
           : typeof data.applicationId === "string",
+      clientRequestId:
+        typeof data.clientRequestId === "string" ? data.clientRequestId : null,
       createdAt: toDate(data.createdAt) ?? new Date(0),
       updatedAt: toDate(data.updatedAt) ?? new Date(0),
     };
@@ -2558,6 +2560,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
     return this.mapCareerOpsThread(snapshot.id, data);
   }
 
+  async getCareerOpsThreadByRequestId(
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const snapshot = await this.careerOpsThreads
+      .where("userId", "==", userId)
+      .where("clientRequestId", "==", clientRequestId)
+      .limit(1)
+      .get();
+    const document = snapshot.docs[0];
+    return document ? this.mapCareerOpsThread(document.id, document.data()) : null;
+  }
+
   async createCareerOpsThread(
     userId: string,
     data: CreateCareerOpsThreadInput,
@@ -2571,12 +2586,28 @@ export class FirestoreAdapter implements DatabaseAdapter {
     );
     const applicationId = data.applicationId ?? null;
 
+    const clientRequestId = data.clientRequestId ?? null;
+
     return this.db.runTransaction(async (tx) => {
       const existing = await tx.get(ref);
       if (existing.exists) {
         const current = existing.data()!;
         if (current.userId !== userId) throw new Error("career_ops_thread_conflict");
         return this.mapCareerOpsThread(existing.id, current);
+      }
+
+      // The request key decides, inside the transaction, so two retries of one
+      // lost response cannot both create. The relational backend gets this from
+      // its unique index; here the read has to be part of the write.
+      if (clientRequestId) {
+        const claimed = await tx.get(
+          this.careerOpsThreads
+            .where("userId", "==", userId)
+            .where("clientRequestId", "==", clientRequestId)
+            .limit(1),
+        );
+        const already = claimed.docs[0];
+        if (already) return this.mapCareerOpsThread(already.id, already.data());
       }
 
       // The application was verified before Hermes was asked for a session, and
@@ -2608,6 +2639,7 @@ export class FirestoreAdapter implements DatabaseAdapter {
         // the link below and deliberately leaves this alone: the link is
         // advisory context that can go away, the scope it recorded is not.
         applicationScoped: !!applicationId,
+        clientRequestId,
         createdAt: now,
         updatedAt: now,
       };

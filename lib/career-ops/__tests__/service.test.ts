@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
     listCareerOpsThreads: vi.fn(),
     getCareerOpsThread: vi.fn(),
     createCareerOpsThread: vi.fn(),
+    getCareerOpsThreadByRequestId: vi.fn(),
     renameCareerOpsThread: vi.fn(),
     deleteCareerOpsThread: vi.fn(),
     getCareerOpsRun: vi.fn(),
@@ -76,6 +77,7 @@ const THREAD = {
   title: "Career Ops",
   applicationId: null,
   applicationScoped: false,
+  clientRequestId: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
@@ -358,7 +360,51 @@ describe("thread lifecycle", () => {
       hermesSessionId: "sess-new",
       title: "Pipeline",
       applicationId: null,
+      clientRequestId: null,
     });
+  });
+
+  it("returns the conversation a lost response already created", async () => {
+    // The browser retries a creation whose response never arrived, with the
+    // same key. Without resolving it first the retry minted a second Hermes
+    // session and a second conversation — the other uniqueness key carries the
+    // freshly generated session id, so it can never match a retry.
+    const created = { ...THREAD, id: "thread-created", clientRequestId: "create-key-1" };
+    mocks.db.getCareerOpsThreadByRequestId.mockResolvedValue(created);
+
+    await expect(
+      createCareerOpsThread(SESSION_A, { clientRequestId: "create-key-1" }),
+    ).resolves.toMatchObject({ id: "thread-created" });
+
+    expect(mocks.db.getCareerOpsThreadByRequestId).toHaveBeenCalledWith("user-a", "create-key-1");
+    // Nothing upstream, and nothing written: the conversation already exists.
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
+    expect(mocks.db.createCareerOpsThread).not.toHaveBeenCalled();
+  });
+
+  it("cleans up the session it minted when the key resolved to another row", async () => {
+    // Two retries of one lost response race past the read, and the request key
+    // decides between them. The loser's upstream session is referenced by
+    // nothing, so it must not be left for an operator to find.
+    mocks.client.createSession.mockResolvedValue({ id: "sess-loser" });
+    mocks.db.getCareerOpsThreadByRequestId.mockResolvedValue(null);
+    mocks.db.createCareerOpsThread.mockResolvedValue({
+      ...THREAD,
+      hermesSessionId: "sess-winner",
+      clientRequestId: "create-key-2",
+    });
+
+    await expect(
+      createCareerOpsThread(SESSION_A, { clientRequestId: "create-key-2" }),
+    ).resolves.toMatchObject({ hermesSessionId: "sess-winner" });
+    expect(mocks.client.deleteSession).toHaveBeenCalledWith("sess-loser");
+  });
+
+  it("refuses a malformed creation key before contacting Hermes", async () => {
+    await expect(
+      createCareerOpsThread(SESSION_A, { clientRequestId: "short" }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.client.createSession).not.toHaveBeenCalled();
   });
 
   it("verifies application ownership before linking", async () => {
