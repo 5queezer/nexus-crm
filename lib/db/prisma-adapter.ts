@@ -2487,9 +2487,17 @@ export class PrismaAdapter implements DatabaseAdapter {
     challengeId: string,
   ): Promise<void> {
     await prisma.careerOpsRun.updateMany({
-      // Only if the gate is still exactly as the claim left it: closed with
-      // nothing outstanding. A gate the agent has since reached is not this
-      // caller's to reopen.
+      // Only if the gate is still exactly as *this* decision left it: closed,
+      // with nothing outstanding, and carrying this decision's own audit. A
+      // gate the agent has since reached is not this caller's to reopen.
+      //
+      // The audit fields are what identify the decision. Without them the
+      // predicate described a shape, not an owner: after this decision settled
+      // as `not_applied`, a status poll could recover the gate and a second
+      // request claim it — leaving the row closed with nothing outstanding
+      // again — and this rollback would then reopen the gate underneath that
+      // second decision while it was still in flight, restoring an old
+      // challenge that a retry could forward against a later Hermes gate.
       //
       // And never on a settled run. A terminal transition clears the gate, so
       // its columns match this predicate exactly; without the status guard a
@@ -2501,6 +2509,8 @@ export class PrismaAdapter implements DatabaseAdapter {
         userId,
         approvalGateOpenedAt: null,
         pendingApprovalChallengeId: null,
+        approvalChallengeId: challengeId,
+        approvalState: "not_applied",
         status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
       },
       data: {

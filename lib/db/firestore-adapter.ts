@@ -3002,11 +3002,19 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (!snapshot.exists) return;
       const data = snapshot.data()!;
       if (data.userId !== userId) return;
-      // Only if the gate is still exactly as the claim left it: closed with
-      // nothing outstanding. A gate the agent has since reached is not this
-      // caller's to reopen.
+      // Only if the gate is still exactly as *this* decision left it: closed,
+      // with nothing outstanding, and carrying this decision's own audit. A
+      // gate the agent has since reached is not this caller's to reopen.
       if (data.approvalGateOpenedAt) return;
       if (data.pendingApprovalChallengeId) return;
+      // The audit fields are what identify the decision. Without them the
+      // check described a shape, not an owner: after this decision settled as
+      // `not_applied`, a status poll could recover the gate and a second
+      // request claim it — leaving the row closed with nothing outstanding
+      // again — and this rollback would reopen the gate underneath that second
+      // decision while it was still in flight.
+      if ((data.approvalChallengeId ?? "") !== challengeId) return;
+      if (data.approvalState !== "not_applied") return;
       // And never on a settled run. A terminal transition clears the gate, so
       // its fields look exactly like the ones this claim left behind; without
       // this check a rollback would reinstate a gate on a finished run, where a

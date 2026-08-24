@@ -88,6 +88,10 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** a run-status poll reporting `waiting_for_approval` arrives while a decision is claiming the gate
 - **THEN** it finds no gate to recover, because winning the gate and recording the decision are one write — so a second decision cannot be admitted while the first is still being forwarded
 
+#### Scenario: A rollback arrives after another decision claimed the gate
+- **WHEN** a decision the agent refused rolls back its claim, but a status poll has already recovered that gate and another decision has claimed it
+- **THEN** the rollback restores nothing, because the gate it would reopen is no longer the one it closed — restoring an old prompt underneath a decision in flight could have a retry forward a second decision against a later gate
+
 #### Scenario: A decision's outcome could not be recorded
 - **WHEN** the agent accepted a decision but writing its outcome fails
 - **THEN** the write is retried, because an unrecorded outcome leaves the run stating that a decision is still in flight, which is what stops a later gate from opening

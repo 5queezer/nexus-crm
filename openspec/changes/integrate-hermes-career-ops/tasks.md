@@ -122,3 +122,4 @@ against the code it replaced.
 - [x] 8.48 Give Career Ops the latest persisted application, not the mount-time prop.
 - [x] 8.49 Reject a transcript response whose payload is missing or not a list, while still accepting an empty one.
 - [x] 8.50 Retry the completed-outcome write, and bound how long an unresolved decision blocks a new gate.
+- [x] 8.51 Identify the decision a gate rollback belongs to by its own audit, not by the shape of the row.

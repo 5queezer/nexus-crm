@@ -1648,6 +1648,10 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny")).toEqual({
       challengeId: "gate-a",
     });
+    // The rollback only ever follows a stated refusal, which settles the
+    // decision as `not_applied` first. That state is part of what identifies
+    // the decision being rolled back.
+    await db.settleCareerOpsApprovalDecision(run.id, "user-a", "gate-a", "not_applied");
     await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
     const restored = await db.getCareerOpsRun(run.id, "user-a");
     expect(restored?.approvalGateOpenedAt).not.toBeNull();
@@ -1655,10 +1659,46 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 
     // A gate the agent has since moved on to is not this caller's to restore.
     await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "deny");
+    await db.settleCareerOpsApprovalDecision(run.id, "user-a", "gate-a", "not_applied");
     await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-b");
     await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
     await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
       pendingApprovalChallengeId: "gate-b",
+    });
+  });
+
+  it("does not reopen a gate a second decision has since claimed", async () => {
+    // The window is real: a decision settles as `not_applied`, a status poll
+    // recovers the still-waiting gate, and a second request claims it — which
+    // leaves the row closed with nothing outstanding, exactly the shape the
+    // first decision's rollback was looking for. Reopening there put an old
+    // challenge back underneath a decision still in flight, and a retry could
+    // forward a second decision against a later Hermes gate.
+    const thread = await seedThread("user-a");
+    const { run } = await claimRun("user-a", {
+      threadId: thread.id,
+      hermesRunId: "run_1",
+      clientRequestId: "client-id-gate-race",
+      status: "running",
+    });
+    await db.openCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", "gate-a", "once")).toEqual({
+      challengeId: "gate-a",
+    });
+    await db.settleCareerOpsApprovalDecision(run.id, "user-a", "gate-a", "not_applied");
+
+    // Polling recovers the gate, and a second decision claims it.
+    expect(await db.recoverCareerOpsApprovalGate(run.id, "user-a", ANY_CUTOFF)).toBe(true);
+    expect(await db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).not.toBeNull();
+
+    // Now the first decision's rollback arrives. It must find nothing of its
+    // own left to put back.
+    await db.releaseCareerOpsApprovalGate(run.id, "user-a", "gate-a");
+    await expect(db.getCareerOpsRun(run.id, "user-a")).resolves.toMatchObject({
+      approvalGateOpenedAt: null,
+      pendingApprovalChallengeId: null,
+      approvalChoice: "deny",
+      approvalState: "pending",
     });
   });
 
