@@ -102,8 +102,11 @@ export function useContactRows(
   latestRevision.current = revision;
 
   /**
-   * Refuse the snapshot that was current when a local write finished, and ask
-   * the server for one that includes the write.
+   * Refuse the snapshot that was current when a local write *succeeded*, and
+   * ask the server for one that includes the write.
+   *
+   * Only on success: a write that failed changed nothing, so the snapshot
+   * deferred during it is not stale and must still be adopted.
    *
    * A refresh arriving mid-write is deferred, then applied — but a snapshot
    * taken before the write landed cannot contain it. The saved row was dropped
@@ -210,10 +213,14 @@ export function useContactRows(
         );
         queryClient.invalidateQueries({ queryKey: ["applications"] });
       }
+      resyncAfterWrite();
     } catch {
       setContactError(t("error_contact"));
+      // Deliberately no resync: nothing was written, so the deferred snapshot
+      // is not stale — it is the newest thing anyone has. Marking it synced
+      // here hid a contact the agent had added, indefinitely, and left the row
+      // that hid it able to overwrite it from what the page still showed.
     } finally {
-      resyncAfterWrite();
       setSavingContactIdx(null);
     }
   }
@@ -231,10 +238,12 @@ export function useContactRows(
       await deleteContact(applicationId, c.id);
       setContacts((prev) => prev.filter((row) => row.clientId !== clientId));
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      resyncAfterWrite();
     } catch {
       setContactError(t("error_contact"));
+      // Same as the save path: a deletion that failed changed nothing, so the
+      // snapshot held during it is still worth adopting.
     } finally {
-      resyncAfterWrite();
       setDeletingContactId(null);
     }
   }

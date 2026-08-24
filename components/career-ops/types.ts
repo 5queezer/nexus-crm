@@ -18,6 +18,8 @@ export type CareerOpsThread = {
    * can tell them apart: every run in such a conversation is refused.
    */
   scopeLost?: boolean;
+  /** The browser's own key for the request that created this conversation. */
+  clientRequestId?: string | null;
   createdAt: string;
   updatedAt: string;
 };

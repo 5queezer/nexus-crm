@@ -293,6 +293,55 @@ describe("ApplicationDetail", () => {
     expect(screen.queryByDisplayValue("Ada")).toBeNull();
   });
 
+  it("adopts the deferred snapshot when the write it waited for failed", async () => {
+    // The snapshot is deferred while a write is in flight and refused once the
+    // write lands — but a write that *failed* changed nothing, so its snapshot
+    // is not stale. Refusing it anyway hid a contact the agent had added, with
+    // nothing left to deliver it, and left the row that hid it able to
+    // overwrite it from what the page still showed.
+    const user = userEvent.setup();
+    let failDelete: () => void = () => {};
+    const attempted = new Promise<void>((_resolve, reject) => {
+      failDelete = () => reject(new Error("network"));
+    });
+    attempted.catch(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "DELETE") {
+          await attempted;
+          return { ok: true, status: 204, json: async () => ({}) } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const view = renderDetail(
+      fixtureApplication({
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "contact_remove" })[0]);
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-02T00:00:00.000Z",
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    failDelete();
+
+    // The deletion failed, so the row stays — and the contact the refresh
+    // carried appears rather than being silently dropped.
+    await waitFor(() => expect(screen.getAllByDisplayValue("Grace").length).toBe(1));
+    expect(screen.getAllByDisplayValue("Ada").length).toBe(1);
+  });
+
   it("adopts a newer server record delivered by a refresh", async () => {
     // `useState` reads its initializer once, so the baseline was frozen at
     // mount. A Career Ops run that changes the record calls `router.refresh()`,

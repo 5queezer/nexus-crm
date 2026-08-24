@@ -383,7 +383,8 @@ describe("threads", () => {
       created += 1;
       // The first creation commits but its response never arrives.
       if (created === 1) {
-        listed = [{ ...THREAD, id: "thread-committed" }];
+        // Committed with this key, which is how the browser recognises it.
+        listed = [{ ...THREAD, id: "thread-committed", clientRequestId: body.clientRequestId }];
         return json({ error: "upstream_error" }, 502);
       }
       return json({ thread: { ...THREAD, id: `thread-${created}` } }, 201);
@@ -411,6 +412,55 @@ describe("threads", () => {
     await waitFor(() => expect(keys.length).toBe(2));
     // A genuinely new intent, so a genuinely new key.
     expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  it("keeps a creation key while another conversation of the same scope is listed", async () => {
+    // Matching the held key against *scope* let any pre-existing conversation
+    // clear it — including while its own creation was still in flight. If that
+    // creation then committed with its response lost, the retry minted a fresh
+    // key and made a second Hermes session and a second conversation.
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    let created = 0;
+    // A conversation of the same (global) scope already exists, made by some
+    // earlier session and carrying no key of this browser's.
+    route("GET", /\/api\/career-ops\/threads$/, () =>
+      json({ threads: [{ ...THREAD, id: "thread-older", clientRequestId: "someone-elses-key" }] }),
+    );
+    route("POST", /\/api\/career-ops\/threads$/, async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { clientRequestId?: string };
+      keys.push(body.clientRequestId ?? "");
+      created += 1;
+      if (created === 1) return json({ error: "upstream_error" }, 502);
+      return json({ thread: { ...THREAD, id: "thread-new" } }, 201);
+    });
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+    await waitFor(() => expect(keys.length).toBe(1));
+
+    // Reopening lists that older conversation — which is not the one this key
+    // was minted for, so the key must survive.
+    // Twice: the first closes the conversation list, the second the drawer.
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
+    const reopened = await openDrawer(user);
+    // Wait for the reload that carries the older conversation, since that is
+    // what used to clear the key.
+    await waitFor(() =>
+      expect(
+        calls.filter(
+          (call) => call.url.endsWith("/api/career-ops/threads") && call.method === "GET",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+    await user.click(within(reopened).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(reopened).getByRole("button", { name: /new conversation/i }));
+
+    await waitFor(() => expect(keys.length).toBe(2));
+    expect(keys[1]).toBe(keys[0]);
   });
 
   it("creates a new conversation", async () => {

@@ -22,6 +22,14 @@ export type CareerOpsThreadView = {
    * the client cannot infer it.
    */
   scopeLost: boolean;
+  /**
+   * The browser's own key for the request that created this conversation.
+   *
+   * Echoed back so the browser can tell *its* creation from any other
+   * conversation of the same scope: a creation whose response was lost is
+   * recognised here by identity rather than by resemblance.
+   */
+  clientRequestId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -52,6 +60,7 @@ export function serializeThread(thread: CareerOpsThreadRecord): CareerOpsThreadV
     title: thread.title,
     applicationId: thread.applicationId,
     scopeLost: thread.applicationScoped && !thread.applicationId,
+    clientRequestId: thread.clientRequestId,
     createdAt: thread.createdAt.toISOString(),
     updatedAt: thread.updatedAt.toISOString(),
   };

@@ -137,3 +137,5 @@ against the code it replaced.
 - [x] 8.63 Redact compound credential labels such as access_token and client_secret.
 - [x] 8.64 Redact a credential in a connection URI, keeping the scheme and host, seam included.
 - [x] 8.65 Recover a gate only on evidence that it is a new one, not the one a decision just answered.
+- [x] 8.66 Refuse a deferred contact snapshot only after a write that succeeded.
+- [x] 8.67 Match a held creation key against the conversation it made, not against scope.

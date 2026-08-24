@@ -61,10 +61,12 @@ The system SHALL communicate the selected application identifier to Hermes throu
 #### Scenario: A creation the browser never heard about is reconciled by the list
 - **WHEN** the conversation list already contains a conversation for the intent a held creation key was minted for
 - **THEN** that key is released, so the user's next explicit request for a new conversation creates one instead of resolving to the conversation that already exists
+- **AND** the conversation is identified by the key that made it, not by having the same scope, so a conversation that already existed cannot release a key whose own creation is still in flight
 
 #### Scenario: A refresh lands while a contact write is in flight
 - **WHEN** an agent-triggered refresh delivers a contact list while the user's own contact save or deletion has not yet completed
 - **THEN** that snapshot is not adopted, because it was taken before the write it cannot contain, and the page asks the server for one that reflects the write
+- **AND** a write that failed refuses nothing: its snapshot is adopted, because nothing was written for it to be stale against
 
 #### Scenario: Application changes while the conversation is open
 - **WHEN** the linked application is edited in Nexus after the conversation started

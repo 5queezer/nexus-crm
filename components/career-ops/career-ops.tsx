@@ -494,19 +494,16 @@ export function CareerOps({
       const result = await careerOpsJson<{ threads: CareerOpsThread[] }>("/api/career-ops/threads");
       if (!current()) return;
       setThreads(result.threads);
-      // The list is the answer a lost creation response never delivered. If a
-      // conversation for the intent this key was minted for is already here,
-      // the creation landed — holding the key would make the next explicit
-      // "new conversation" resolve to that same one and prepend it twice.
-      const intent = application ? `app-${application.id}` : "global";
-      if (
-        result.threads.some((thread) =>
-          application
-            ? thread.applicationId === application.id
-            : thread.applicationId === null && !thread.scopeLost,
-        )
-      ) {
-        creationKeysRef.current.delete(intent);
+      // The list is the answer a lost creation response never delivered — but
+      // only for the conversation this key actually made. Matching on scope
+      // instead let any pre-existing conversation of the same scope clear a key
+      // whose creation was still in flight; if that creation then committed
+      // with its response lost, the retry minted a fresh key and made a second
+      // Hermes session and a second conversation.
+      for (const [intent, key] of creationKeysRef.current) {
+        if (result.threads.some((thread) => thread.clientRequestId === key)) {
+          creationKeysRef.current.delete(intent);
+        }
       }
       const preferred = application
         ? result.threads.find((thread) => thread.applicationId === application.id)
