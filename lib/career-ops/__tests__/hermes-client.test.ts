@@ -256,6 +256,25 @@ describe("session operations", () => {
     expect(url).toContain("/api/sessions/a%20b%2Fc/messages");
   });
 
+  it("rejects a transcript payload that is missing or not a list", async () => {
+    // A successful response with no `data` — an incomplete reply, or a version
+    // that renamed the envelope — used to read as an empty conversation. The
+    // drawer showed an existing conversation as blank, and the next turn went
+    // upstream with no history despite the fail-closed history read.
+    for (const body of [{}, { messages: [] }, { data: null }, { data: { 0: "x" } }]) {
+      globalThis.fetch = vi.fn(async () => jsonResponse(body, 200)) as typeof fetch;
+      await expect(
+        createHermesClient(enabledConfig()).listSessionMessages("sess-9"),
+      ).rejects.toMatchObject({ kind: "upstream_error" });
+    }
+
+    // An actual empty list is still an empty conversation, not a failure.
+    globalThis.fetch = vi.fn(async () => jsonResponse({ data: [] }, 200)) as typeof fetch;
+    await expect(
+      createHermesClient(enabledConfig()).listSessionMessages("sess-9"),
+    ).resolves.toEqual([]);
+  });
+
   it("treats a missing session as a successful delete", async () => {
     globalThis.fetch = vi.fn(async () => jsonResponse({ error: { message: "gone" } }, 404)) as
       unknown as typeof fetch;

@@ -315,7 +315,16 @@ export function createHermesClient(config: EnabledConfig) {
           method: "GET",
         }),
       );
-      const data = Array.isArray(body.data) ? body.data : [];
+      // A 200 whose payload is missing or not a list is a failed read, not an
+      // empty conversation, and the difference decides two things. The drawer
+      // renders an existing conversation as blank; worse, the next turn is
+      // submitted with no history at all — which is exactly what the fail-closed
+      // history read exists to prevent, defeated by a response that arrived
+      // "successfully". An actual empty array still means an empty session.
+      if (!Array.isArray(body.data)) {
+        throw new HermesError("upstream_error", "Hermes returned a malformed transcript");
+      }
+      const data = body.data;
       const messages: HermesMessage[] = [];
       for (const entry of data) {
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;

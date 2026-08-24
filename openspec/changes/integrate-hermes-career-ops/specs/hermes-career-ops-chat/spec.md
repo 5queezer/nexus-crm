@@ -165,6 +165,7 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **WHEN** a conversation's transcript fails to load
 - **THEN** submission is refused, because a reply would answer history the user cannot see
 - **AND** a retry is offered in place of the missing transcript, so the conversation is not stranded
+- **AND** a successful upstream response whose transcript payload is absent or not a list counts as a failure to load, not as an empty conversation, while an empty list is accepted as one
 
 #### Scenario: A conversation that could not be inspected
 - **WHEN** reading a conversation's run state fails
