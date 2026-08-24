@@ -88,6 +88,11 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** a run-status poll reporting `waiting_for_approval` arrives while a decision is claiming the gate
 - **THEN** it finds no gate to recover, because winning the gate and recording the decision are one write — so a second decision cannot be admitted while the first is still being forwarded
 
+#### Scenario: A poll sees the gate a decision just answered
+- **WHEN** a run-status poll reports `waiting_for_approval` after a decision was applied, and nothing has yet shown the run somewhere else
+- **THEN** no gate is recovered, because the agent has not been observed leaving the gate that decision answered and a denial restored from it could be forwarded against a later action the owner never saw
+- **AND** recovery resumes once the run is observed away from a gate, or once the decision is old enough that the agent cannot still be at it
+
 #### Scenario: A decision is refused because its challenge is no longer valid
 - **WHEN** a decision is refused because its challenge has expired or is not the one outstanding, and the gate is therefore untouched
 - **THEN** the prompt is restored without the ability to grant, because the refused token is what verification rejects and no replacement can be minted for a prompt the stream will not disclose again

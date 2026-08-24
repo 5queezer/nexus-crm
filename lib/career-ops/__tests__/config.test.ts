@@ -316,6 +316,36 @@ describe("redactUpstreamError", () => {
     expect(out).toContain("trailing");
   });
 
+  it("removes a credential carried in a connection URI", () => {
+    // A connector URI is how a credential most often travels with no label
+    // anywhere near it, and none of the labelled or self-identifying rules look
+    // inside one. The scheme and host survive: they say what failed without
+    // saying who it belonged to.
+    const secret = ["not", "a", "real", "passphrase"].join("-");
+    for (const uri of [
+      `postgresql://alice:${secret}@db.internal:5432/nexus`,
+      `https://svc:${secret}@proxy.internal/path`,
+      `redis://:${secret}@cache.internal`,
+    ]) {
+      const redacted = redactUpstreamError(`connect failed for ${uri}`);
+      expect(redacted).not.toContain(secret);
+      expect(redacted).toContain("[redacted]");
+      expect(redacted).toContain("internal");
+    }
+
+    // An ordinary URL with a port is not a credential.
+    const plain = "see https://example.com:8080/status for details";
+    expect(redactUpstreamError(plain)).toBe(plain);
+
+    // And across a stream seam.
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`${"filler ".repeat(20)}postgresql://alice:${secret.slice(0, 4)}`);
+    out += redactor.push(`${secret.slice(4)}@db.internal trailing`);
+    out += redactor.flush();
+    expect(out).not.toContain(secret);
+    expect(out).toContain("trailing");
+  });
+
   it("leaves ordinary prose about a password alone", () => {
     // The keyword needs a separator and eight token characters after it, so
     // prose that merely mentions one is untouched.

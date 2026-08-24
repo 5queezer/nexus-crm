@@ -2037,6 +2037,40 @@ describe("run controls", () => {
     expect(mocks.db.recoverCareerOpsApprovalGate).not.toHaveBeenCalled();
   });
 
+  it("does not recover the gate a completed decision just consumed", async () => {
+    // Hermes keeps reporting `waiting_for_approval` until it moves on, and a
+    // completed decision does not stop the adapter — so every poll in that
+    // window reopened the gate the decision had just answered. A denial left on
+    // screen from that prompt is answerable against whatever gate is pending
+    // when it is clicked, which may be a later action the user never saw.
+    mocks.db.getCareerOpsRun.mockResolvedValue({
+      ...RUN,
+      status: "waiting_for_approval",
+      approvalState: "effect_completed",
+      approvalAt: new Date(),
+    });
+    mocks.client.getRun.mockResolvedValue({
+      runId: "run_1",
+      status: "waiting_for_approval",
+      output: "",
+      error: null,
+    });
+
+    await getCareerOpsRunStatus(SESSION_A, "run-1");
+    expect(mocks.db.recoverCareerOpsApprovalGate).not.toHaveBeenCalled();
+
+    // Once the run has been observed somewhere else, the next gate is a new
+    // one and recovery is right again.
+    mocks.db.getCareerOpsRun.mockResolvedValue({
+      ...RUN,
+      status: "running",
+      approvalState: "effect_completed",
+      approvalAt: new Date(),
+    });
+    await getCareerOpsRunStatus(SESSION_A, "run-1");
+    expect(mocks.db.recoverCareerOpsApprovalGate).toHaveBeenCalled();
+  });
+
   it("reopens the gate when Hermes refused the decision outright", async () => {
     // A rate limit is a stated refusal: the decision provably did nothing, so
     // the gate is still open upstream. Leaving it locally claimed stranded the

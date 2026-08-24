@@ -240,6 +240,13 @@ const SECRET_PATTERNS: RegExp[] = [
   // is distinctive enough to strip on sight. Kept wider than hex so a change
   // of encoding upstream does not silently stop matching.
   /\bmcp_(?:at|rt)_[A-Za-z0-9]{16,}/gi,
+  // A credential in a connection URI's userinfo —
+  // `postgresql://user:password@host`, `https://user:token@proxy`. Connector
+  // URIs are how a credential most often travels without a label anywhere near
+  // it, and none of the rules above look inside one. The lookbehind and
+  // lookahead keep the scheme and host, which say what failed without saying
+  // who it belonged to.
+  /(?<=:\/\/)[^\s:/@]{0,64}:[^\s:/@]{1,256}(?=@)/g,
   /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
   /\bAIza[A-Za-z0-9_-]{16,}/g,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
@@ -272,6 +279,12 @@ export const CREDENTIAL_CANDIDATES: RegExp[] = [
   /\bsk-[A-Za-z0-9._-]*/gi,
   /\bjt_[A-Za-z0-9._-]*/gi,
   /\bmcp_(?:at|rt)_[A-Za-z0-9]*/gi,
+  // From the scheme to the first `@` or space. The scheme has to be *inside*
+  // the candidate, not behind a lookbehind: the cut moves to the start of a
+  // candidate, and a cut after `://` would carry a userinfo fragment with no
+  // anchor in front of it — the completed pattern would then find nothing to
+  // match in the reassembled text and emit the credential whole.
+  /\b[a-z][a-z0-9+.-]{0,20}:\/\/[^\s@]{0,320}/gi,
   /\bgh[pousr]_[A-Za-z0-9]*/g,
   /\bAIza[A-Za-z0-9_-]*/g,
   /\b(?:AKIA|ASIA)[A-Z0-9]*/g,

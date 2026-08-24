@@ -135,3 +135,5 @@ against the code it replaced.
 - [x] 8.61 Claim the Firestore request key with a deterministic document, not a transactional query.
 - [x] 8.62 Release a creation key once the thread list shows the conversation it made.
 - [x] 8.63 Redact compound credential labels such as access_token and client_secret.
+- [x] 8.64 Redact a credential in a connection URI, keeping the scheme and host, seam included.
+- [x] 8.65 Recover a gate only on evidence that it is a new one, not the one a decision just answered.

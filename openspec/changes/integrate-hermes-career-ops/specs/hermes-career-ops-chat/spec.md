@@ -23,6 +23,10 @@ The system SHALL communicate with Hermes exclusively from the server using opera
 - **WHEN** upstream text, a transcript, an approval prompt, or a streamed delta carries an authorization value introduced by a scheme word, such as a Basic credential
 - **THEN** the system removes the credential as well as the scheme, for any scheme rather than a fixed list of known ones
 
+#### Scenario: A credential inside a connection URI is stripped
+- **WHEN** upstream text, a transcript, an approval field or a delta carries a connection URI whose authority holds a credential
+- **THEN** the system removes the credential and keeps the scheme and host, because a connector URI carries a secret with no label anywhere near it
+
 #### Scenario: A compound credential label is stripped
 - **WHEN** upstream text, a transcript, an approval field or a delta carries a value labelled `access_token`, `refresh_token`, `client_secret` or similar
 - **THEN** the system removes it, even though the label's leading word runs into the keyword without a boundary

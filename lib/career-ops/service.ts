@@ -1148,6 +1148,10 @@ export async function getCareerOpsRunStatus(
   if (isUnbound(run)) return { runId: run.id, status: "queued", output: "", error: null };
   try {
     const upstream = await client(config).getRun(run.hermesRunId);
+    // Captured before the write: the stored status is the previous observation,
+    // and it is what says whether this poll has *entered* a gate or is looking
+    // at one it has already seen.
+    const previousStatus = run.status;
     await getDb().updateCareerOpsRunStatus(run.id, session.userId, upstream.status);
     // Polling may be the first thing to see a gate: the event stream is
     // single-consumer and Hermes need not support it at all. Recovery has no
@@ -1156,7 +1160,20 @@ export async function getCareerOpsRunStatus(
     // while every decision is refused for having no gate, and Hermes waits
     // forever. The adapter declines while a decision is unresolved, so this can
     // never reopen a gate another decision already took.
-    if (upstream.status === "waiting_for_approval") {
+    //
+    // But a *completed* decision does not stop the adapter, and Hermes keeps
+    // reporting `waiting_for_approval` until it moves on — so every poll in
+    // that window reopened the gate the decision had just consumed. A denial
+    // left on screen from that prompt is answerable against whatever gate is
+    // pending when it is finally clicked, which may be a later action the user
+    // never saw. Recovery therefore needs evidence that this is a *new* gate:
+    // either the run was observed somewhere else since (the stored status is
+    // the last observation), or the last decision is old enough that Hermes
+    // cannot still be at its gate.
+    const enteredGate = previousStatus !== "waiting_for_approval";
+    const decisionIsStale =
+      !run.approvalAt || run.approvalAt.getTime() < approvalSettleCutoff(config).getTime();
+    if (upstream.status === "waiting_for_approval" && (enteredGate || decisionIsStale)) {
       await getDb()
         .recoverCareerOpsApprovalGate(run.id, session.userId, approvalSettleCutoff(config))
         .catch(() => false);
