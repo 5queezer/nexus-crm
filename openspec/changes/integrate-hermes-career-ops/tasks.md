@@ -121,3 +121,4 @@ against the code it replaced.
 - [x] 8.47 Present a conversation whose opportunity was deleted as such, and never adopt it as the general conversation.
 - [x] 8.48 Give Career Ops the latest persisted application, not the mount-time prop.
 - [x] 8.49 Reject a transcript response whose payload is missing or not a list, while still accepting an empty one.
+- [x] 8.50 Retry the completed-outcome write, and bound how long an unresolved decision blocks a new gate.

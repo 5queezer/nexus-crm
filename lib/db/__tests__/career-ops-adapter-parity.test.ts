@@ -1180,6 +1180,25 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     await expect(db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny")).resolves.not.toBeNull();
   });
 
+  /**
+   * Cutoffs derived from the row's own decision timestamp rather than the wall
+   * clock: the Firestore fake stamps writes from a monotonic counter, so a
+   * wall-clock cutoff would make every decision there look ancient and the two
+   * backends would be answering different questions.
+   */
+  /** For cases the cutoff cannot decide: no decision, or an already-settled one. */
+  const ANY_CUTOFF = new Date(0);
+
+  async function decisionAge(runId: string) {
+    const decided = (await db.getCareerOpsRun(runId, "user-a"))?.approvalAt ?? new Date(0);
+    return {
+      /** The decision is not older than this, so it may still be racing. */
+      stillRacing: new Date(decided.getTime()),
+      /** Past this, nothing can be in flight and nothing more can land. */
+      raceOver: new Date(decided.getTime() + 1),
+    };
+  }
+
   it("recovers a denial-only gate, but never one a decision already took", async () => {
     // Polling may be the first thing to see a gate: the event stream is
     // single-consumer and Hermes need not support it at all. Recovery has no
@@ -1192,7 +1211,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
       status: "running",
     });
 
-    expect(await db.recoverCareerOpsApprovalGate(run.id, "user-a")).toBe(true);
+    expect(await db.recoverCareerOpsApprovalGate(run.id, "user-a", ANY_CUTOFF)).toBe(true);
     const recovered = await db.getCareerOpsRun(run.id, "user-a");
     expect(recovered?.approvalGateOpenedAt).not.toBeNull();
     // Denial-only by construction: no challenge was disclosed, so nothing can
@@ -1206,16 +1225,30 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     // then would let a second decision answer the first's action.
     for (const state of ["pending", "outcome_unknown"] as const) {
       await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "", state);
-      await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+      const { stillRacing, raceOver } = await decisionAge(run.id);
+      await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a", stillRacing)).resolves.toBe(
+        false,
+      );
+
+      // But that refusal is bounded. Both reasons expire with the upstream
+      // request timeout, and unbounded they did not: one failed audit write
+      // left `pending` on the row forever, so no later gate in the run could
+      // ever be opened — the browser kept showing a denial-only prompt whose
+      // every decision conflicted, and Hermes waited for an answer nobody could
+      // give.
+      await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a", raceOver)).resolves.toBe(true);
+      // Close it again so the next state under test starts from a closed gate,
+      // the way a decision leaves one.
+      await db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny");
     }
 
     // Once resolved, a gate Hermes still reports may be recovered again.
     await db.recordCareerOpsApprovalDecision(run.id, "user-a", "deny", "", "effect_completed");
-    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(true);
+    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a", ANY_CUTOFF)).resolves.toBe(true);
 
     // And never on a finished run.
     await db.updateCareerOpsRunStatus(run.id, "user-a", "completed");
-    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a", ANY_CUTOFF)).resolves.toBe(false);
   });
 
   it("closes the gate and records the decision in one write", async () => {
@@ -1245,7 +1278,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(claimed?.approvalState).toBe("pending");
 
     // So recovery declines, and no second decision can be let in.
-    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a")).resolves.toBe(false);
+    await expect(db.recoverCareerOpsApprovalGate(run.id, "user-a", ANY_CUTOFF)).resolves.toBe(false);
     await expect(
       db.claimCareerOpsApprovalGate(run.id, "user-a", null, "deny"),
     ).resolves.toBeNull();

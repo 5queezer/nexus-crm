@@ -88,6 +88,11 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** a run-status poll reporting `waiting_for_approval` arrives while a decision is claiming the gate
 - **THEN** it finds no gate to recover, because winning the gate and recording the decision are one write — so a second decision cannot be admitted while the first is still being forwarded
 
+#### Scenario: A decision's outcome could not be recorded
+- **WHEN** the agent accepted a decision but writing its outcome fails
+- **THEN** the write is retried, because an unrecorded outcome leaves the run stating that a decision is still in flight, which is what stops a later gate from opening
+- **AND** if it still fails, an unresolved decision stops blocking new gates once no request can still be in flight and no outcome can still land, so one failed write cannot strand every later approval in the run
+
 #### Scenario: Two rejections race for the same gate
 - **WHEN** two rejections for the same outstanding approval are submitted concurrently
 - **THEN** at most one is forwarded, because the decision belongs to whichever claim the database accepts, not to whichever request read the gate first

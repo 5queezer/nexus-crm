@@ -444,6 +444,23 @@ function reservationCutoff(config: Extract<CareerOpsConfig, { enabled: true }>):
 }
 
 /**
+ * Margin past which an unresolved approval decision can no longer be racing.
+ *
+ * `pending` blocks a new gate because a decision may still be in flight, and
+ * `outcome_unknown` because one may still be landing. Both are bounded: the
+ * upstream call cannot outlive the request timeout. Without a bound the block
+ * was permanent, so one failed audit write stranded every later gate in the run
+ * — the browser kept showing a denial-only prompt whose every decision
+ * conflicted, and Hermes waited forever.
+ */
+const APPROVAL_SETTLE_MARGIN_MS = 60_000;
+
+/** The instant before which an unresolved decision stops blocking a new gate. */
+function approvalSettleCutoff(config: Extract<CareerOpsConfig, { enabled: true }>): Date {
+  return new Date(Date.now() - config.connectTimeoutMs - APPROVAL_SETTLE_MARGIN_MS);
+}
+
+/**
  * Give up on a reservation nothing can settle, if it is genuinely past its
  * cutoff — decided by the database, in one conditional transition, so it cannot
  * race the binding of an upstream id that arrived late.
@@ -1074,7 +1091,7 @@ export async function getCareerOpsRunStatus(
     // never reopen a gate another decision already took.
     if (upstream.status === "waiting_for_approval") {
       await getDb()
-        .recoverCareerOpsApprovalGate(run.id, session.userId)
+        .recoverCareerOpsApprovalGate(run.id, session.userId, approvalSettleCutoff(config))
         .catch(() => false);
     }
     return upstream;
@@ -1387,20 +1404,30 @@ export async function resolveCareerOpsApproval(
   // arguments are never written to Nexus. The spec requires this record, so a
   // failure is reported rather than swallowed — the decision did reach Hermes,
   // which the controlled error says explicitly.
-  try {
-    // Conditional for the same reason as the failure path above. A `false` here
-    // is not an error: it means the row has moved on to a later gate, and this
-    // decision's own audit was already written when it was claimed.
-    await getDb().settleCareerOpsApprovalDecision(
-      run.id,
-      session.userId,
-      consumedChallengeId,
-      "effect_completed",
-    );
-  } catch {
-    throw new CareerOpsServiceError(
-      "upstream_error",
-      "The decision was sent but could not be recorded",
-    );
+  // Retried, because leaving this write undone is not a lost audit line — it is
+  // a run left saying a decision is still in flight. `pending` is what blocks a
+  // new gate from opening, so a single transient failure here stranded every
+  // later approval in the run. The cutoff above is the durable half of the same
+  // guarantee, for a failure that outlives this request.
+  //
+  // Conditional for the same reason as the failure path above. A `false` is not
+  // an error: it means the row has moved on to a later gate, and this decision's
+  // own audit was already written when it was claimed.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await getDb().settleCareerOpsApprovalDecision(
+        run.id,
+        session.userId,
+        consumedChallengeId,
+        "effect_completed",
+      );
+      return;
+    } catch {
+      if (attempt < 2) await sleep(100 * 2 ** attempt);
+    }
   }
+  throw new CareerOpsServiceError(
+    "upstream_error",
+    "The decision was sent but could not be recorded",
+  );
 }

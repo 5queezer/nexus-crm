@@ -1656,6 +1656,33 @@ describe("run controls", () => {
     });
   });
 
+  it("retries the completed outcome rather than leaving the decision pending", async () => {
+    // Not an audit line: `pending` is what blocks a new gate from opening, so a
+    // single transient failure here left the run saying a decision was still in
+    // flight forever. Every later gate was then unrecoverable — the browser kept
+    // showing a denial-only prompt whose every decision conflicted, and Hermes
+    // waited for an answer nobody could give.
+    const challenge = await challengeFor("run-1", ["once"]);
+    let attempts = 0;
+    mocks.db.settleCareerOpsApprovalDecision.mockImplementation(async () => {
+      attempts += 1;
+      if (attempts < 3) throw new Error("db blip");
+      return true;
+    });
+
+    await expect(
+      resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+    ).resolves.toBeUndefined();
+    expect(attempts).toBe(3);
+    // Same challenge every time: a retry must not settle a gate the run has
+    // since moved on to.
+    for (const call of mocks.db.settleCareerOpsApprovalDecision.mock.calls) {
+      expect(call.slice(0, 2)).toEqual(["run-1", "user-a"]);
+      expect(call[3]).toBe("effect_completed");
+      expect(call[2]).toBe(mocks.db.settleCareerOpsApprovalDecision.mock.calls[0][2]);
+    }
+  });
+
   it("leaves the challenge answerable when the decision could not be recorded", async () => {
     // Nothing was sent upstream, and the gate was never claimed — so there is
     // nothing to put back, which is the point of closing the gate and recording
@@ -1829,7 +1856,13 @@ describe("run controls", () => {
     });
 
     await getCareerOpsRunStatus(SESSION_A, "run-1");
-    expect(mocks.db.recoverCareerOpsApprovalGate).toHaveBeenCalledWith("run-1", "user-a");
+    const [runId, userId, unresolvedSince] =
+      mocks.db.recoverCareerOpsApprovalGate.mock.calls[0] ?? [];
+    expect([runId, userId]).toEqual(["run-1", "user-a"]);
+    // And it carries the bound past which an unresolved decision stops blocking
+    // — in the past, since a decision made now may still be racing.
+    expect(unresolvedSince).toBeInstanceOf(Date);
+    expect((unresolvedSince as Date).getTime()).toBeLessThan(Date.now());
   });
 
   it("reports a forgotten run as gone only once Nexus has recorded it", async () => {

@@ -2440,7 +2440,11 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
-  async recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean> {
+  async recoverCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    unresolvedSince: Date,
+  ): Promise<boolean> {
     const opened = await prisma.careerOpsRun.updateMany({
       where: {
         id,
@@ -2458,9 +2462,16 @@ export class PrismaAdapter implements DatabaseAdapter {
         // (polling is the first observer of an approval gate on a fresh run)
         // matched nothing, the owner got no prompt to deny, and Hermes stayed
         // blocked. "No decision yet" has to be admitted explicitly.
+        //
+        // And that refusal is bounded. Both reasons expire: the upstream call
+        // cannot outlive the request timeout, so past `unresolvedSince` nothing
+        // is in flight and nothing more can land. Unbounded, one failed audit
+        // write left the run unable to open any further gate for the rest of
+        // its life.
         OR: [
           { approvalState: null },
           { approvalState: { notIn: ["pending", "outcome_unknown"] } },
+          { approvalAt: { lt: unresolvedSince } },
         ],
       },
       // No challenge: nothing was disclosed, so nothing may be granted. The

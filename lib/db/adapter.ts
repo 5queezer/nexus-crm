@@ -267,8 +267,20 @@ export interface DatabaseAdapter {
    * Conditional, so it can never reopen a gate a decision already took: it
    * declines while a decision is unresolved (`pending` or `outcome_unknown`),
    * and on a terminal run. Returns true only when it actually opened one.
+   *
+   * `unresolvedSince` bounds that refusal. An unresolved decision blocks a new
+   * gate because it may still be in flight or still be landing, and both are
+   * bounded by the upstream request timeout — so a decision older than this
+   * instant no longer blocks. Without the bound one failed audit write left the
+   * run permanently unable to open another gate: the browser kept showing a
+   * denial-only prompt whose every decision conflicted, and Hermes waited for an
+   * answer nobody could give.
    */
-  recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean>;
+  recoverCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    unresolvedSince: Date,
+  ): Promise<boolean>;
 
   /**
    * Move a decision that is still `pending` to its final state.

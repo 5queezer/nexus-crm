@@ -2953,7 +2953,11 @@ export class FirestoreAdapter implements DatabaseAdapter {
     });
   }
 
-  async recoverCareerOpsApprovalGate(id: string, userId: string): Promise<boolean> {
+  async recoverCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    unresolvedSince: Date,
+  ): Promise<boolean> {
     const ref = this.careerOpsRuns.doc(id);
     return this.db.runTransaction<boolean>(async (tx) => {
       const snapshot = await tx.get(ref);
@@ -2968,8 +2972,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
       // Never while a decision is unresolved: `pending` means one is in flight
       // and `outcome_unknown` means one may already have landed, so opening a
       // gate would let a second decision answer the first's action.
+      //
+      // Bounded, because both reasons expire with the upstream request timeout.
+      // A decision older than `unresolvedSince` is racing nothing; unbounded,
+      // one failed audit write left the run unable to open any further gate. A
+      // decision with no timestamp keeps blocking: unknown age is not old age.
       if (data.approvalState === "pending" || data.approvalState === "outcome_unknown") {
-        return false;
+        const decidedAt = toDate(data.approvalAt);
+        if (!decidedAt || decidedAt.getTime() >= unresolvedSince.getTime()) return false;
       }
       // No challenge: nothing was disclosed, so nothing may be granted.
       tx.update(ref, {
