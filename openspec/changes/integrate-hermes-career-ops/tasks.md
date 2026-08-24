@@ -124,3 +124,5 @@ against the code it replaced.
 - [x] 8.50 Retry the completed-outcome write, and bound how long an unresolved decision blocks a new gate.
 - [x] 8.51 Identify the decision a gate rollback belongs to by its own audit, not by the shape of the row.
 - [x] 8.52 Reclaim a settled unbound reservation on retry, and never call a settled one ambiguous.
+- [x] 8.53 Require a letter or digit to survive redaction before a prompt counts as disclosed.
+- [x] 8.54 Redact the Nexus MCP OAuth access and refresh tokens, in whole text and across a seam.

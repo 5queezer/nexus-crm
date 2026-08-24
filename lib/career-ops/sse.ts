@@ -409,14 +409,20 @@ export function normalizeHermesEvent(payload: string): CareerOpsEvent | null {
       // argument past the display bound, arrived at from the other end, and it
       // gets the same answer: denial only.
       //
-      // Neither whitespace nor redaction placeholders count as a disclosure.
-      // Every field can consist entirely of credential-like content, and
-      // redaction turns each into `[redacted]` — non-empty, so the prompt read
-      // as disclosed, kept `once` on offer, and had a challenge signed for it
-      // while the browser showed the user nothing at all. What matters is
-      // whether anything survived redaction, not whether a string survived.
-      const disclosed = [operation, summary, details].some(
-        (field) => field.split(REDACTION_PLACEHOLDER).join("").trim().length > 0,
+      // Neither whitespace, nor redaction placeholders, nor the punctuation
+      // they leave behind counts as a disclosure. Every field can consist
+      // entirely of credential-like content, and redaction turns each into
+      // `[redacted]` — non-empty, so the prompt read as disclosed, kept `once`
+      // on offer, and had a challenge signed for it while the browser showed
+      // the user nothing at all.
+      //
+      // Removing the placeholder was not enough either: a credential arrives
+      // punctuated — `Authorization: Basic <credential>,` or `token=<value>;` —
+      // and the separator survives redaction, so a lone comma passed as
+      // content. Disclosure needs a letter or a digit: punctuation cannot
+      // describe an action, and everything that can, contains one.
+      const disclosed = [operation, summary, details].some((field) =>
+        /[\p{L}\p{N}]/u.test(field.split(REDACTION_PLACEHOLDER).join("")),
       );
       const offered: CareerOpsApprovalChoice[] =
         grantable.length > 0 && disclosed ? [...grantable, "deny"] : ["deny"];

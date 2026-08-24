@@ -23,6 +23,10 @@ The system SHALL communicate with Hermes exclusively from the server using opera
 - **WHEN** upstream text, a transcript, an approval prompt, or a streamed delta carries an authorization value introduced by a scheme word, such as a Basic credential
 - **THEN** the system removes the credential as well as the scheme, for any scheme rather than a fixed list of known ones
 
+#### Scenario: The agent's own Nexus credential is stripped
+- **WHEN** upstream text, a transcript, a completed output, an approval field or a delta carries the Nexus MCP OAuth access or refresh token this deployment issued to the agent
+- **THEN** the system removes it, in whole text and across a stream seam alike, because that credential is the one the agent actually holds and it is printed bare, with no keyword in front of it
+
 #### Scenario: Upstream error text is sanitized
 - **WHEN** Hermes returns an error whose body embeds a credential, token, or internal host detail
 - **THEN** the system returns a controlled error message with the secret-bearing text removed and records the redacted form only

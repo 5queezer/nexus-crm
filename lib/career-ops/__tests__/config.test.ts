@@ -10,6 +10,7 @@ import {
   readCareerOpsConfig,
   redactUpstreamError,
 } from "../config";
+import { SecretBoundaryRedactor } from "../sse";
 
 const KEYS = [
   "HERMES_CAREER_OPS_ENABLED",
@@ -283,6 +284,31 @@ describe("redactUpstreamError", () => {
     // scheme form needs the credential keyword in front of it.
     const prose = "The role lists basic responsibilities and a basic understanding of finance.";
     expect(redactUpstreamError(prose)).toBe(prose);
+  });
+
+  it("removes the Nexus MCP OAuth tokens the agent actually holds", () => {
+    // These are the credentials Hermes carries for this deployment, minted by
+    // lib/mcp-oauth.ts, and an agent that prints one prints it bare — no
+    // `Bearer`, no `token=`. Without the prefix nothing matched them, so a
+    // transcript, a completed output or an upstream error carried them intact.
+    // Assembled at runtime and low-entropy on purpose.
+    for (const prefix of ["mcp_at", "mcp_rt"]) {
+      const token = `${prefix}_${"0123456789abcdef".repeat(4)}`;
+      const redacted = redactUpstreamError(`upstream said ${token} was rejected`);
+      expect(redacted).not.toContain(token);
+      expect(redacted).toContain("[redacted]");
+    }
+
+    // And the same shape split across a stream seam, which needs the candidate
+    // pattern rather than the completed one.
+    const split = `mcp_at_${"0123456789abcdef".repeat(4)}`;
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`${"filler ".repeat(20)}${split.slice(0, 12)}`);
+    out += redactor.push(`${split.slice(12)} trailing`);
+    out += redactor.flush();
+    expect(out).not.toContain(split);
+    expect(out).not.toContain(split.slice(12));
+    expect(out).toContain("trailing");
   });
 
   it("bounds the redacted length", () => {

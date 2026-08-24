@@ -178,6 +178,28 @@ describe("normalizeHermesEvent", () => {
     expect(event.undisclosed).toBe(true);
   });
 
+  it("offers denial only when redaction leaves punctuation behind", () => {
+    // A credential does not arrive alone: it arrives punctuated. `token=<value>;`
+    // redacts to `[redacted];`, and removing the placeholder left a semicolon —
+    // one character, non-empty, so the prompt read as disclosed and kept `once`
+    // on offer over a screen that said nothing. Separators are not content.
+    const credential = ["sk", "abcdef0123456789abcdef0123456789"].join("-");
+    const event = normalizeHermesEvent(
+      JSON.stringify({
+        event: "approval.request",
+        choices: ["once"],
+        pattern_key: `${credential},`,
+        description: `${credential};`,
+        command: `"${credential}", "${credential}"`,
+      }),
+    );
+    expect(event?.type).toBe("approval_required");
+    if (event?.type !== "approval_required") throw new Error("unreachable");
+    expect(`${event.operation}${event.summary}${event.details}`).not.toContain(credential);
+    expect(event.choices).toEqual(["deny"]);
+    expect(event.undisclosed).toBe(true);
+  });
+
   it("still grants when a field discloses something alongside a redaction", () => {
     // The rule is "nothing survived redaction", not "nothing was redacted". A
     // command with one credential in it is still a disclosed action.

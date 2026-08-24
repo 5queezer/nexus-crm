@@ -223,6 +223,12 @@ const SECRET_PATTERNS: RegExp[] = [
   // three-segment structure) so ordinary prose cannot match.
   /\bsk-[A-Za-z0-9._-]{8,}/gi,
   /\bjt_[A-Za-z0-9._-]{16,}/gi,
+  // The Nexus MCP OAuth pair, which is the credential Hermes actually holds
+  // for this deployment: `mcp_at_`/`mcp_rt_` plus 64 hex characters, minted in
+  // lib/mcp-oauth.ts. An agent that prints one prints it bare, and the prefix
+  // is distinctive enough to strip on sight. Kept wider than hex so a change
+  // of encoding upstream does not silently stop matching.
+  /\bmcp_(?:at|rt)_[A-Za-z0-9]{16,}/gi,
   /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
   /\bAIza[A-Za-z0-9_-]{16,}/g,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
@@ -254,6 +260,7 @@ export const CREDENTIAL_CANDIDATES: RegExp[] = [
   /\bbasic\s*[A-Za-z0-9+/]*={0,2}/gi,
   /\bsk-[A-Za-z0-9._-]*/gi,
   /\bjt_[A-Za-z0-9._-]*/gi,
+  /\bmcp_(?:at|rt)_[A-Za-z0-9]*/gi,
   /\bgh[pousr]_[A-Za-z0-9]*/g,
   /\bAIza[A-Za-z0-9_-]*/g,
   /\b(?:AKIA|ASIA)[A-Z0-9]*/g,
