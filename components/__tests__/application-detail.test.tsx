@@ -41,6 +41,18 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { signOut: vi.fn() },
 }));
 
+// Career Ops is exercised on its own; here only the opportunity it is handed
+// matters — the agent resolves that record by id and the drawer labels it.
+vi.mock("@/components/career-ops/career-ops", () => ({
+  CareerOps: (props: { application?: { id: string; company: string; role: string } }) => (
+    <div
+      data-testid="career-ops"
+      data-company={props.application?.company ?? ""}
+      data-role={props.application?.role ?? ""}
+    />
+  ),
+}));
+
 function fixtureApplication(overrides: Partial<Application> = {}): Application {
   return {
     id: "application-1",
@@ -74,8 +86,8 @@ function fixtureApplication(overrides: Partial<Application> = {}): Application {
   };
 }
 
-function renderDetail(application: Application) {
-  return render(
+function detailElement(application: Application) {
+  return (
     <QueryClientProvider
       client={
         new QueryClient({
@@ -93,8 +105,17 @@ function renderDetail(application: Application) {
         application={application}
         canonicalPath="/applications/application-1/acme-engineer"
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderDetail(application: Application) {
+  const view = render(detailElement(application));
+  return {
+    ...view,
+    /** What `router.refresh()` does: the same page, a newer server record. */
+    refreshWith: (next: Application) => view.rerender(detailElement(next)),
+  };
 }
 
 function notesTextarea(): HTMLTextAreaElement {
@@ -161,6 +182,266 @@ describe("ApplicationDetail", () => {
     for (const button of saveButtons()) {
       expect(button.disabled).toBe(false);
     }
+  });
+
+  it("shows contacts an agent added, and keeps an unsaved row edit", async () => {
+    // Contact rows were read from a `useState` initializer and never again, so
+    // a Career Ops run that added or changed a contact left the page on the
+    // pre-run list: the new contact was invisible, and saving a stale row
+    // overwrote what the agent had just written. Adoption must not cost the
+    // user an edit they have in hand either.
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const view = renderDetail(
+      fixtureApplication({
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    // Edit the existing row without saving it.
+    const nameInputs = screen.getAllByDisplayValue("Ada");
+    await user.clear(nameInputs[0]);
+    await user.type(nameInputs[0], "Ada Lovelace");
+
+    view.refreshWith(
+      fixtureApplication({
+        // Deliberately unchanged. No backend touches the application row when a
+        // contact is created, updated or deleted, so keying adoption to this
+        // timestamp — as the first attempt did — never fires for exactly the
+        // case it was written for.
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        contacts: [
+          // The agent renamed the row the user is editing, and added another.
+          { id: "c1", name: "Ada B.", email: "", role: "", linkedIn: "" },
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    // The agent's new contact is visible…
+    await waitFor(() => expect(screen.getAllByDisplayValue("Grace").length).toBe(1));
+    // …and the unsaved edit survived rather than being overwritten.
+    expect(screen.getAllByDisplayValue("Ada Lovelace").length).toBe(1);
+    expect(screen.queryByDisplayValue("Ada B.")).toBeNull();
+  });
+
+  it("does not re-add a contact from a snapshot taken before its deletion", async () => {
+    // A refresh landing mid-write is deferred, not dropped — and then applied
+    // from a snapshot that cannot contain the write it was taken before. The
+    // deleted row came straight back, and this page does not consume the
+    // invalidated query, so it stayed on screen until some later refresh.
+    const user = userEvent.setup();
+    let finishDelete: () => void = () => {};
+    const deleted = new Promise<void>((resolve) => {
+      finishDelete = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "DELETE") {
+          await deleted;
+          return { ok: true, status: 204, json: async () => ({}) } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const view = renderDetail(
+      fixtureApplication({
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "contact_remove" })[0]);
+
+    // A Career Ops refresh lands while the delete is still in flight: a genuine
+    // change — the agent added a contact — but taken before the deletion, so it
+    // still carries the row being removed.
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-02T00:00:00.000Z",
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    finishDelete();
+
+    await waitFor(() => expect(screen.queryByDisplayValue("Ada")).toBeNull());
+    // And the page asks for a snapshot that includes the deletion, rather than
+    // living without whatever that refresh legitimately carried.
+    expect(navigationMocks.refresh).toHaveBeenCalled();
+
+    // A later snapshot that reflects the deletion is adopted normally.
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-03T00:00:00.000Z",
+        contacts: [
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+    await waitFor(() => expect(screen.getAllByDisplayValue("Grace").length).toBe(1));
+    expect(screen.queryByDisplayValue("Ada")).toBeNull();
+  });
+
+  it("adopts the deferred snapshot when the write it waited for failed", async () => {
+    // The snapshot is deferred while a write is in flight and refused once the
+    // write lands — but a write that *failed* changed nothing, so its snapshot
+    // is not stale. Refusing it anyway hid a contact the agent had added, with
+    // nothing left to deliver it, and left the row that hid it able to
+    // overwrite it from what the page still showed.
+    const user = userEvent.setup();
+    let failDelete: () => void = () => {};
+    const attempted = new Promise<void>((_resolve, reject) => {
+      failDelete = () => reject(new Error("network"));
+    });
+    attempted.catch(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "DELETE") {
+          await attempted;
+          return { ok: true, status: 204, json: async () => ({}) } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const view = renderDetail(
+      fixtureApplication({
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "contact_remove" })[0]);
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-02T00:00:00.000Z",
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    failDelete();
+
+    // The deletion failed, so the row stays — and the contact the refresh
+    // carried appears rather than being silently dropped.
+    await waitFor(() => expect(screen.getAllByDisplayValue("Grace").length).toBe(1));
+    expect(screen.getAllByDisplayValue("Ada").length).toBe(1);
+  });
+
+  it("adopts a newer server record delivered by a refresh", async () => {
+    // `useState` reads its initializer once, so the baseline was frozen at
+    // mount. A Career Ops run that changes the record calls `router.refresh()`,
+    // which re-renders this page with a newer one — and the form went on
+    // holding the mount-time concurrency token, so the next save answered 409
+    // for a change the user had already been shown.
+    const patchBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          patchBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return { ok: true, status: 200, json: async () => fixtureApplication() } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    const view = renderDetail(fixtureApplication());
+
+    view.refreshWith(
+      fixtureApplication({
+        jobSummary: "Rewritten by the agent",
+        updatedAt: "2026-07-05T00:00:00.000Z",
+      }),
+    );
+
+    // The refresh is visible, not merely fetched.
+    await waitFor(() => expect(screen.getByText("Rewritten by the agent")).toBeTruthy());
+
+    await user.type(notesTextarea(), " after refresh");
+    await user.click(saveButtons()[0]);
+
+    await waitFor(() => expect(patchBodies.length).toBe(1));
+    expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-05T00:00:00.000Z");
+  });
+
+  it("hands Career Ops the company that was just saved", async () => {
+    // The page keeps the latest persisted record for display, but Career Ops
+    // was handed the mount-time prop, which does not change when a save
+    // succeeds — only on a server refresh or navigation. So after renaming the
+    // company the drawer went on labelling the conversation with the old name
+    // while the agent, resolving the same id, acted on the new one: the visible
+    // target and the target of the run and its approval prompts disagreed.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () =>
+              fixtureApplication({ company: "Renamed", updatedAt: "2026-07-09T00:00:00.000Z" }),
+          } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    expect(screen.getByTestId("career-ops").getAttribute("data-company")).toBe("Acme");
+
+    const company = screen.getByPlaceholderText("company_placeholder") as HTMLInputElement;
+    await user.clear(company);
+    await user.type(company, "Renamed");
+    await user.click(saveButtons()[0]);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("career-ops").getAttribute("data-company")).toBe("Renamed"),
+    );
+  });
+
+  it("keeps a stale token rather than dropping unsaved edits on a refresh", async () => {
+    // With edits in hand the stale token is the protection: the 409 is what
+    // tells the user their copy is behind. Adopting the new one silently would
+    // let them overwrite the change they were never shown, and replacing the
+    // form would throw their edit away.
+    const patchBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          patchBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return { ok: true, status: 200, json: async () => fixtureApplication() } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    const view = renderDetail(fixtureApplication());
+
+    await user.type(notesTextarea(), " my edit");
+    view.refreshWith(
+      fixtureApplication({ notes: "agent overwrote this", updatedAt: "2026-07-05T00:00:00.000Z" }),
+    );
+
+    expect(notesTextarea().value).toBe("Erste Notiz my edit");
+    await user.click(saveButtons()[0]);
+    await waitFor(() => expect(patchBodies.length).toBe(1));
+    expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-01T00:00:00.000Z");
   });
 
   it("sends expectedUpdatedAt and renews the baseline after each save", async () => {

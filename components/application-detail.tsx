@@ -26,6 +26,7 @@ import { DocumentsSection } from "./application-form/documents-section";
 import { ResumeSection } from "./application-form/resume-section";
 import { ApplicationTimeline } from "./application-timeline";
 import { DemoBadge } from "./demo-badge";
+import { CareerOps } from "./career-ops/career-ops";
 
 interface ApplicationDetailProps {
   user: {
@@ -105,7 +106,11 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     markSaved,
     refreshBaselineUpdatedAt,
   } = useApplicationForm(application);
-  const contactRows = useContactRows(application.id, application.contacts);
+  // The third argument is what makes refusing a pre-write snapshot safe: this
+  // page's props keep arriving from the server, so it can ask for one taken
+  // after the write instead of living without whatever the refused refresh
+  // carried.
+  const contactRows = useContactRows(application.id, application.contacts, () => router.refresh());
   // Contact rows persist individually; unsaved row edits must still guard
   // navigation even when the application form itself is clean.
   const hasUnsavedChanges = formDirty || contactRows.hasDirtyRows;
@@ -115,6 +120,15 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   const [savedFlash, setSavedFlash] = useState(false);
   const [copied, setCopied] = useState(false);
   const [displayApplication, setDisplayApplication] = useState(application);
+
+  // Same one-time read as the form baseline had: `router.refresh()` delivered a
+  // newer server record and the page went on rendering the one from mount, so
+  // the refresh after an agent run changed nothing the user could see. Adopt a
+  // strictly newer record only — a save answers with one newer than this prop,
+  // and going back to the prop afterwards would undo it on screen.
+  if (Date.parse(application.updatedAt) > Date.parse(displayApplication.updatedAt)) {
+    setDisplayApplication(application);
+  }
 
   const updateMutation = useMutation({
     mutationFn: ({
@@ -267,6 +281,29 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
               >
                 {copied ? td("link_copied") : td("copy_link")}
               </button>
+              <CareerOps
+                variant="inline"
+                application={
+                  // A demo record is deliberately invisible to the agent, so a
+                  // conversation scoped to one could never be created — the
+                  // launcher would be enabled and permanently broken. Offer an
+                  // unscoped conversation instead of a scoped dead end.
+                  displayApplication.isDemo
+                    ? undefined
+                    : {
+                        id: String(displayApplication.id),
+                        // Persisted values only, and the *latest* persisted
+                        // ones. The agent resolves this opportunity from the
+                        // database by id, so unsaved edits would name a target
+                        // that differs from the one the run and its approval
+                        // prompts act on — and the mount-time prop, which does
+                        // not change when a save succeeds, would keep naming a
+                        // company and role the record no longer has.
+                        company: displayApplication.company,
+                        role: displayApplication.role,
+                      }
+                }
+              />
               <div className="flex shrink-0 items-center gap-3">
                 <span
                   aria-live="polite"

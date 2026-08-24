@@ -68,6 +68,7 @@ model Application {
   cvPatch             CvPatch?
   submissions         ApplicationSubmission[]
   events              ApplicationEvent[]
+  careerOpsThreads    CareerOpsThread[]
 
   @@unique([userId, canonicalJobUrl])
   @@unique([demoWorkspaceId, demoKey])
@@ -221,6 +222,8 @@ model User {
   actionProposals        ActionProposal[]
   verificationResults    AgentVerificationResult[]
   mcpConnections         AgentMcpConnection[]
+  careerOpsThreads       CareerOpsThread[]
+  careerOpsRuns          CareerOpsRun[]
 }
 
 model UserApiToken {
@@ -572,4 +575,90 @@ model CvPatch {
   documentId       Int? // ID of the generated CV Document
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+}
+
+/// Nexus-owned mapping from an authenticated user to a Hermes Career Ops
+/// session. Nexus stores no transcript: message history is read from Hermes.
+model CareerOpsThread {
+  id                String         @id @default(cuid())
+  userId            String
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hermesSessionId   String
+  title             String
+  /// Optional application scope. Cleared, not cascaded, when the application goes away.
+  applicationId     Int?
+  application       Application?   @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  /// True for a conversation created against an application, and never cleared
+  /// afterwards. `applicationId` alone cannot say this: SET NULL erases the
+  /// only evidence the conversation was scoped, so deleting the application
+  /// turned it into an ordinary global thread with authority over the whole
+  /// CRM. This marker outlives the link so such a thread refuses instead.
+  applicationScoped Boolean        @default(false)
+  /// The browser's key for the creation request that made this conversation.
+  /// A lost response leaves the Hermes session and this row persisted, and the
+  /// retry the user then makes carries the same key — without it the retry
+  /// minted a second session and a duplicate conversation, because the
+  /// uniqueness key below contains the freshly generated session id.
+  clientRequestId   String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  runs              CareerOpsRun[]
+
+  @@unique([userId, hermesSessionId])
+  @@unique([userId, clientRequestId])
+  @@index([userId, updatedAt])
+  @@index([applicationId])
+}
+
+/// Nexus-owned mapping from a Career Ops thread to a Hermes run. The unique
+/// (threadId, clientRequestId) pair is what makes run creation idempotent:
+/// the Hermes runs API has no request-level idempotency of its own.
+model CareerOpsRun {
+  id                         String          @id @default(cuid())
+  userId                     String
+  user                       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId                   String
+  thread                     CareerOpsThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  hermesRunId                String
+  clientRequestId            String
+  /// Digest of the normalized message this request id was claimed for.
+  ///
+  /// An idempotency key that ignores the request body is not idempotency: the
+  /// same key sent with different text would resolve to the earlier run and
+  /// answer a question the user did not ask. Stored as a digest so the message
+  /// itself is never duplicated into Nexus.
+  requestHash                String          @default("")
+  status                     String          @default("queued")
+  /// Attribution for the last human approval decision. The command payload and
+  /// arguments are deliberately never stored.
+  approvalChoice             String?
+  approvalAt                 DateTime?
+  /// Single-use marker of the approval challenge this decision consumed, so the
+  /// same disclosed prompt cannot be replayed. Never the command or arguments.
+  approvalChallengeId        String?
+  /// The approval challenge currently outstanding for this run, set when the
+  /// prompt is disclosed and cleared when a decision consumes it. Only this
+  /// challenge may be answered, so a token minted for an earlier gate cannot
+  /// authorize a later one.
+  pendingApprovalChallengeId String?
+  /// When the approval gate this run is currently at was opened, or null when no
+  /// gate is open.
+  ///
+  /// Deliberately separate from `status`. Keying the gate on
+  /// `status = waiting_for_approval` meant two other writers could reopen it:
+  /// status recovery persisting Hermes's snapshot (which still says waiting
+  /// until the decision POST lands) and the event route. Either could reopen a
+  /// gate a decision had already claimed, letting a second decision through.
+  /// Only the approval paths write this column.
+  approvalGateOpenedAt       DateTime?
+  /// Lifecycle of the last decision: `pending` once Nexus commits to sending it,
+  /// `effect_completed` once Hermes accepted it, `outcome_unknown` when the
+  /// upstream call left it undecided. Never the command or its arguments.
+  approvalState              String?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+
+  @@unique([threadId, clientRequestId])
+  @@index([userId, createdAt])
+  @@index([threadId, createdAt])
 }

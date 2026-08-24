@@ -58,6 +58,19 @@ import type {
   DemoReadOptions,
   EnsureDemoWorkspaceResult,
   DeleteDemoWorkspaceResult,
+  CareerOpsThreadRecord,
+  CareerOpsRunRecord,
+  CareerOpsRunStatus,
+  CreateCareerOpsThreadInput,
+  CreateCareerOpsRunInput,
+  CareerOpsApprovalGateClaim,
+  CareerOpsApprovalState,
+  CareerOpsRunClaim,
+  CareerOpsThreadDeletion,
+} from "./types";
+import {
+  CAREER_OPS_ACTIVE_RUN_STATUSES,
+  CAREER_OPS_TERMINAL_RUN_STATUSES,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -2161,4 +2174,542 @@ export class PrismaAdapter implements DatabaseAdapter {
       });
     });
   }
+
+  // ── Career Ops (Hermes session bridge) ───────────────────────────────────
+
+  async listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]> {
+    const rows = await prisma.careerOpsThread.findMany({
+      where: { userId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    });
+    return rows.map(mapCareerOpsThread);
+  }
+
+  async getCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
+    const row = await prisma.careerOpsThread.findFirst({ where: { id, userId } });
+    return row ? mapCareerOpsThread(row) : null;
+  }
+
+  async getCareerOpsThreadByRequestId(
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const row = await prisma.careerOpsThread.findFirst({ where: { userId, clientRequestId } });
+    return row ? mapCareerOpsThread(row) : null;
+  }
+
+  async createCareerOpsThread(
+    userId: string,
+    data: CreateCareerOpsThreadInput,
+  ): Promise<CareerOpsThreadRecord> {
+    const clientRequestId = data.clientRequestId ?? null;
+    try {
+      const row = await prisma.careerOpsThread.create({
+        data: {
+          userId,
+          hermesSessionId: data.hermesSessionId,
+          title: data.title,
+          applicationId: data.applicationId ? nid(data.applicationId) : null,
+          // Set once, at creation, and never written again — the link can be
+          // cleared by a delete, the scope it recorded cannot.
+          applicationScoped: !!data.applicationId,
+          clientRequestId,
+        },
+      });
+      return mapCareerOpsThread(row);
+    } catch (reason) {
+      // Two retries of one lost response can race past the read that resolves
+      // the key, so the index decides. The loser gets the winner's row, which
+      // is exactly what the caller asked for: the conversation this request
+      // made. `null` here is a caller with no key, whose rows are all distinct.
+      // Matched on the code rather than the class, the way the run claim does:
+      // what identifies a unique violation is P2002, and an adapter that only
+      // recognises it through Prisma's own class cannot be exercised by a fake.
+      if (clientRequestId && (reason as { code?: string }).code === "P2002") {
+        const existing = await this.getCareerOpsThreadByRequestId(userId, clientRequestId);
+        if (existing) return existing;
+      }
+      throw reason;
+    }
+  }
+
+  async renameCareerOpsThread(
+    id: string,
+    userId: string,
+    title: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const updated = await prisma.careerOpsThread.updateMany({
+      where: { id, userId },
+      data: { title },
+    });
+    if (updated.count === 0) return null;
+    return this.getCareerOpsThread(id, userId);
+  }
+
+  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadDeletion> {
+    // One transaction decides and acts. Checking for an active run outside it
+    // leaves a window where a concurrent submission claims, starts and binds a
+    // privileged run that this delete then strands with no mapping to stop it.
+    // It also makes the two deletes atomic: a failure cannot leave the runs
+    // removed and the parent behind.
+    return prisma.$transaction(async (tx) => {
+      // Same lock the claim takes, so the two cannot interleave: without it a
+      // claim can commit between the check below and the deletes, and the
+      // cascade then removes a reservation whose Hermes run is about to start.
+      await tx.$queryRaw`SELECT id FROM "CareerOpsThread" WHERE id = ${id} FOR UPDATE`;
+      const existing = await tx.careerOpsThread.findFirst({ where: { id, userId } });
+      if (!existing) return { outcome: "not_found" as const };
+      const active = await tx.careerOpsRun.findFirst({
+        where: { threadId: id, userId, status: { in: [...CAREER_OPS_ACTIVE_RUN_STATUSES] } },
+      });
+      if (active) return { outcome: "active_run" as const };
+      await tx.careerOpsRun.deleteMany({ where: { threadId: id, userId } });
+      await tx.careerOpsThread.deleteMany({ where: { id, userId } });
+      return { outcome: "deleted" as const, thread: mapCareerOpsThread(existing) };
+    });
+  }
+
+  async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
+    const row = await prisma.careerOpsRun.findFirst({ where: { id, userId } });
+    return row ? mapCareerOpsRun(row) : null;
+  }
+
+  async claimCareerOpsRun(
+    userId: string,
+    data: CreateCareerOpsRunInput,
+  ): Promise<CareerOpsRunClaim> {
+    // Ownership is a separate question from atomicity. A thread's owner never
+    // changes, so reading it is sufficient here, while the foreign key and the
+    // partial unique index below still decide existence and the active-run race
+    // at write time.
+    const owned = await prisma.careerOpsThread.findFirst({
+      where: { id: data.threadId, userId },
+    });
+    if (!owned) return { outcome: "thread_gone" };
+
+    // The idempotent-retry lookup comes next so a repeated submission resolves
+    // to its own reservation rather than colliding with itself.
+    const existing = await prisma.careerOpsRun.findFirst({
+      where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
+    });
+    if (existing) {
+      // A retry must carry the same message. `""` marks a row written before
+      // the digest existed, and is accepted so a mid-flight deploy cannot start
+      // refusing legitimate retries.
+      if (existing.requestHash !== "" && existing.requestHash !== data.requestHash) {
+        return { outcome: "request_mismatch" };
+      }
+      return { outcome: "existing", run: mapCareerOpsRun(existing) };
+    }
+
+    try {
+      const row = await prisma.$transaction(async (tx) => {
+        // Lock the parent for the duration. Deletion takes the same lock, so a
+        // claim can no longer commit between deletion's active-run check and
+        // its removal of the mappings — which would cascade the new
+        // reservation away and leave a live Hermes run with nothing pointing
+        // at it. Locking also makes the insert and the activity bump atomic:
+        // a failed bump must not leave a committed reservation behind.
+        await tx.$queryRaw`SELECT id FROM "CareerOpsThread" WHERE id = ${data.threadId} FOR UPDATE`;
+        const created = await tx.careerOpsRun.create({
+          data: {
+            userId,
+            threadId: data.threadId,
+            hermesRunId: data.hermesRunId,
+            clientRequestId: data.clientRequestId,
+            requestHash: data.requestHash,
+            status: data.status,
+          },
+        });
+        // History is ordered by the thread's updatedAt, so without this a
+        // conversation the user is actively using stays buried under its
+        // creation or last-rename time.
+        await tx.careerOpsThread.updateMany({
+          where: { id: data.threadId, userId },
+          data: { updatedAt: new Date() },
+        });
+        return created;
+      });
+      return { outcome: "claimed", run: mapCareerOpsRun(row) };
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      // The thread was deleted between the caller's read and this write. The
+      // foreign key is what actually decides it, not a prior existence check.
+      if (code === "P2003") return { outcome: "thread_gone" };
+      if (code !== "P2002") throw error;
+
+      // Two constraints can raise P2002 here: the (threadId, clientRequestId)
+      // key when an identical retry raced us, and the partial unique index that
+      // admits one active run per thread. Re-read rather than trust the error
+      // metadata — if our own request id is present we lost a duplicate race,
+      // otherwise another run holds the slot.
+      const winner = await prisma.careerOpsRun.findFirst({
+        where: { userId, threadId: data.threadId, clientRequestId: data.clientRequestId },
+      });
+      if (winner) {
+        // The same check the lookup above performs. Reaching `existing` by
+        // losing a race rather than by finding the row first does not make a
+        // reused request id any less of a mismatch.
+        if (winner.requestHash !== "" && winner.requestHash !== data.requestHash) {
+          return { outcome: "request_mismatch" };
+        }
+        return { outcome: "existing", run: mapCareerOpsRun(winner) };
+      }
+      return { outcome: "active_run_exists" };
+    }
+  }
+
+  async updateCareerOpsRunStatus(
+    id: string,
+    userId: string,
+    status: CareerOpsRunStatus,
+  ): Promise<void> {
+    // Status transitions are monotonic, and terminal states are final.
+    //
+    // A delayed poll that observed `running` must not overwrite a terminal
+    // state the event stream already persisted: beyond showing a finished run
+    // as active, that would resurrect the row into the one-active-run index and
+    // wedge the conversation. And one terminal result must not overwrite
+    // another — a late `failed` landing on a `completed` run rewrites what the
+    // agent actually did, and the audit beside it. Re-writing the *same*
+    // terminal status stays allowed, so a duplicate delivery is a no-op rather
+    // than an error.
+    const isTerminal = CAREER_OPS_TERMINAL_RUN_STATUSES.includes(
+      status as (typeof CAREER_OPS_TERMINAL_RUN_STATUSES)[number],
+    );
+    await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        status: isTerminal
+          ? {
+              notIn: CAREER_OPS_TERMINAL_RUN_STATUSES.filter(
+                (terminal) => terminal !== status,
+              ),
+            }
+          : { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+      },
+      data: {
+        status,
+        // A terminal run has no gate. Leaving one open lets a delayed or direct
+        // denial claim it long after the run finished: the decision would
+        // overwrite the terminal run's approval audit and be forwarded upstream
+        // for an action nobody is waiting on.
+        ...(isTerminal ? { approvalGateOpenedAt: null, pendingApprovalChallengeId: null } : {}),
+      },
+    });
+  }
+
+  async bindCareerOpsRunHermesId(
+    id: string,
+    userId: string,
+    hermesRunId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    // Conditional: expiry can reach this row, and only one of the two may win.
+    const updated = await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        hermesRunId: "",
+        status: { in: [...CAREER_OPS_ACTIVE_RUN_STATUSES] },
+      },
+      data: { hermesRunId, updatedAt: new Date() },
+    });
+    if (updated.count === 0) return null;
+    return this.getCareerOpsRun(id, userId);
+  }
+
+  async expireCareerOpsRunReservation(
+    id: string,
+    userId: string,
+    cutoff: Date,
+  ): Promise<boolean> {
+    const expired = await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        hermesRunId: "",
+        status: { in: [...CAREER_OPS_ACTIVE_RUN_STATUSES] },
+        createdAt: { lt: cutoff },
+      },
+      // Not `failed`: Nexus never saw this run end and cannot say that it did.
+      data: { status: "abandoned", updatedAt: new Date() },
+    });
+    return expired.count === 1;
+  }
+
+  async deleteCareerOpsRun(id: string, userId: string): Promise<void> {
+    await prisma.careerOpsRun.deleteMany({ where: { id, userId } });
+  }
+
+  async openCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+  ): Promise<boolean> {
+    const opened = await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        // Never on a finished run. Polling can record a terminal status while
+        // an approval frame is still being processed; that write clears the
+        // gate, and an unconditional open here would put it back on the
+        // terminal row for a stale denial to claim.
+        status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+      },
+      // The gate lives here, not in `status`: recovery and the event route both
+      // write status, and either would otherwise reopen a claimed gate.
+      data: { approvalGateOpenedAt: new Date(), pendingApprovalChallengeId: challengeId },
+    });
+    // The guard above can legitimately match nothing, and the caller has to be
+    // able to tell that from success: disclosing controls for a gate that was
+    // never opened leaves the user clicking buttons that can only conflict.
+    return opened.count === 1;
+  }
+
+  async claimCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+    choice: string,
+  ): Promise<CareerOpsApprovalGateClaim | null> {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.careerOpsRun.findFirst({ where: { id, userId } });
+      // The gate is its own state, not the challenge and not the run status: a
+      // prompt whose challenge never landed is still a gate a human may deny,
+      // and a status snapshot from recovery must never reopen a claimed one.
+      if (!run || !run.approvalGateOpenedAt) return null;
+      const outstanding = run.pendingApprovalChallengeId ?? "";
+      // A grant must answer the gate that is actually pending; an earlier
+      // gate's token verifies against run, owner and choice but not this.
+      if (challengeId !== null && outstanding !== challengeId) return null;
+
+      const claimed = await tx.careerOpsRun.updateMany({
+        where: {
+          id,
+          userId,
+          approvalGateOpenedAt: run.approvalGateOpenedAt,
+          pendingApprovalChallengeId: run.pendingApprovalChallengeId,
+        },
+        data: {
+          approvalGateOpenedAt: null,
+          pendingApprovalChallengeId: null,
+          // Recorded here, not by a following write: between closing the gate
+          // and recording the decision there would be a row that looks exactly
+          // like one recovery should reopen, and a status poll landing in that
+          // interval handed a second decision the gate the first was answering.
+          approvalChoice: choice,
+          approvalAt: new Date(),
+          approvalChallengeId: outstanding,
+          approvalState: "pending",
+          updatedAt: new Date(),
+        },
+      });
+      // The conditional write decides, not the read above. Two decisions read
+      // the same open gate; only one update matches.
+      return claimed.count === 1 ? { challengeId: outstanding } : null;
+    });
+  }
+
+  async recoverCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    unresolvedSince: Date,
+  ): Promise<boolean> {
+    const opened = await prisma.careerOpsRun.updateMany({
+      where: {
+        id,
+        userId,
+        // Never on a finished run, and never while one is already open.
+        status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+        approvalGateOpenedAt: null,
+        // Never while a decision is unresolved: `pending` means one is in
+        // flight and `outcome_unknown` means one may already have landed, so
+        // opening a gate would let a second decision answer the first's action.
+        //
+        // A bare `notIn` would not say that. Postgres evaluates
+        // `approvalState NOT IN (...)` to NULL for a run that has never seen a
+        // decision, and a NULL predicate excludes the row -- so the common case
+        // (polling is the first observer of an approval gate on a fresh run)
+        // matched nothing, the owner got no prompt to deny, and Hermes stayed
+        // blocked. "No decision yet" has to be admitted explicitly.
+        //
+        // And that refusal is bounded. Both reasons expire: the upstream call
+        // cannot outlive the request timeout, so past `unresolvedSince` nothing
+        // is in flight and nothing more can land. Unbounded, one failed audit
+        // write left the run unable to open any further gate for the rest of
+        // its life.
+        OR: [
+          { approvalState: null },
+          { approvalState: { notIn: ["pending", "outcome_unknown"] } },
+          { approvalAt: { lt: unresolvedSince } },
+        ],
+      },
+      // No challenge: nothing was disclosed, so nothing may be granted. The
+      // prompt this recovers is denial-only by construction.
+      data: { approvalGateOpenedAt: new Date(), pendingApprovalChallengeId: null },
+    });
+    return opened.count === 1;
+  }
+
+  async releaseCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string,
+  ): Promise<void> {
+    await prisma.careerOpsRun.updateMany({
+      // Only if the gate is still exactly as *this* decision left it: closed,
+      // with nothing outstanding, and carrying this decision's own audit. A
+      // gate the agent has since reached is not this caller's to reopen.
+      //
+      // The audit fields are what identify the decision. Without them the
+      // predicate described a shape, not an owner: after this decision settled
+      // as `not_applied`, a status poll could recover the gate and a second
+      // request claim it — leaving the row closed with nothing outstanding
+      // again — and this rollback would then reopen the gate underneath that
+      // second decision while it was still in flight, restoring an old
+      // challenge that a retry could forward against a later Hermes gate.
+      //
+      // And never on a settled run. A terminal transition clears the gate, so
+      // its columns match this predicate exactly; without the status guard a
+      // rollback would reinstate a gate on a finished run, where a delayed
+      // denial can still claim it, be forwarded upstream for an action nobody
+      // is waiting on, and overwrite that run's approval audit.
+      where: {
+        id,
+        userId,
+        approvalGateOpenedAt: null,
+        pendingApprovalChallengeId: null,
+        approvalChallengeId: challengeId,
+        approvalState: "not_applied",
+        status: { notIn: [...CAREER_OPS_TERMINAL_RUN_STATUSES] },
+      },
+      data: {
+        approvalGateOpenedAt: new Date(),
+        pendingApprovalChallengeId: challengeId || null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async recordCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    choice: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<void> {
+    await prisma.careerOpsRun.updateMany({
+      where: { id, userId },
+      data: {
+        approvalChoice: choice,
+        approvalAt: new Date(),
+        approvalChallengeId: challengeId,
+        approvalState: state,
+      },
+    });
+  }
+
+  async settleCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<boolean> {
+    const settled = await prisma.careerOpsRun.updateMany({
+      // Only the decision this outcome belongs to, and only while it is still
+      // awaiting one. A decision's two writes straddle a network call, so gate
+      // A's outcome can arrive after gate B's `pending`; unconditional, it
+      // overwrote B's audit and resolved B's state, which is what lets recovery
+      // reopen a gate whose decision is still in flight.
+      where: { id, userId, approvalChallengeId: challengeId, approvalState: "pending" },
+      // `approvalChoice` and `approvalAt` were written with the claim and still
+      // describe this decision; only its lifecycle moves.
+      data: { approvalState: state },
+    });
+    return settled.count === 1;
+  }
+
+  async findCareerOpsRunByClientRequestId(
+    threadId: string,
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const row = await prisma.careerOpsRun.findFirst({
+      where: { threadId, userId, clientRequestId },
+    });
+    return row ? mapCareerOpsRun(row) : null;
+  }
+
+  async getLatestCareerOpsRun(
+    threadId: string,
+    userId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const rows = await prisma.careerOpsRun.findMany({
+      where: { threadId, userId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 1,
+    });
+    return rows[0] ? mapCareerOpsRun(rows[0]) : null;
+  }
+}
+
+function mapCareerOpsThread(row: {
+  id: string;
+  userId: string;
+  hermesSessionId: string;
+  title: string;
+  applicationId: number | null;
+  applicationScoped: boolean;
+  clientRequestId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): CareerOpsThreadRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    hermesSessionId: row.hermesSessionId,
+    title: row.title,
+    applicationId: row.applicationId === null ? null : sid(row.applicationId),
+    applicationScoped: row.applicationScoped,
+    clientRequestId: row.clientRequestId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapCareerOpsRun(row: {
+  id: string;
+  userId: string;
+  threadId: string;
+  hermesRunId: string;
+  clientRequestId: string;
+  status: string;
+  approvalChoice: string | null;
+  approvalAt: Date | null;
+  approvalChallengeId: string | null;
+  approvalState: string | null;
+  pendingApprovalChallengeId: string | null;
+  approvalGateOpenedAt: Date | null;
+  requestHash: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): CareerOpsRunRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    threadId: row.threadId,
+    hermesRunId: row.hermesRunId,
+    clientRequestId: row.clientRequestId,
+    status: row.status as CareerOpsRunStatus,
+    approvalGateOpenedAt: row.approvalGateOpenedAt,
+    requestHash: row.requestHash ?? "",
+    approvalChoice: row.approvalChoice ?? null,
+    approvalAt: row.approvalAt ?? null,
+    approvalChallengeId: row.approvalChallengeId ?? null,
+    approvalState: (row.approvalState as CareerOpsApprovalState | null) ?? null,
+    pendingApprovalChallengeId: row.pendingApprovalChallengeId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }

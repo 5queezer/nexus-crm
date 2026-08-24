@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import type { Contact } from "@/types";
@@ -11,14 +11,76 @@ import {
 } from "./form-data";
 
 /**
+ * Fold a refreshed server list into the rows on screen.
+ *
+ * Server wins for every row the user has not touched, and the user wins for
+ * every row they have: an unsaved edit is not something a background refresh
+ * may discard, including one whose contact the agent deleted — that row stays
+ * so the person can see what became of their edit rather than watching it
+ * vanish. Rows keep their `clientId`, because in-flight updaters target it.
+ */
+function mergeContactRows(
+  local: ContactFormRow[],
+  server: Contact[],
+): ContactFormRow[] {
+  const dirtyById = new Map<string, ContactFormRow>();
+  const unsaved: ContactFormRow[] = [];
+  for (const row of local) {
+    if (!row.isDirty) continue;
+    if (row.id) dirtyById.set(row.id, row);
+    else unsaved.push(row);
+  }
+  const localById = new Map(
+    local.filter((row) => row.id).map((row) => [row.id as string, row] as const),
+  );
+  const merged = server.map((contact) => {
+    const dirty = dirtyById.get(contact.id);
+    if (dirty) return dirty;
+    const existing = localById.get(contact.id);
+    const row = contactToRow(contact);
+    return existing ? { ...row, clientId: existing.clientId } : row;
+  });
+  const serverIds = new Set(server.map((contact) => contact.id));
+  const orphanedEdits = [...dirtyById.values()].filter(
+    (row) => !serverIds.has(row.id as string),
+  );
+  return [...merged, ...orphanedEdits, ...unsaved];
+}
+
+/**
  * Contact row state for the application form. In create mode
  * (`applicationId === null`) rows are buffered locally and flushed with
  * `persistPending` once the application exists; otherwise rows are
  * created/updated/deleted inline against the API.
  */
+/**
+ * A stable digest of the server's contact list.
+ *
+ * The list is its own revision, deliberately. Keying adoption to the parent
+ * application's `updatedAt` looked right and did nothing: no backend touches
+ * the application row when a contact is created, updated or deleted, so a run
+ * that only changed a contact left the timestamp identical and the refreshed
+ * list was never adopted. Sorted by id, so a reordered response is not mistaken
+ * for a changed one.
+ */
+function contactsRevision(contacts: Contact[]): string {
+  return contacts
+    .map((contact) =>
+      [contact.id, contact.name, contact.email, contact.role, contact.linkedIn].join("\u0000"),
+    )
+    .sort()
+    .join("\u0001");
+}
+
 export function useContactRows(
   applicationId: string | null,
   initialContacts: Contact[] | undefined,
+  /**
+   * Ask the server for a fresh record after a contact write settles. Supplied
+   * only where server props keep arriving underneath this hook — the detail
+   * page — since that is the only place a snapshot can predate a local write.
+   */
+  onWriteSettled?: () => void,
 ) {
   const queryClient = useQueryClient();
   const t = useTranslations("modal");
@@ -30,6 +92,51 @@ export function useContactRows(
     null,
   );
   const [contactError, setContactError] = useState<string | null>(null);
+  const serverContacts = initialContacts ?? [];
+  const revision = contactsRevision(serverContacts);
+  const [syncedRevision, setSyncedRevision] = useState(revision);
+  // The revision as of the latest render, readable after an await. A write's
+  // own callback closes over the props of the render that started it, which by
+  // the time it finishes are not the newest ones.
+  const latestRevision = useRef(revision);
+  latestRevision.current = revision;
+
+  /**
+   * Refuse the snapshot that was current when a local write *succeeded*, and
+   * ask the server for one that includes the write.
+   *
+   * Only on success: a write that failed changed nothing, so the snapshot
+   * deferred during it is not stale and must still be adopted.
+   *
+   * A refresh arriving mid-write is deferred, then applied — but a snapshot
+   * taken before the write landed cannot contain it. The saved row was dropped
+   * again and a deleted row came back. Only a revision that changes *after* the
+   * write is new information about it.
+   *
+   * Refusing alone would be half the answer: this page does not consume the
+   * invalidated query, so nothing else would deliver the post-write snapshot,
+   * and anything that refresh legitimately carried — a contact the agent added
+   * while the write was in flight — would stay invisible. The refresh is what
+   * turns "ignore this one" into "get the right one".
+   */
+  function resyncAfterWrite() {
+    setSyncedRevision(latestRevision.current);
+    onWriteSettled?.();
+  }
+
+  // Rows were read from a `useState` initializer and never again, so a Career
+  // Ops run that added or changed a contact left the page on the pre-run list:
+  // the new contact was invisible, and saving a stale row overwrote what the
+  // agent had just written.
+  //
+  // Not while a row's own write is in flight: that request targets a row by
+  // `clientId` and reports by index, and reshuffling underneath it would make
+  // the progress indicator describe a different row. The revision stays
+  // unadopted, so this runs again once the write settles.
+  if (revision !== syncedRevision && savingContactIdx === null && deletingContactId === null) {
+    setSyncedRevision(revision);
+    setContacts((previous) => mergeContactRows(previous, serverContacts));
+  }
 
   function handleContactChange(
     idx: number,
@@ -106,8 +213,13 @@ export function useContactRows(
         );
         queryClient.invalidateQueries({ queryKey: ["applications"] });
       }
+      resyncAfterWrite();
     } catch {
       setContactError(t("error_contact"));
+      // Deliberately no resync: nothing was written, so the deferred snapshot
+      // is not stale — it is the newest thing anyone has. Marking it synced
+      // here hid a contact the agent had added, indefinitely, and left the row
+      // that hid it able to overwrite it from what the page still showed.
     } finally {
       setSavingContactIdx(null);
     }
@@ -126,8 +238,11 @@ export function useContactRows(
       await deleteContact(applicationId, c.id);
       setContacts((prev) => prev.filter((row) => row.clientId !== clientId));
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+      resyncAfterWrite();
     } catch {
       setContactError(t("error_contact"));
+      // Same as the save path: a deletion that failed changed nothing, so the
+      // snapshot held during it is still worth adopting.
     } finally {
       setDeletingContactId(null);
     }

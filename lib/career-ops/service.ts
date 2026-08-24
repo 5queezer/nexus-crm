@@ -1,0 +1,1517 @@
+import { createHash } from "crypto";
+import { getDb } from "@/lib/db";
+import type { DatabaseAdapter } from "@/lib/db/adapter";
+import {
+  CAREER_OPS_TERMINAL_RUN_STATUSES,
+  type CareerOpsApprovalGateClaim,
+  type CareerOpsRunRecord,
+  type CareerOpsRunStatus,
+  type CareerOpsThreadRecord,
+} from "@/lib/db/types";
+import {
+  CAREER_OPS_CLIENT_REQUEST_ID_PATTERN,
+  CAREER_OPS_MAX_MESSAGE_LENGTH,
+  CAREER_OPS_MAX_TITLE_LENGTH,
+  careerOpsMemoryScope,
+  readCareerOpsConfig,
+  redactUpstreamError,
+  type CareerOpsConfig,
+} from "./config";
+import {
+  HermesError,
+  createHermesClient,
+  type HermesClient,
+  type HermesMessage,
+  type HermesRun,
+} from "./hermes-client";
+import {
+  buildApplicationContextInstructions,
+  buildGlobalInstructions,
+} from "./instructions";
+import type { CareerOpsApprovalChoice } from "./sse";
+import type { CareerOpsApplicationView } from "./serialize";
+import {
+  approvalActionHash,
+  approvalChallengeId,
+  issueApprovalChallenge,
+  verifyApprovalChallenge,
+} from "./approval-challenge";
+
+/**
+ * The single choke point between the browser-facing routes and Hermes.
+ *
+ * Every exported function starts from the authenticated Nexus session and
+ * resolves a Nexus-owned mapping before it can name a Hermes session or run.
+ * No route constructs an upstream identifier from request input.
+ */
+
+export type CareerOpsSession = {
+  userId: string;
+  user: { isAdmin: boolean };
+};
+
+export type CareerOpsErrorCode =
+  | "unavailable"
+  | "not_found"
+  | "invalid_request"
+  | "conflict"
+  | "rate_limited"
+  | "upstream_error";
+
+export class CareerOpsServiceError extends Error {
+  constructor(
+    readonly code: CareerOpsErrorCode,
+    message: string,
+    readonly retryAfterSeconds: number | null = null,
+    /**
+     * Whether the approval prompt this request answered is still open, so the
+     * browser may put its controls back.
+     *
+     * The error code cannot say this. `upstream_error` covers both a claim that
+     * never took the gate — where the prompt is untouched and answerable — and
+     * an outcome Hermes may already have applied, where the gate is
+     * deliberately left closed and a retry could only conflict. The client
+     * guessed "anything but a conflict means still pending" and left an
+     * unanswerable prompt on screen after every timeout.
+     */
+    readonly approvalStillOpen = false,
+    /**
+     * Whether a run may be executing upstream despite this failure.
+     *
+     * The error code cannot say. A submission that timed out after Hermes
+     * accepted it produces the same `upstream_error` as one that provably never
+     * left, and the retained reservation is exactly the difference. The browser
+     * reported "nothing was sent" for both: it withdrew the message, gave the
+     * draft back and unlocked the conversation while a privileged agent might
+     * have been changing CRM data.
+     */
+    readonly runMayHaveStarted = false,
+  ) {
+    super(message);
+    this.name = "CareerOpsServiceError";
+  }
+}
+
+export type CareerOpsStatus = {
+  enabled: boolean;
+  available: boolean;
+  reason: string | null;
+  capabilities: { stop: boolean; approvals: boolean; streaming: boolean };
+  /** Operator-configured upper bound on a run, so the client can size its status polling. */
+  runTimeoutMs: number;
+};
+
+const UNSUPPORTED_CAPABILITIES = { stop: false, approvals: false, streaming: false };
+
+/**
+ * Career Ops resolves applications exactly the way the Nexus MCP server does.
+ *
+ * MCP reads exclude demo records, so an application it cannot see must not
+ * become a conversation's context: the thread would look correctly scoped while
+ * every tool call for that id came back not-found.
+ */
+const AGENT_VISIBLE_READ = { demoVisibility: "exclude" } as const;
+const APPROVAL_CHOICES: readonly CareerOpsApprovalChoice[] = ["once", "session", "always", "deny"];
+
+function enabledConfig(session?: CareerOpsSession): Extract<CareerOpsConfig, { enabled: true }> {
+  const config = readCareerOpsConfig();
+  if (!config.enabled) {
+    throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
+  }
+  // The agent's Nexus MCP token belongs to one user and every tool call acts as
+  // that user. Serving anyone else would hand them the owner's CRM data.
+  if (session && session.userId !== config.ownerUserId) {
+    throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
+  }
+  return config;
+}
+
+function client(config: Extract<CareerOpsConfig, { enabled: true }>): HermesClient {
+  return createHermesClient(config);
+}
+
+/**
+ * Translate an upstream failure into a Nexus-authored error.
+ *
+ * An upstream 401/403 means *Nexus'* credential was rejected, which is an
+ * operator problem, not the end user's — surfacing it as an auth error would
+ * mislead the user into re-authenticating.
+ */
+function toServiceError(reason: unknown): CareerOpsServiceError {
+  if (reason instanceof CareerOpsServiceError) return reason;
+  if (reason instanceof HermesError) {
+    switch (reason.kind) {
+      case "unauthorized":
+        return new CareerOpsServiceError("unavailable", "Career Ops is not available");
+      case "not_found":
+        return new CareerOpsServiceError("not_found", "Not found");
+      case "conflict":
+        return new CareerOpsServiceError("conflict", "The agent is not waiting for this action");
+      case "rate_limited":
+        return new CareerOpsServiceError(
+          "rate_limited",
+          "Career Ops is busy",
+          reason.retryAfterSeconds,
+        );
+      case "timeout":
+      case "unreachable":
+      case "upstream_error":
+      default:
+        return new CareerOpsServiceError("upstream_error", "Career Ops could not be reached");
+    }
+  }
+  return new CareerOpsServiceError("upstream_error", "Career Ops could not be reached");
+}
+
+/**
+ * True only when the upstream rejected or never received the request, so no run
+ * can be executing. Anything ambiguous returns false and the claim is kept.
+ */
+function definitivelyNotSubmitted(reason: unknown): boolean {
+  if (!(reason instanceof HermesError)) return false;
+  // Each of these is a refusal Hermes stated, so no run was accepted: the claim
+  // must be released or the conversation stays blocked for the whole run
+  // lifetime over a request that provably did nothing. A timeout or transport
+  // error is different — there the run may be executing.
+  return (
+    reason.kind === "unauthorized" ||
+    reason.kind === "rate_limited" ||
+    reason.kind === "conflict" ||
+    reason.kind === "not_found"
+  );
+}
+
+/**
+ * Capability probe for the mutation path, cached briefly so starting a run does
+ * not add an upstream round-trip per message while still noticing a redeploy.
+ */
+const CAPABILITY_CACHE_TTL_MS = 60_000;
+let capabilityCache: { at: number; supported: boolean } | null = null;
+
+export function resetCareerOpsCapabilityCacheForTests(): void {
+  capabilityCache = null;
+}
+
+/**
+ * Whether Hermes still advertises everything a run needs.
+ *
+ * Deliberately the same set the availability check uses. Gating submission on a
+ * narrower set let a partial downgrade through: with run status still
+ * advertised but run submission withdrawn, a stale tab or a direct request
+ * would submit to an endpoint that no longer exists and leave the conversation
+ * holding an ambiguous reservation for the whole run lifetime.
+ */
+function supportsCareerOpsRuns(capabilities: {
+  runs: boolean;
+  sessions: boolean;
+  runStatus: boolean;
+}): boolean {
+  return capabilities.runs && capabilities.sessions && capabilities.runStatus;
+}
+
+async function hasRunSupport(
+  config: Extract<CareerOpsConfig, { enabled: true }>,
+): Promise<boolean> {
+  if (capabilityCache && Date.now() - capabilityCache.at < CAPABILITY_CACHE_TTL_MS) {
+    return capabilityCache.supported;
+  }
+  try {
+    const capabilities = await client(config).capabilities();
+    const supported = supportsCareerOpsRuns(capabilities);
+    capabilityCache = { at: Date.now(), supported };
+    return supported;
+  } catch {
+    // An unreachable Hermes fails the run anyway; do not cache that verdict.
+    return false;
+  }
+}
+
+export async function getCareerOpsStatus(
+  session?: CareerOpsSession,
+): Promise<CareerOpsStatus> {
+  const config = readCareerOpsConfig();
+  // A non-owner gets the same answer every other operation would give, and
+  // never causes a probe against the operator's Hermes instance.
+  if (config.enabled && session && session.userId !== config.ownerUserId) {
+    return {
+      enabled: false,
+      available: false,
+      reason: "not_owner",
+      capabilities: { ...UNSUPPORTED_CAPABILITIES },
+      runTimeoutMs: 0,
+    };
+  }
+  if (!config.enabled) {
+    return {
+      enabled: false,
+      available: false,
+      reason: config.reason,
+      capabilities: { ...UNSUPPORTED_CAPABILITIES },
+      runTimeoutMs: 0,
+    };
+  }
+
+  try {
+    const hermes = client(config);
+    const [health, capabilities] = await Promise.all([hermes.health(), hermes.capabilities()]);
+    if (!health.healthy) {
+      return {
+        enabled: true,
+        available: false,
+        reason: "degraded",
+        capabilities: { ...UNSUPPORTED_CAPABILITIES },
+        runTimeoutMs: config.runTimeoutMs,
+      };
+    }
+    // Run status is not optional: it is the only recovery path once the
+    // single-consumer event stream disconnects. Without it a started run is
+    // unobservable, so the honest answer is unavailable, not degraded.
+    if (!supportsCareerOpsRuns(capabilities)) {
+      return {
+        enabled: true,
+        available: false,
+        reason: "unsupported",
+        capabilities: { ...UNSUPPORTED_CAPABILITIES },
+        runTimeoutMs: config.runTimeoutMs,
+      };
+    }
+    return {
+      enabled: true,
+      available: true,
+      reason: null,
+      capabilities: {
+        stop: capabilities.stop,
+        approvals: capabilities.approvals,
+        streaming: capabilities.runEvents,
+      },
+      runTimeoutMs: config.runTimeoutMs,
+    };
+  } catch {
+    // The upstream reason is deliberately not surfaced: it can carry
+    // credentials or internal host detail.
+    return {
+      enabled: true,
+      available: false,
+      reason: "unreachable",
+      capabilities: { ...UNSUPPORTED_CAPABILITIES },
+      runTimeoutMs: config.runTimeoutMs,
+    };
+  }
+}
+
+/**
+ * Resolve a thread the caller owns.
+ *
+ * `session.readScopeUserId` is intentionally never consulted: administrators
+ * hold cross-tenant read authority over CRM data, and that must not extend to
+ * another person's Career Ops conversation.
+ */
+export async function requireOwnedThread(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<CareerOpsThreadRecord> {
+  enabledConfig(session);
+  const thread = await getDb().getCareerOpsThread(threadId, session.userId);
+  if (!thread) throw new CareerOpsServiceError("not_found", "Not found");
+  return thread;
+}
+
+export async function requireOwnedRun(
+  session: CareerOpsSession,
+  runId: string,
+): Promise<{ run: CareerOpsRunRecord; thread: CareerOpsThreadRecord }> {
+  enabledConfig(session);
+  const run = await getDb().getCareerOpsRun(runId, session.userId);
+  if (!run) throw new CareerOpsServiceError("not_found", "Not found");
+  const thread = await getDb().getCareerOpsThread(run.threadId, session.userId);
+  if (!thread) throw new CareerOpsServiceError("not_found", "Not found");
+  return { run, thread };
+}
+
+const ACTIVE_RUN_STATUSES: readonly CareerOpsRunStatus[] = [
+  "queued",
+  "running",
+  "waiting_for_approval",
+  "stopping",
+];
+
+/**
+ * How long an unbound reservation may hold a conversation.
+ *
+ * A reservation kept after an ambiguous submission has no upstream id, so
+ * nothing can ever settle it. Without an expiry it would count as an active run
+ * forever and every later message would be refused — one network timeout would
+ * brick the conversation permanently. The window is generous enough that a real
+ * in-flight submission is never mistaken for a stale one.
+ */
+/**
+ * Digest of the message a client request id is claimed for.
+ *
+ * A digest, not the text: Nexus already declines to duplicate the conversation
+ * into its own store, and this exists only to tell a genuine retry from a
+ * reused key. Normalized so that trimming or line-ending differences between a
+ * submission and its retry do not read as a different question.
+ */
+export function careerOpsRequestHash(message: string): string {
+  return createHash("sha256")
+    .update(message.replace(/\r\n/g, "\n").trim())
+    .digest("base64url")
+    .slice(0, 32);
+}
+
+/**
+ * How much prior conversation is replayed to Hermes on each turn.
+ *
+ * Bounded twice — by turns and by characters — because this text is
+ * attacker-influenced (it is assistant output) and goes into a request body
+ * that must stay within the same limits as everything else on this path. The
+ * most recent turns are kept: those are the ones a follow-up refers to.
+ */
+const HISTORY_MAX_MESSAGES = 20;
+const HISTORY_MAX_CHARS = 24_000;
+
+/**
+ * The prior turns of a conversation, oldest first and bounded.
+ *
+ * Necessary because the Runs API builds model history from explicit request
+ * fields and does not hydrate stored messages from `session_id`. Passing the
+ * session id alone produced a drawer that showed a continuous conversation
+ * while every turn started from nothing.
+ */
+function boundedHistory(
+  messages: readonly { role: "user" | "assistant"; content: string }[],
+): { role: "user" | "assistant"; content: string }[] {
+  const kept: { role: "user" | "assistant"; content: string }[] = [];
+  let budget = HISTORY_MAX_CHARS;
+  // Walk backwards: a follow-up refers to the newest turns, so those are the
+  // ones worth spending the budget on.
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (kept.length >= HISTORY_MAX_MESSAGES || budget <= 0) break;
+    const message = messages[i];
+    if (!message.content) continue;
+    if (message.content.length > budget) {
+      // Keep a bounded portion rather than dropping everything. One oversized
+      // message — content is accepted up to 200 000 characters — used to end
+      // the walk on its first iteration and return no history at all, so the
+      // next turn lost even the question it was answering while the drawer
+      // still showed a continuous conversation.
+      //
+      // Safe to slice: this text was redacted whole when the transcript was
+      // read, so cutting it here cannot sever a credential.
+      kept.push({ role: message.role, content: `${message.content.slice(0, budget)}…` });
+      break;
+    }
+    budget -= message.content.length;
+    kept.push({ role: message.role, content: message.content });
+  }
+  return kept.reverse();
+}
+
+/**
+ * Grace beyond the run lifetime before a reservation is given up on.
+ *
+ * The lifetime is what Nexus watches for; Hermes may still be finishing when it
+ * elapses. The margin keeps the ordinary case — a slow but live run — from
+ * having its slot taken.
+ */
+const RESERVATION_EXPIRY_MARGIN_MS = 5 * 60_000;
+
+function unboundReservationTtlMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
+  // The full run lifetime, not a short grace period. If Hermes accepted the
+  // submission and only the response was lost, a legitimate run can still be
+  // executing for as long as any run may run — and Nexus holds no id for it, so
+  // it cannot check. Expiring sooner would let a fresh request id start a
+  // SECOND privileged agent against the same session.
+  //
+  // The cost is that a submission which genuinely failed blocks the
+  // conversation for that long. That is the safer side of the trade: a stalled
+  // conversation is recoverable, two concurrent agents mutating the same CRM
+  // data are not. A real fix needs Hermes to support looking a run up by client
+  // key, which it does not — see design.md D10.
+  //
+  // The submission's own timeout counts too. Both bounds are operator
+  // configuration, and nothing makes the run lifetime the larger one: with a
+  // connect timeout above it, the `createRun` call could still legitimately be
+  // awaiting its response after the reservation became expirable, and a
+  // concurrent read or retry would free the slot underneath a submission
+  // Hermes might yet accept — the two overlapping runs this exists to prevent.
+  return Math.max(60_000, config.runTimeoutMs, config.connectTimeoutMs);
+}
+
+/**
+ * The instant before which an unbound reservation may be given up on.
+ *
+ * Deliberately past the whole submission-and-run window plus a margin.
+ * `runTimeoutMs` bounds how long Nexus watches a run, not how long Hermes may
+ * execute one, and the submission itself is bounded separately — so a shorter
+ * cutoff would free the conversation's active slot while the upstream run could
+ * still be working, or before its submission had even been answered, and admit
+ * a second privileged run beside it.
+ */
+function reservationCutoff(config: Extract<CareerOpsConfig, { enabled: true }>): Date {
+  return new Date(Date.now() - unboundReservationTtlMs(config) - RESERVATION_EXPIRY_MARGIN_MS);
+}
+
+/**
+ * Margin past which an unresolved approval decision can no longer be racing.
+ *
+ * `pending` blocks a new gate because a decision may still be in flight, and
+ * `outcome_unknown` because one may still be landing. Both are bounded: the
+ * upstream call cannot outlive the request timeout. Without a bound the block
+ * was permanent, so one failed audit write stranded every later gate in the run
+ * — the browser kept showing a denial-only prompt whose every decision
+ * conflicted, and Hermes waited forever.
+ */
+const APPROVAL_SETTLE_MARGIN_MS = 60_000;
+
+/** The instant before which an unresolved decision stops blocking a new gate. */
+function approvalSettleCutoff(config: Extract<CareerOpsConfig, { enabled: true }>): Date {
+  return new Date(Date.now() - config.connectTimeoutMs - APPROVAL_SETTLE_MARGIN_MS);
+}
+
+/**
+ * Give up on a reservation nothing can settle, if it is genuinely past its
+ * cutoff — decided by the database, in one conditional transition, so it cannot
+ * race the binding of an upstream id that arrived late.
+ *
+ * The status written is `abandoned`, never `failed`: Nexus holds no upstream id
+ * for this run, so it never observed an outcome and must not assert one.
+ *
+ * Residual, and stated plainly because it cannot be closed from this side: this
+ * frees the active slot on a *local* deadline. Only an execution deadline that
+ * Hermes itself enforces would prove the upstream run has stopped, and the Runs
+ * API exposes no such field, just as it exposes no lookup by client key. See
+ * design.md.
+ */
+async function expireUnboundReservation(
+  run: CareerOpsRunRecord,
+  session: CareerOpsSession,
+  config: Extract<CareerOpsConfig, { enabled: true }>,
+): Promise<boolean> {
+  if (run.hermesRunId !== "") return false;
+  return getDb()
+    .expireCareerOpsRunReservation(run.id, session.userId, reservationCutoff(config))
+    .catch(() => false);
+}
+
+/**
+ * The thread's latest run when it has not reached a terminal state, so a client
+ * that reloaded mid-run can rejoin it instead of showing an idle composer and
+ * letting a second concurrent run start on the same session.
+ */
+export async function getActiveCareerOpsRun(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<CareerOpsRunRecord | null> {
+  return (await getCareerOpsThreadRunState(session, threadId)).activeRun;
+}
+
+/**
+ * The conversation's run state in one read: the live run if there is one, and
+ * otherwise when its most recent run settled.
+ *
+ * `settledAt` exists because the drawer learns the transcript and the run state
+ * from two separate requests, and no ordering of two reads makes them one
+ * snapshot. A run that finishes between them is invisible to both: the
+ * transcript was taken before the reply existed, and the run state taken after
+ * reports nothing in flight. The conversation then shows a question with no
+ * answer until something else reloads it. Handing the client the settle time
+ * lets it notice that its transcript is the older of the two and re-read.
+ */
+export async function getCareerOpsThreadRunState(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<{ activeRun: CareerOpsRunRecord | null; settledAt: Date | null }> {
+  const config = enabledConfig(session);
+  const run = await getDb().getLatestCareerOpsRun(threadId, session.userId);
+  if (!run) return { activeRun: null, settledAt: null };
+  if (!ACTIVE_RUN_STATUSES.includes(run.status)) {
+    return { activeRun: null, settledAt: run.updatedAt };
+  }
+  // A reservation nothing can settle stops counting as active once it expires.
+  // Settle it here rather than merely ignoring it: the adapters enforce the
+  // active-run invariant on the stored status, so a row this function treats as
+  // inactive while the database still counts it as active leaves the
+  // conversation impossible to delete — and impossible to escape without
+  // submitting again to trigger the cleanup elsewhere.
+  //
+  // An expiry is a settle like any other, and the client must re-read for the
+  // same reason: the run may have produced output Nexus never saw.
+  if (await expireUnboundReservation(run, session, config)) {
+    return { activeRun: null, settledAt: new Date() };
+  }
+  return { activeRun: run, settledAt: null };
+}
+
+export async function listCareerOpsThreads(
+  session: CareerOpsSession,
+): Promise<CareerOpsThreadRecord[]> {
+  enabledConfig(session);
+  return getDb().listCareerOpsThreads(session.userId);
+}
+
+function defaultTitle(company: string, role: string): string {
+  const label = [company, role].filter(Boolean).join(" — ");
+  return (label || "Career Ops").slice(0, CAREER_OPS_MAX_TITLE_LENGTH);
+}
+
+export async function createCareerOpsThread(
+  session: CareerOpsSession,
+  input: { title?: string; applicationId?: string | null; clientRequestId?: string | null },
+): Promise<CareerOpsThreadRecord> {
+  const config = enabledConfig(session);
+  const db = getDb();
+
+  const clientRequestId = input.clientRequestId?.trim() || null;
+  if (clientRequestId && !CAREER_OPS_CLIENT_REQUEST_ID_PATTERN.test(clientRequestId)) {
+    throw new CareerOpsServiceError("invalid_request", "Invalid request id");
+  }
+  // Before Hermes is asked for anything. A lost response leaves the session and
+  // the conversation persisted, and the retry the browser sends carries this
+  // same key — resolving it here is what keeps that retry from minting a second
+  // upstream session and a duplicate conversation. The other uniqueness key
+  // contains the freshly generated session id, so it can never match a retry.
+  if (clientRequestId) {
+    const already = await db.getCareerOpsThreadByRequestId(session.userId, clientRequestId);
+    if (already) return already;
+  }
+
+  let applicationId: string | null = null;
+  let title = (input.title ?? "").trim().slice(0, CAREER_OPS_MAX_TITLE_LENGTH);
+
+  if (input.applicationId) {
+    // One read both proves ownership and enforces agent visibility.
+    const application = await db.getApplication(
+      input.applicationId,
+      session.userId,
+      AGENT_VISIBLE_READ,
+    );
+    if (!application) throw new CareerOpsServiceError("not_found", "Not found");
+    applicationId = input.applicationId;
+    if (!title) {
+      title = defaultTitle(
+        typeof application.company === "string" ? application.company : "",
+        typeof application.role === "string" ? application.role : "",
+      );
+    }
+  }
+
+  if (!title) title = "Career Ops";
+
+  let hermesSessionId: string;
+  try {
+    const created = await client(config).createSession({
+      title: undefined,
+      memoryScope: careerOpsMemoryScope(config, session.userId),
+    });
+    hermesSessionId = created.id;
+  } catch (reason) {
+    throw toServiceError(reason);
+  }
+
+  let thread: CareerOpsThreadRecord;
+  try {
+    thread = await db.createCareerOpsThread(session.userId, {
+      hermesSessionId,
+      title,
+      applicationId,
+      clientRequestId,
+    });
+  } catch (reason) {
+    // The upstream session exists but nothing in Nexus points at it. Without
+    // this cleanup every retry would strand another unaddressable session.
+    // Awaited, not fire-and-forget: the response can end this process before an
+    // unawaited request is sent, which is exactly the case that leaks. A
+    // failure here is logged rather than hidden, because the session then
+    // outlives Nexus' knowledge of it and only an operator can reconcile it.
+    await client(config)
+      .deleteSession(hermesSessionId)
+      .catch((cleanupFailure) => {
+        console.warn(
+          "career-ops: orphaned upstream session, manual cleanup required",
+          redactUpstreamError(cleanupFailure),
+        );
+      });
+    throw toServiceError(reason);
+  }
+
+  // The write can answer with the conversation an earlier retry already made:
+  // two retries of one lost response race past the read above, and the request
+  // key decides between them. The session this attempt minted is then
+  // referenced by nothing, so it is cleaned up here rather than left for an
+  // operator to find — the same reasoning as the failure path above.
+  if (thread.hermesSessionId !== hermesSessionId) {
+    await client(config)
+      .deleteSession(hermesSessionId)
+      .catch((cleanupFailure) => {
+        console.warn(
+          "career-ops: orphaned upstream session, manual cleanup required",
+          redactUpstreamError(cleanupFailure),
+        );
+      });
+  }
+  return thread;
+}
+
+export async function deleteCareerOpsThread(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<void> {
+  const config = enabledConfig(session);
+  const thread = await requireOwnedThread(session, threadId);
+
+  // Deleting a Hermes session does not stop its runs — the upstream handler
+  // only drops the session row. Removing the mappings first would leave a
+  // privileged run executing with nothing left to observe or stop it, so stop
+  // it while it is still addressable.
+  const active = await getActiveCareerOpsRun(session, threadId);
+  if (active && !active.hermesRunId) {
+    // An ambiguous submission: a privileged run may be executing and Nexus has
+    // no id to stop it with. Deleting would drop the only mapping and leave it
+    // running unreachable — deleting the Hermes session does not stop its runs.
+    throw new CareerOpsServiceError(
+      "conflict",
+      "A run may still be starting; the conversation was not deleted",
+    );
+  }
+  if (active && active.hermesRunId) {
+    // A stop is only an acknowledgement — Hermes reports `stopping` and settles
+    // later. Deleting on the acknowledgement would discard the last handle on a
+    // run whose tool call has not yet honoured cancellation, so wait for an
+    // observed terminal state and keep the mapping if it never arrives.
+    const confirmed = await stopAndConfirmTerminal(config, active.hermesRunId);
+    if (!confirmed) {
+      throw new CareerOpsServiceError(
+        "conflict",
+        "The active run could not be confirmed stopped; the conversation was not deleted",
+      );
+    }
+    await getDb()
+      .updateCareerOpsRunStatus(active.id, session.userId, "cancelled")
+      .catch(() => undefined);
+  }
+
+  // The delete itself is the authority on whether the conversation is free.
+  // The check above stops a run that was already there, but a submission can
+  // claim and bind one in the window between that check and this call — so the
+  // adapter decides and acts in one transaction and refuses if it lost the
+  // race. The owner retries; nothing is left stranded.
+  const deletion = await getDb().deleteCareerOpsThread(threadId, session.userId);
+  if (deletion.outcome === "active_run") {
+    throw new CareerOpsServiceError(
+      "conflict",
+      "A run started while the conversation was being deleted; it was not deleted",
+    );
+  }
+  if (deletion.outcome === "not_found") {
+    throw new CareerOpsServiceError("not_found", "Not found");
+  }
+
+  // Only once the mapping is gone: an orphaned upstream session that nothing
+  // can address is strictly better than a reachable pointer to a live one.
+  try {
+    await client(config).deleteSession(thread.hermesSessionId);
+  } catch (reason) {
+    console.warn("career-ops: upstream session delete failed", redactUpstreamError(reason));
+  }
+}
+
+export async function listCareerOpsThreadMessages(
+  session: CareerOpsSession,
+  threadId: string,
+): Promise<HermesMessage[]> {
+  const config = enabledConfig(session);
+  const thread = await requireOwnedThread(session, threadId);
+  try {
+    return await client(config).listSessionMessages(thread.hermesSessionId);
+  } catch (reason) {
+    throw toServiceError(reason);
+  }
+}
+
+/**
+ * The opportunity a thread is scoped to, as the agent can currently see it, or
+ * null when the link is gone or no longer agent-visible. Resolved per active
+ * thread rather than for every row in the list: the badge describes the
+ * conversation in front of the user, and a read per listed thread would be an
+ * unbounded fan-out.
+ */
+export async function resolveCareerOpsThreadApplication(
+  session: CareerOpsSession,
+  thread: CareerOpsThreadRecord,
+): Promise<CareerOpsApplicationView | null> {
+  enabledConfig(session);
+  if (!thread.applicationId) return null;
+  const application = await getDb().getApplication(
+    thread.applicationId,
+    session.userId,
+    AGENT_VISIBLE_READ,
+  );
+  if (!application) return null;
+  return {
+    id: thread.applicationId,
+    company: application.company,
+    role: application.role,
+  };
+}
+
+/** One refusal for both ways a conversation can lose its opportunity. */
+function scopeLostError(): CareerOpsServiceError {
+  return new CareerOpsServiceError(
+    "conflict",
+    "This conversation's opportunity is no longer available; start a general conversation instead",
+  );
+}
+
+async function threadInstructions(
+  session: CareerOpsSession,
+  thread: CareerOpsThreadRecord,
+): Promise<string> {
+  if (!thread.applicationId) {
+    // A conversation created against an application never becomes a global one.
+    // Both backends clear the link when the application is deleted — a foreign
+    // key SET NULL relationally, an explicit sweep in Firestore — which erased
+    // the only evidence the conversation was scoped and let this function hand
+    // it the global instructions. The user, who confined this conversation to
+    // one opportunity, would have had it acting across the whole CRM.
+    if (thread.applicationScoped) throw scopeLostError();
+    return buildGlobalInstructions();
+  }
+  // The link can outlive the agent's ability to read it (deleted, or turned
+  // into demo data), so re-check visibility on every run rather than trusting
+  // the stored id.
+  const application = await getDb().getApplication(
+    thread.applicationId,
+    session.userId,
+    AGENT_VISIBLE_READ,
+  );
+  if (!application) {
+    // Falling back to global instructions here would silently widen the run's
+    // scope: the conversation still carries an application id and the surface
+    // still presents it as application context, so the user would believe the
+    // agent is confined to one opportunity while it could act across the whole
+    // CRM. Fail closed and require an explicit move to a global conversation.
+    throw scopeLostError();
+  }
+  return buildApplicationContextInstructions({
+    id: thread.applicationId,
+    company: application.company,
+    role: application.role,
+  });
+}
+
+// Kept in step with CAREER_OPS_TERMINAL_RUN_STATUSES: a status missing here is
+// one this service would keep polling for after it can no longer change.
+const TERMINAL_RUN_STATUSES: readonly string[] = [...CAREER_OPS_TERMINAL_RUN_STATUSES];
+
+/**
+ * Upstream failures that leave it unknown whether the request took effect. A
+ * refusal Hermes stated (`conflict`, `not_found`) is decided; a transport
+ * failure is not.
+ */
+const AMBIGUOUS_UPSTREAM_KINDS: readonly string[] = ["timeout", "unreachable", "upstream_error"];
+
+/**
+ * Refusals that leave the same upstream approval gate waiting.
+ *
+ * Hermes stating a refusal proves the decision was not applied, but that is not
+ * the same as proving the gate is still there to answer. A 429 was throttled
+ * before it reached the run and a 401/403 was rejected at the edge, so the
+ * agent is still parked at the prompt that was disclosed. A 404 or a 409 says
+ * the opposite: the run or the gate has moved on. Reopening locally on those
+ * hands the browser back a prompt whose upstream side no longer exists.
+ */
+const GATE_STILL_PENDING_KINDS: readonly string[] = ["rate_limited", "unauthorized"];
+
+/** How long to wait for a stopped run to actually settle. */
+function stopConfirmationWindowMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
+  return Math.min(Math.max(config.connectTimeoutMs * 3, 3_000), 15_000);
+}
+
+/**
+ * Stop an upstream run and confirm it actually reached a terminal state.
+ *
+ * `POST /v1/runs/{id}/stop` only acknowledges the request — Hermes reports
+ * `stopping` and settles later — so treating the acknowledgement as the end of
+ * the run lets a tool that has not yet honoured cancellation keep mutating CRM
+ * data while Nexus throws away the only handle to it. Callers that are about to
+ * discard a mapping must know whether the run is really finished.
+ *
+ * Returns true only on observed terminal state. A stop that fails, a status
+ * that never settles, and a deadline overrun all return false: unknown is not
+ * stopped.
+ */
+async function stopAndConfirmTerminal(
+  config: Extract<CareerOpsConfig, { enabled: true }>,
+  hermesRunId: string,
+): Promise<boolean> {
+  const api = client(config);
+  try {
+    await api.stopRun(hermesRunId);
+  } catch (reason) {
+    // A run Hermes has already forgotten cannot still be executing; anything
+    // else leaves the outcome unknown.
+    if (reason instanceof HermesError && reason.kind === "not_found") return true;
+    return false;
+  }
+
+  // Bounded by a short window, not the run lifetime: this runs inside a request
+  // the user is waiting on, and "not settled yet" is a safe answer — the caller
+  // keeps the mapping and the owner can retry. Blocking for the full run
+  // timeout would hang a delete for minutes to reach the same conclusion.
+  const deadline = Date.now() + stopConfirmationWindowMs(config);
+  let delayMs = 200;
+  while (Date.now() < deadline) {
+    try {
+      const status = await api.getRun(hermesRunId);
+      if (TERMINAL_RUN_STATUSES.includes(status.status)) return true;
+    } catch (reason) {
+      if (reason instanceof HermesError && reason.kind === "not_found") return true;
+      return false;
+    }
+    await sleep(Math.min(delayMs, Math.max(0, deadline - Date.now())));
+    delayMs = Math.min(delayMs * 2, 2_000);
+  }
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Free a reservation for a submission that provably never reached Hermes.
+ *
+ * Discarding the failure here was cheap to write and expensive to be in: the
+ * reservation holds the conversation's single active slot, so a retry with the
+ * same request id reports an ambiguous start and a new one is refused by the
+ * active-run invariant — the conversation is blocked for the whole reservation
+ * lifetime over a request that upstream explicitly refused.
+ *
+ * So retry the delete, and if it still will not go, settle the row terminal
+ * instead: `abandoned` says exactly what happened and frees the slot through
+ * the same partial index. Only when neither can be written does the TTL expiry
+ * remain the backstop, which is the case the caller's error already describes.
+ */
+async function releaseUnusedReservation(
+  db: DatabaseAdapter,
+  runId: string,
+  userId: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await db.deleteCareerOpsRun(runId, userId);
+      return;
+    } catch {
+      if (attempt < 2) await sleep(100 * 2 ** attempt);
+    }
+  }
+  await db.updateCareerOpsRunStatus(runId, userId, "abandoned").catch(() => undefined);
+}
+
+export async function startCareerOpsRun(
+  session: CareerOpsSession,
+  threadId: string,
+  input: { message: string; clientRequestId: string },
+): Promise<CareerOpsRunRecord> {
+  const config = enabledConfig(session);
+
+  const message = input.message.trim();
+  if (!message || message.length > CAREER_OPS_MAX_MESSAGE_LENGTH) {
+    throw new CareerOpsServiceError("invalid_request", "Invalid message");
+  }
+  if (!CAREER_OPS_CLIENT_REQUEST_ID_PATTERN.test(input.clientRequestId)) {
+    throw new CareerOpsServiceError("invalid_request", "Invalid client request id");
+  }
+
+  const thread = await requireOwnedThread(session, threadId);
+
+  // The status endpoint gates the UI, but a stale tab or a direct authenticated
+  // request must not be able to start a run whose only recovery path is absent.
+  if (!(await hasRunSupport(config))) {
+    throw new CareerOpsServiceError("unavailable", "Career Ops is not available");
+  }
+
+  const db = getDb();
+
+  // One atomic claim decides all three questions: is this an idempotent retry,
+  // does the conversation already hold a live run, and does the conversation
+  // still exist. A read-then-write sequence cannot decide any of them — two
+  // submissions both pass it and both start a privileged agent run against the
+  // same Hermes session — so the invariant lives in the database.
+  const claimInput = {
+    threadId,
+    hermesRunId: "",
+    clientRequestId: input.clientRequestId,
+    // Bind the key to what it is being claimed for. Without this the same id
+    // sent with edited text resolves to the earlier run, and the user is shown
+    // an answer to a question they no longer asked.
+    requestHash: careerOpsRequestHash(message),
+    status: "queued" as const,
+  };
+  let claim = await db.claimCareerOpsRun(session.userId, claimInput);
+  // An expired reservation has to be reclaimable from the path the client
+  // actually takes. After a lost response the browser deliberately resends the
+  // *same* request id, so every retry lands in `existing` below — never in
+  // `active_run_exists`, which was the only branch that expired anything. The
+  // bounded recovery the design promises was therefore unreachable: the
+  // conversation stayed blocked past the cutoff unless something else happened
+  // to read the run and the user also invented a new id.
+  //
+  // Past the cutoff Nexus has already decided it will never observe this run,
+  // which is the same judgement the other branch makes. Settle it, free the id,
+  // and let this attempt claim it rather than telling the user to keep waiting.
+  //
+  // A settled reservation is reclaimable for a second reason, and this one
+  // needs no cutoff at all: releasing a reservation that could not be deleted
+  // marks it `abandoned` rather than leaving a row nothing can clear, and that
+  // row keeps the request id. The retry the browser sends with that same id
+  // then found a terminal reservation and was told an attempt might still be
+  // starting — of a submission Nexus had already given up on, or never sent —
+  // and the conversation locked with nothing able to unlock it.
+  if (claim.outcome === "existing" && isUnbound(claim.run)) {
+    if (isSettled(claim.run) || (await expireUnboundReservation(claim.run, session, config))) {
+      await releaseUnusedReservation(db, claim.run.id, session.userId);
+      claim = await db.claimCareerOpsRun(session.userId, claimInput);
+    }
+  }
+  if (claim.outcome === "existing") {
+    // An unbound reservation is an ambiguous earlier submission: Hermes may be
+    // executing it, and Nexus has no id to observe or stop it with. Returning
+    // it as an accepted run would have the client subscribe to events that 409
+    // and poll a status that stays `queued` for the whole run lifetime. Say it
+    // is uncertain instead.
+    if (isUnbound(claim.run)) {
+      // Only an *active* unbound reservation is ambiguous. A settled one is a
+      // submission Nexus has finished with: saying it may still be starting
+      // locks the conversation over a run that is not running. This is
+      // reachable only when the reclaim above could not remove the row, so the
+      // id cannot be reused — but the answer is still a refusal, not an
+      // unknown.
+      if (isSettled(claim.run)) {
+        throw new CareerOpsServiceError(
+          "conflict",
+          "That earlier attempt was abandoned; send the message again",
+        );
+      }
+      throw new CareerOpsServiceError(
+        "conflict",
+        "An earlier attempt may still be starting; wait before retrying",
+        null,
+        false,
+        true,
+      );
+    }
+    return claim.run;
+  }
+  if (claim.outcome === "request_mismatch") {
+    throw new CareerOpsServiceError(
+      "conflict",
+      "That request id was already used for a different message",
+    );
+  }
+  if (claim.outcome === "thread_gone") {
+    throw new CareerOpsServiceError("not_found", "Not found");
+  }
+  if (claim.outcome === "active_run_exists") {
+    // An expired unbound reservation must not wedge the conversation forever.
+    // Settle it, then let the caller retry into the freed slot.
+    const stale = await db.getLatestCareerOpsRun(threadId, session.userId);
+    if (stale) await expireUnboundReservation(stale, session, config);
+    throw new CareerOpsServiceError("conflict", "This conversation already has a run in progress");
+  }
+  const reservation = claim.run;
+
+  let instructions: string;
+  try {
+    instructions = await threadInstructions(session, thread);
+  } catch (reason) {
+    // Still provably before submission: nothing has been sent to Hermes, so the
+    // claim must be released. Holding it would strand the conversation for the
+    // whole reservation lifetime over a transient read failure — retries with
+    // the same request id would return the unbound row and fresh ids would
+    // conflict with it. Same durable release as the refusal path below: a
+    // one-shot delete that fails leaves exactly the reservation this is here to
+    // remove.
+    await releaseUnusedReservation(db, reservation.id, session.userId);
+    throw toServiceError(reason);
+  }
+
+  // Read the prior turns before submitting. Fails closed: a conversation that
+  // silently forgets what was said is the defect being fixed here, so a
+  // transcript this call cannot read is reported rather than papered over with
+  // a run that starts from nothing.
+  let history: { role: "user" | "assistant"; content: string }[];
+  try {
+    history = boundedHistory(await client(config).listSessionMessages(thread.hermesSessionId));
+  } catch (reason) {
+    // Provably before submission, so the claim must be released — the same
+    // reasoning, and the same durable release, as the instructions read above.
+    await releaseUnusedReservation(db, reservation.id, session.userId);
+    throw toServiceError(reason);
+  }
+
+  let runId: string;
+  try {
+    ({ runId } = await client(config).createRun({
+      input: message,
+      sessionId: thread.hermesSessionId,
+      instructions,
+      history,
+      memoryScope: careerOpsMemoryScope(config, session.userId),
+    }));
+  } catch (reason) {
+    // Releasing the claim is only safe when the request provably never reached
+    // Hermes. A timeout or a mid-flight transport error is ambiguous: the run
+    // may already be executing, and releasing would let a retry with the same
+    // client request id start a second privileged run. The retained reservation
+    // has no upstream id, so nothing can settle it — it expires instead (see
+    // unboundReservationTtlMs) rather than blocking the conversation forever.
+    const provablyUnsent = definitivelyNotSubmitted(reason);
+    if (provablyUnsent) {
+      await releaseUnusedReservation(db, reservation.id, session.userId);
+    }
+    // The reservation is retained precisely when the outcome is unknown, so the
+    // caller must not be told nothing was sent.
+    const settled = toServiceError(reason);
+    throw new CareerOpsServiceError(
+      settled.code,
+      settled.message,
+      settled.retryAfterSeconds,
+      false,
+      !provablyUnsent,
+    );
+  }
+
+  let bound: CareerOpsRunRecord | null;
+  try {
+    bound = await db.bindCareerOpsRunHermesId(reservation.id, session.userId, runId);
+  } catch (reason) {
+    // The upstream run is live but Nexus could not record its id. Releasing the
+    // claim is only safe once that run is provably finished — an unawaited stop
+    // can be cut short by the process ending, and Hermes can reject it, either
+    // of which would let a retry start a second privileged run alongside the
+    // first. Confirm termination before freeing the slot; if it cannot be
+    // confirmed, keep the reservation so the conversation stays blocked rather
+    // than running two agents against one session.
+    const confirmed = await stopAndConfirmTerminal(config, runId).catch(() => false);
+    if (confirmed) {
+      // Confirmed terminal upstream, so the slot is provably free: release it
+      // durably rather than losing the attempt to a transient write failure.
+      await releaseUnusedReservation(db, reservation.id, session.userId);
+    } else {
+      await db
+        .updateCareerOpsRunStatus(reservation.id, session.userId, "stopping")
+        .catch(() => undefined);
+    }
+    // Confirmed terminal means the run provably stopped; anything else means it
+    // may still be executing, and the caller has to be told which.
+    const settled = toServiceError(reason);
+    throw new CareerOpsServiceError(
+      settled.code,
+      settled.message,
+      settled.retryAfterSeconds,
+      false,
+      !confirmed,
+    );
+  }
+  if (!bound) {
+    // The reservation vanished under us (concurrent thread delete). Same
+    // reasoning: do not leave a live agent run nothing can address — and await
+    // the stop, because the response may end this process.
+    await stopAndConfirmTerminal(config, runId).catch(() => false);
+    throw new CareerOpsServiceError("conflict", "The conversation is no longer available");
+  }
+  return bound;
+}
+
+/**
+ * A reservation exists but its upstream run has not been created yet, so there
+ * is nothing addressable upstream. Callers report it as still queued rather
+ * than sending an empty id to Hermes.
+ */
+function isUnbound(run: CareerOpsRunRecord): boolean {
+  return run.hermesRunId === "";
+}
+
+/** The run has reached a state nothing will move it out of. */
+function isSettled(run: CareerOpsRunRecord): boolean {
+  return TERMINAL_RUN_STATUSES.includes(run.status);
+}
+
+export async function getCareerOpsRunStatus(
+  session: CareerOpsSession,
+  runId: string,
+): Promise<HermesRun> {
+  const config = enabledConfig(session);
+  const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) return { runId: run.id, status: "queued", output: "", error: null };
+  try {
+    const upstream = await client(config).getRun(run.hermesRunId);
+    // Captured before the write: the stored status is the previous observation,
+    // and it is what says whether this poll has *entered* a gate or is looking
+    // at one it has already seen.
+    const previousStatus = run.status;
+    await getDb().updateCareerOpsRunStatus(run.id, session.userId, upstream.status);
+    // Polling may be the first thing to see a gate: the event stream is
+    // single-consumer and Hermes need not support it at all. Recovery has no
+    // prompt to disclose and so no challenge, but the owner must still be able
+    // to refuse — otherwise the browser shows the recovered denial-only prompt
+    // while every decision is refused for having no gate, and Hermes waits
+    // forever. The adapter declines while a decision is unresolved, so this can
+    // never reopen a gate another decision already took.
+    //
+    // But a *completed* decision does not stop the adapter, and Hermes keeps
+    // reporting `waiting_for_approval` until it moves on — so every poll in
+    // that window reopened the gate the decision had just consumed. A denial
+    // left on screen from that prompt is answerable against whatever gate is
+    // pending when it is finally clicked, which may be a later action the user
+    // never saw. Recovery therefore needs evidence that this is a *new* gate:
+    // either the run was observed somewhere else since (the stored status is
+    // the last observation), or the last decision is old enough that Hermes
+    // cannot still be at its gate.
+    const enteredGate = previousStatus !== "waiting_for_approval";
+    const decisionIsStale =
+      !run.approvalAt || run.approvalAt.getTime() < approvalSettleCutoff(config).getTime();
+    if (upstream.status === "waiting_for_approval" && (enteredGate || decisionIsStale)) {
+      await getDb()
+        .recoverCareerOpsApprovalGate(run.id, session.userId, approvalSettleCutoff(config))
+        .catch(() => false);
+    }
+    return upstream;
+  } catch (reason) {
+    // Hermes retains run status for a bounded window. Once it has forgotten a
+    // bound run, no upstream run exists any more — but the local row would stay
+    // active forever and, with one active run per conversation, wedge it. A
+    // definitive 404 is therefore reconciled into a terminal local state.
+    if (reason instanceof HermesError && reason.kind === "not_found") {
+      const reconciled = await getDb()
+        .updateCareerOpsRunStatus(run.id, session.userId, "failed")
+        .then(() => true)
+        .catch(() => false);
+      // Swallowing that failure still answered 404, and the client treats a 404
+      // as conclusive: it declared the run failed and re-enabled the composer
+      // while the row stayed active, so the very next submission was refused by
+      // the one-active-run invariant with nothing on screen to explain it. Only
+      // report the run gone once Nexus has recorded that it is; otherwise say
+      // the outcome is unavailable, which polling retries.
+      if (!reconciled) {
+        throw new CareerOpsServiceError(
+          "upstream_error",
+          "The run's outcome could not be recorded",
+        );
+      }
+    }
+    throw toServiceError(reason);
+  }
+}
+
+export async function recordCareerOpsRunStatus(
+  session: CareerOpsSession,
+  runId: string,
+  status: CareerOpsRunStatus,
+): Promise<void> {
+  await getDb().updateCareerOpsRunStatus(runId, session.userId, status);
+}
+
+export async function openCareerOpsRunEvents(
+  session: CareerOpsSession,
+  runId: string,
+  signal: AbortSignal,
+): Promise<{
+  upstream: ReadableStream<Uint8Array>;
+  run: CareerOpsRunRecord;
+  idleTimeoutMs: number;
+  totalTimeoutMs: number;
+}> {
+  const config = enabledConfig(session);
+  const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) {
+    throw new CareerOpsServiceError("conflict", "The run has not started yet");
+  }
+  try {
+    const upstream = await client(config).openRunEvents(run.hermesRunId, signal);
+    return {
+      upstream,
+      run,
+      idleTimeoutMs: config.streamIdleTimeoutMs,
+      totalTimeoutMs: config.runTimeoutMs,
+    };
+  } catch (reason) {
+    throw toServiceError(reason);
+  }
+}
+
+export async function stopCareerOpsRun(
+  session: CareerOpsSession,
+  runId: string,
+): Promise<void> {
+  const config = enabledConfig(session);
+  const { run } = await requireOwnedRun(session, runId);
+  // Already finished as far as Nexus knows: the caller's desired end state is
+  // reached, and asking Hermes again invites a rejection for a run that no
+  // longer exists, turning a satisfied request into an error.
+  if (TERMINAL_RUN_STATUSES.includes(run.status)) return;
+  if (isUnbound(run)) {
+    // An ambiguous submission: Hermes may have accepted the run and only the
+    // response was lost, so a privileged run can be executing with no id to
+    // address it. Returning quietly would let the route answer `stopping:
+    // true` and tell the user the agent is being stopped when nothing was
+    // sent anywhere.
+    throw new CareerOpsServiceError(
+      "conflict",
+      "This run cannot be stopped yet; it may still be starting",
+    );
+  }
+  try {
+    await client(config).stopRun(run.hermesRunId);
+  } catch (reason) {
+    throw toServiceError(reason);
+  }
+}
+
+/**
+ * Mint the proof that a specific approval prompt was disclosed to this owner.
+ * Called only from the event route, at the moment the sanitized prompt is put
+ * on the wire, so the token describes exactly what the human will see.
+ */
+export async function careerOpsApprovalChallengeFor(
+  session: CareerOpsSession,
+  runId: string,
+  event: { operation: string; summary: string; details: string; choices: CareerOpsApprovalChoice[] },
+): Promise<string | null> {
+  const config = enabledConfig(session);
+  const token = issueApprovalChallenge(config, {
+    runId,
+    userId: session.userId,
+    actionHash: approvalActionHash(event),
+    choices: event.choices,
+  });
+  // Open the gate and record this challenge as the one outstanding for it. Only
+  // this challenge may be answered, which is what stops a token minted for an
+  // earlier gate on the same run from authorizing a later, different action.
+  //
+  // This write is what makes the prompt answerable at all — a decision arriving
+  // against a run with no open gate is refused. So the caller must not disclose
+  // controls until it succeeds: the single-consumer stream cannot reissue the
+  // prompt, and the user would be left with buttons that can never work while
+  // Hermes stays blocked waiting for one of them.
+  const jti = approvalChallengeId(token);
+  if (!jti) return null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      // The write is guarded — a run that has already settled has no gate — so
+      // "did not throw" is not "opened". Returning the token either way put
+      // actionable controls in front of a gate that does not exist, where the
+      // first click conflicts and takes the prompt away. A refusal is final,
+      // not transient: retrying cannot un-settle the run.
+      return (await getDb().openCareerOpsApprovalGate(runId, session.userId, jti))
+        ? token
+        : null;
+    } catch {
+      if (attempt === 2) return null;
+      await sleep(100 * 2 ** attempt);
+    }
+  }
+  return null;
+}
+
+export async function resolveCareerOpsApproval(
+  session: CareerOpsSession,
+  runId: string,
+  choice: CareerOpsApprovalChoice,
+  challenge?: unknown,
+): Promise<void> {
+  const config = enabledConfig(session);
+  if (!APPROVAL_CHOICES.includes(choice)) {
+    throw new CareerOpsServiceError("invalid_request", "Invalid approval decision");
+  }
+  const { run } = await requireOwnedRun(session, runId);
+  if (isUnbound(run)) {
+    throw new CareerOpsServiceError("conflict", "The run has not started yet");
+  }
+
+  // Ownership of the run is not consent to a specific action. The challenge is
+  // what ties this decision to the prompt Nexus actually disclosed, and to the
+  // choices that prompt offered — without it an authenticated request could
+  // approve an action the browser never showed, or grant `session`/`always`
+  // breadth the gate never advertised.
+  //
+  // The requirement is deliberately asymmetric. Only a decision that *grants*
+  // needs proof of disclosure; `deny` grants nothing, and requiring a challenge
+  // for it would strip the owner of the safe option in exactly the case where
+  // the prompt could not be recovered — after the single-consumer event stream
+  // dropped. Denial stays available to the owner unconditionally.
+  //
+  // Both paths end in the *same* conditional claim. Two partial claims — one
+  // consuming the challenge for grants, one checking the status for denials —
+  // is what let a grant and a denial both reach Hermes: the denial read a
+  // `waiting_for_approval` status the grant's claim had already invalidated,
+  // and whichever arrived second could answer a later gate.
+  let consumedChallengeId = "";
+  if (choice === "deny") {
+    // Denial carries no challenge, by design, but still has to win the gate.
+    // A null claim means no gate is open here: the run is merely executing, has
+    // finished, or a grant just took it. Stop remains available, and is the
+    // stronger action in that situation anyway.
+    //
+    // A write that *fails* is not a gate that is absent, and conflating them
+    // told the owner nothing was awaiting a decision when the database was
+    // merely unreachable. Only a null return means no gate.
+    let claim: CareerOpsApprovalGateClaim | null;
+    try {
+      claim = await getDb().claimCareerOpsApprovalGate(run.id, session.userId, null, choice);
+    } catch {
+      throw new CareerOpsServiceError(
+        "upstream_error",
+        "The decision could not be recorded, so it was not sent",
+        null,
+        true,
+      );
+    }
+    if (!claim) {
+      throw new CareerOpsServiceError("conflict", "No approval is awaiting a decision");
+    }
+    consumedChallengeId = claim.challengeId;
+  } else {
+    const verified = verifyApprovalChallenge(config, challenge, {
+      runId: run.id,
+      userId: session.userId,
+      choice,
+    });
+    if (!verified.ok) {
+      // Nothing has been claimed yet, so whatever gate the agent is at is
+      // untouched and still awaiting a decision. That matters most for an
+      // expired challenge: the prompt can outlive its token on a deployment
+      // whose run timeout exceeds the challenge lifetime, and the browser had
+      // already cleared it — so without saying the gate is open it neither
+      // restored the prompt nor recovered, and the run sat there apparently
+      // streaming with no way to answer it.
+      throw new CareerOpsServiceError(
+        "invalid_request",
+        verified.reason === "expired"
+          ? "That approval prompt has expired; reload the conversation"
+          : "That decision does not match the approval that was shown",
+        null,
+        true,
+      );
+    }
+    // Single use, and only for the gate currently awaiting a decision. A run
+    // can reach several gates inside one challenge lifetime, so "not the one
+    // already consumed" is not enough: an earlier gate's token would still
+    // verify against run, owner and choice, and could authorize whatever action
+    // is pending now. The claim is what rules that out.
+    let claim: CareerOpsApprovalGateClaim | null;
+    try {
+      claim = await getDb().claimCareerOpsApprovalGate(
+        run.id,
+        session.userId,
+        verified.payload.jti,
+        choice,
+      );
+    } catch {
+      // The gate is untouched, so the challenge is still outstanding and the
+      // prompt can be answered again — which is the whole reason this write
+      // has to happen before anything reaches Hermes.
+      throw new CareerOpsServiceError(
+        "upstream_error",
+        "The decision could not be recorded, so it was not sent",
+        null,
+        true,
+      );
+    }
+    if (!claim) {
+      throw new CareerOpsServiceError(
+        "conflict",
+        "That decision does not answer the approval currently awaiting you",
+      );
+    }
+    consumedChallengeId = verified.payload.jti;
+  }
+
+  // The intent is already committed: the claim above closed the gate and
+  // recorded this decision as `pending` in one write. It was two writes, which
+  // still satisfied "record before forwarding" but left an interval between
+  // them where the row was a closed gate with no decision on it — exactly what
+  // gate recovery looks for. A status poll landing there reopened the gate this
+  // decision was answering, and a second decision could claim it while the
+  // first was still on its way to Hermes.
+
+  try {
+    await client(config).resolveApproval(run.hermesRunId, choice);
+  } catch (reason) {
+    // A refusal Hermes stated is a known non-effect; a transport failure is not.
+    const undecided =
+      !(reason instanceof HermesError) || AMBIGUOUS_UPSTREAM_KINDS.includes(reason.kind);
+    // Conditional: this outcome belongs to the challenge it was claimed for.
+    // Hermes can have reached the next gate while this call was in flight, and
+    // an unconditional write would land that gate's audit on the newer one.
+    await getDb()
+      .settleCareerOpsApprovalDecision(
+        run.id,
+        session.userId,
+        consumedChallengeId,
+        undecided ? "outcome_unknown" : "not_applied",
+      )
+      .catch(() => undefined);
+    // Reopen only when the refusal says the disclosed gate is still waiting.
+    //
+    // Leaving a still-waiting gate locally claimed strands the run: the client
+    // offers a retry, the retry finds no open gate and drops the prompt, and
+    // Hermes waits forever with nobody able to answer. Reopening is safe there
+    // precisely because nothing was applied. But "nothing was applied" was
+    // being read as "still answerable", and a 404 or 409 means neither: the
+    // gate is gone upstream, so reopening it here would only restore controls
+    // for a prompt no decision can reach, and would let a second decision claim
+    // a gate that no longer exists.
+    const reopened =
+      !undecided &&
+      reason instanceof HermesError &&
+      GATE_STILL_PENDING_KINDS.includes(reason.kind);
+    if (reopened) {
+      await getDb()
+        .releaseCareerOpsApprovalGate(run.id, session.userId, consumedChallengeId)
+        .catch(() => undefined);
+    }
+    // Only a reopened gate may put the controls back. After an ambiguous
+    // outcome the gate stays closed on purpose — Hermes may already have
+    // applied the decision — so a restored prompt could only ever conflict.
+    const settled = toServiceError(reason);
+    throw new CareerOpsServiceError(
+      settled.code,
+      settled.message,
+      settled.retryAfterSeconds,
+      reopened,
+    );
+  }
+  // Attribution only: which owner decided what, and when. The command and its
+  // arguments are never written to Nexus. The spec requires this record, so a
+  // failure is reported rather than swallowed — the decision did reach Hermes,
+  // which the controlled error says explicitly.
+  // Retried, because leaving this write undone is not a lost audit line — it is
+  // a run left saying a decision is still in flight. `pending` is what blocks a
+  // new gate from opening, so a single transient failure here stranded every
+  // later approval in the run. The cutoff above is the durable half of the same
+  // guarantee, for a failure that outlives this request.
+  //
+  // Conditional for the same reason as the failure path above. A `false` is not
+  // an error: it means the row has moved on to a later gate, and this decision's
+  // own audit was already written when it was claimed.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await getDb().settleCareerOpsApprovalDecision(
+        run.id,
+        session.userId,
+        consumedChallengeId,
+        "effect_completed",
+      );
+      return;
+    } catch {
+      if (attempt < 2) await sleep(100 * 2 ** attempt);
+    }
+  }
+  throw new CareerOpsServiceError(
+    "upstream_error",
+    "The decision was sent but could not be recorded",
+  );
+}

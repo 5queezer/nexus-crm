@@ -665,3 +665,202 @@ export interface UpsertCvPatchInput {
   includeProjects?: boolean;
   includeEducation?: boolean;
 }
+
+// ── Career Ops (Hermes session bridge) ───────────────────────────────────────
+
+/**
+ * Last-known state of a Hermes run, mirrored into Nexus only so the UI can
+ * settle without a live stream. Hermes remains the authority.
+ */
+export type CareerOpsRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_approval"
+  | "stopping"
+  | "completed"
+  | "failed"
+  /**
+   * Nexus stopped waiting on a reservation it can never settle.
+   *
+   * Distinct from `failed` on purpose. A submission whose response was lost
+   * leaves no upstream id, so Nexus cannot look the run up, stop it, or observe
+   * its end — and `runTimeoutMs` bounds only how long Nexus watched, never what
+   * Hermes did. Calling that `failed` asserts something about the upstream run
+   * that Nexus has no way to know.
+   */
+  | "abandoned"
+  | "cancelled";
+
+/**
+ * Statuses in which a run may still be executing upstream.
+ *
+ * Single source of truth: the Postgres partial unique index in
+ * 20260819170000_career_ops_active_run_invariant lists exactly these values,
+ * and the Firestore claim transaction queries on them. Changing this list
+ * without changing that index would silently drop the one-active-run
+ * invariant on Postgres.
+ */
+/** Statuses from which a run can no longer change. */
+export const CAREER_OPS_TERMINAL_RUN_STATUSES = [
+  "completed",
+  "failed",
+  "abandoned",
+  "cancelled",
+] as const satisfies readonly CareerOpsRunStatus[];
+
+export const CAREER_OPS_ACTIVE_RUN_STATUSES = [
+  "queued",
+  "running",
+  "waiting_for_approval",
+  "stopping",
+] as const satisfies readonly CareerOpsRunStatus[];
+
+/**
+ * Where a human decision got to.
+ *
+ * Recorded *before* the upstream call, so a decision that reached Hermes is
+ * never invisible to Nexus because a later write failed: the worst case becomes
+ * a decision marked `outcome_unknown` that an operator can reconcile, rather
+ * than a privileged action with no local trace at all.
+ */
+export type CareerOpsApprovalState =
+  /** Nexus has committed to sending it; the upstream call has not returned. */
+  | "pending"
+  /** Hermes accepted it: the gated action was authorized or refused as chosen. */
+  | "effect_completed"
+  /** Hermes refused it outright — no effect, and that is known, not assumed. */
+  | "not_applied"
+  /** A transport failure left it undecided; only an operator can reconcile it. */
+  | "outcome_unknown";
+
+export interface CareerOpsThreadRecord {
+  id: string;
+  userId: string;
+  hermesSessionId: string;
+  title: string;
+  /** Optional Nexus application this conversation is scoped to. */
+  applicationId: string | null;
+  /**
+   * True for a conversation created against an application, and never cleared.
+   *
+   * `applicationId` alone cannot carry this: deleting the application clears
+   * the link in both backends, which erased the only evidence the conversation
+   * was ever scoped and let the next run take global instructions. This
+   * outlives the link so the run is refused instead.
+   */
+  applicationScoped: boolean;
+  /**
+   * The browser's key for the creation request that made this conversation.
+   *
+   * A lost response leaves the Hermes session and this row persisted, and the
+   * retry carries the same key. Without it the retry minted a second session
+   * and a duplicate conversation: the other uniqueness key contains the freshly
+   * generated session id, so it can never match a retry.
+   */
+  clientRequestId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateCareerOpsThreadInput {
+  hermesSessionId: string;
+  title: string;
+  applicationId?: string | null;
+  clientRequestId?: string | null;
+}
+
+export interface CareerOpsRunRecord {
+  id: string;
+  userId: string;
+  threadId: string;
+  hermesRunId: string;
+  /** Caller-supplied bounded identifier used to make run creation idempotent. */
+  clientRequestId: string;
+  status: CareerOpsRunStatus;
+  /** Last human approval decision on this run. Never the command or arguments. */
+  approvalChoice: string | null;
+  approvalAt: Date | null;
+  /** Challenge consumed by the last decision, so it cannot be replayed. */
+  approvalChallengeId: string | null;
+  /** Lifecycle of that decision; see CareerOpsApprovalState. */
+  approvalState: CareerOpsApprovalState | null;
+  /**
+   * The challenge currently outstanding for this run: set when a prompt is
+   * disclosed, cleared when a decision consumes it. Only this challenge may be
+   * answered, so a token minted for an earlier gate on the same run cannot
+   * authorize a later one.
+   */
+  pendingApprovalChallengeId: string | null;
+  /**
+   * When the gate this run is currently at was opened, or null when none is.
+   *
+   * Independent of `status` on purpose: status is also written by recovery
+   * (which persists whatever Hermes reports, still "waiting" until a decision
+   * lands) and by the event route, either of which would otherwise reopen a
+   * gate a decision had already claimed.
+   */
+  approvalGateOpenedAt: Date | null;
+  /** Digest of the message this request id was claimed for; "" pre-migration. */
+  requestHash: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Outcome of deleting a conversation. Deletion has to refuse an occupied
+ * conversation *in the same operation* that removes it: checking first and
+ * deleting afterwards leaves a window in which a submission can claim, start
+ * and bind a privileged run that the delete then strands.
+ */
+export type CareerOpsThreadDeletion =
+  | { outcome: "deleted"; thread: CareerOpsThreadRecord }
+  | { outcome: "active_run" }
+  | { outcome: "not_found" };
+
+export interface CreateCareerOpsRunInput {
+  threadId: string;
+  hermesRunId: string;
+  clientRequestId: string;
+  /** Digest of the normalized message this request id is being claimed for. */
+  requestHash: string;
+  status: CareerOpsRunStatus;
+}
+
+/**
+ * Outcome of an atomic attempt to claim the conversation's single active-run
+ * slot. The decision belongs to the database, not the caller: two concurrent
+ * submissions both pass any read-then-write guard, so the backends express the
+ * invariant natively (a partial unique index on Postgres, a transaction on
+ * Firestore) and report which of these happened.
+ */
+/**
+ * What the single winner of an approval gate receives.
+ *
+ * The gate is the run's `waiting_for_approval` state, not the challenge. A
+ * prompt whose challenge never landed — the mint write failed, or the
+ * single-consumer stream dropped and the browser recovered without it — is
+ * still a real gate a human may deny, so the claim cannot be keyed on the
+ * challenge alone.
+ */
+export interface CareerOpsApprovalGateClaim {
+  /** The challenge that was outstanding, or "" when the gate had none. */
+  challengeId: string;
+}
+
+export type CareerOpsRunClaim =
+  /** This caller won the slot and created the reservation. */
+  | { outcome: "claimed"; run: CareerOpsRunRecord }
+  /** The same (threadId, clientRequestId) was already claimed — an idempotent retry. */
+  | { outcome: "existing"; run: CareerOpsRunRecord }
+  /** A different run already holds the conversation's active slot. */
+  | { outcome: "active_run_exists" }
+  /**
+   * The request id was already claimed, but for different text.
+   *
+   * An idempotency key that ignores the body is not idempotency: resolving to
+   * the earlier run would show the user an answer to a question they did not
+   * ask. The caller reports a conflict instead.
+   */
+  | { outcome: "request_mismatch" }
+  /** The conversation no longer exists, or is not owned by this user. */
+  | { outcome: "thread_gone" };

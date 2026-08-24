@@ -58,6 +58,19 @@ import type {
   DemoReadOptions,
   EnsureDemoWorkspaceResult,
   DeleteDemoWorkspaceResult,
+  CareerOpsThreadRecord,
+  CareerOpsRunRecord,
+  CareerOpsRunStatus,
+  CreateCareerOpsThreadInput,
+  CreateCareerOpsRunInput,
+  CareerOpsApprovalGateClaim,
+  CareerOpsApprovalState,
+  CareerOpsRunClaim,
+  CareerOpsThreadDeletion,
+} from "./types";
+import {
+  CAREER_OPS_ACTIVE_RUN_STATUSES,
+  CAREER_OPS_TERMINAL_RUN_STATUSES,
 } from "./types";
 import type { DemoFixtures } from "@/lib/demo-workspace/fixtures";
 
@@ -323,6 +336,51 @@ export class FirestoreAdapter implements DatabaseAdapter {
   private get demoWorkspaces() { return this.db.collection("demoWorkspaces"); }
   private get ownerLifecycles() { return this.db.collection("ownerApplicationLifecycles"); }
   private get canonicalUrls() { return this.db.collection("applicationCanonicalUrls"); }
+  private get careerOpsThreads() { return this.db.collection("careerOpsThreads"); }
+  private get careerOpsRuns() { return this.db.collection("careerOpsRuns"); }
+
+  /**
+   * Deletions whose run documents have not all been removed yet.
+   *
+   * Firestore has no cascade, and a conversation's runs cannot be deleted in
+   * the same transaction as their parent — a long one exceeds the transaction's
+   * write cap. So the children are removed afterwards, and afterwards can fail:
+   * a network error, a request that runs out of time, an instance that goes
+   * away mid-batch. Previously that possibility was met with a `console.warn`,
+   * which is a record no code can act on, and the documents stayed forever.
+   *
+   * A tombstone written in the same transaction that removes the parent turns
+   * that into work something can finish: it names the conversation whose
+   * children are still pending and is deleted only once they are all gone. The
+   * relational backend needs none of this — the foreign key cascades.
+   */
+  /**
+   * One document per conversation-creation request key.
+   *
+   * A query inside a transaction cannot serve this. Firestore locks the
+   * documents a read *returns*, so two concurrent creations carrying the same
+   * key both see an empty result, write threads under different ids — the id is
+   * derived from the Hermes session, which each attempt mints fresh — and both
+   * commit. A deterministic document is a lock: `create` fails if it exists, so
+   * exactly one attempt claims the key.
+   */
+  private get careerOpsThreadRequests() {
+    return this.db.collection("careerOpsThreadRequests");
+  }
+
+  private careerOpsThreadRequestRef(userId: string, clientRequestId: string) {
+    return this.careerOpsThreadRequests.doc(
+      submissionRequestHash({
+        kind: "career-ops-thread-request",
+        userId,
+        request: clientRequestId,
+      }),
+    );
+  }
+
+  private get careerOpsThreadDeletions() {
+    return this.db.collection("careerOpsThreadDeletions");
+  }
 
   private canonicalUrlRef(userId: string, canonicalJobUrl: string) {
     return this.canonicalUrls.doc(submissionRequestHash({ userId, canonicalJobUrl }));
@@ -815,6 +873,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
       });
       return existing.data()!.isDemo === true;
     });
+
+    // Career Ops conversations are detached before the cascade so a failure
+    // later cannot leave a thread pointing at a deleted application.
+    await this.clearCareerOpsApplicationLinks(id, userId);
 
     const [contactSnap, submissionSnap, eventSnap, linkedDocumentSnap] = await Promise.all([
       this.contacts.where("applicationId", "==", id).get(),
@@ -2450,5 +2512,749 @@ export class FirestoreAdapter implements DatabaseAdapter {
       }
       transaction.update(patchRef, { documentId, updatedAt: Timestamp.now() });
     });
+  }
+
+  // ── Career Ops (Hermes session bridge) ───────────────────────────────────
+
+  private mapCareerOpsThread(id: string, data: FirebaseFirestore.DocumentData): CareerOpsThreadRecord {
+    return {
+      id,
+      userId: data.userId,
+      hermesSessionId: data.hermesSessionId,
+      title: data.title,
+      applicationId: typeof data.applicationId === "string" ? data.applicationId : null,
+      // A document written before this field existed and still carrying a link
+      // was scoped; one without a link was not. Same reading as the relational
+      // backfill.
+      applicationScoped:
+        typeof data.applicationScoped === "boolean"
+          ? data.applicationScoped
+          : typeof data.applicationId === "string",
+      clientRequestId:
+        typeof data.clientRequestId === "string" ? data.clientRequestId : null,
+      createdAt: toDate(data.createdAt) ?? new Date(0),
+      updatedAt: toDate(data.updatedAt) ?? new Date(0),
+    };
+  }
+
+  private mapCareerOpsRun(id: string, data: FirebaseFirestore.DocumentData): CareerOpsRunRecord {
+    return {
+      id,
+      userId: data.userId,
+      threadId: data.threadId,
+      hermesRunId: data.hermesRunId,
+      clientRequestId: data.clientRequestId,
+      status: data.status as CareerOpsRunStatus,
+      approvalChoice: typeof data.approvalChoice === "string" ? data.approvalChoice : null,
+      approvalAt: toDate(data.approvalAt),
+      approvalChallengeId:
+        typeof data.approvalChallengeId === "string" ? data.approvalChallengeId : null,
+      approvalState:
+        typeof data.approvalState === "string"
+          ? (data.approvalState as CareerOpsApprovalState)
+          : null,
+      approvalGateOpenedAt: toDate(data.approvalGateOpenedAt),
+      requestHash: typeof data.requestHash === "string" ? data.requestHash : "",
+      pendingApprovalChallengeId:
+        typeof data.pendingApprovalChallengeId === "string"
+          ? data.pendingApprovalChallengeId
+          : null,
+      createdAt: toDate(data.createdAt) ?? new Date(0),
+      updatedAt: toDate(data.updatedAt) ?? new Date(0),
+    };
+  }
+
+  /**
+   * Deterministic run document id.
+   *
+   * Firestore has no unique index, so uniqueness on
+   * (threadId, clientRequestId) is expressed as the document key and enforced
+   * by create(), which fails when the document already exists. That gives the
+   * same "exactly one run per client request" guarantee as the Prisma
+   * composite unique constraint.
+   */
+  private careerOpsRunRef(threadId: string, clientRequestId: string) {
+    return this.careerOpsRuns.doc(
+      submissionRequestHash({ kind: "career-ops-run", threadId, clientRequestId }),
+    );
+  }
+
+  async listCareerOpsThreads(userId: string): Promise<CareerOpsThreadRecord[]> {
+    // Finish any run-document cleanup an earlier deletion could not complete.
+    //
+    // Doing this only on the next deletion made recovery depend on the user
+    // happening to delete another conversation: if they never did, the
+    // tombstone and its run documents persisted indefinitely despite being
+    // recorded. Listing is the operation that actually recurs — the drawer runs
+    // it every time it opens — so the work resumes on its own. It is bounded to
+    // one tombstone here because this is a user-facing read, and it never fails
+    // the listing.
+    await this.resumeCareerOpsThreadDeletions(userId, 1);
+    const snapshot = await this.careerOpsThreads
+      .where("userId", "==", userId)
+      .orderBy("updatedAt", "desc")
+      .get();
+    const threads = snapshot.docs.map((document) =>
+      this.mapCareerOpsThread(document.id, document.data()),
+    );
+    // Deterministic tiebreak so equal timestamps never reorder between reads.
+    threads.sort((left, right) => {
+      const byUpdated = right.updatedAt.getTime() - left.updatedAt.getTime();
+      if (byUpdated !== 0) return byUpdated;
+      return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
+    });
+    return threads;
+  }
+
+  async getCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadRecord | null> {
+    const snapshot = await this.careerOpsThreads.doc(id).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId) return null;
+    return this.mapCareerOpsThread(snapshot.id, data);
+  }
+
+  async getCareerOpsThreadByRequestId(
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    // Through the claim, not a query: the claim is what the write is decided
+    // on, so reading anything else could disagree with it.
+    const claim = await this.careerOpsThreadRequestRef(userId, clientRequestId).get();
+    if (!claim.exists) return null;
+    const threadId = claim.data()!.threadId as string;
+    return this.getCareerOpsThread(threadId, userId);
+  }
+
+  async createCareerOpsThread(
+    userId: string,
+    data: CreateCareerOpsThreadInput,
+  ): Promise<CareerOpsThreadRecord> {
+    // Deterministic id from (owner, session), mirroring the relational
+    // @@unique([userId, hermesSessionId]). With a random id the same Hermes
+    // session could acquire two Nexus mappings, each with its own active-run
+    // slot, and both could drive one upstream conversation at once.
+    const ref = this.careerOpsThreads.doc(
+      submissionRequestHash({ kind: "career-ops-thread", userId, session: data.hermesSessionId }),
+    );
+    const applicationId = data.applicationId ?? null;
+
+    const clientRequestId = data.clientRequestId ?? null;
+
+    return this.db.runTransaction(async (tx) => {
+      const existing = await tx.get(ref);
+      if (existing.exists) {
+        const current = existing.data()!;
+        if (current.userId !== userId) throw new Error("career_ops_thread_conflict");
+        return this.mapCareerOpsThread(existing.id, current);
+      }
+
+      // The request key decides, inside the transaction, so two retries of one
+      // lost response cannot both create. The relational backend gets this from
+      // its unique index; here a deterministic claim document is the lock — a
+      // query would not be, because Firestore locks only what a read returns
+      // and two attempts would both see nothing.
+      const claimRef = clientRequestId
+        ? this.careerOpsThreadRequestRef(userId, clientRequestId)
+        : null;
+      if (claimRef) {
+        const claim = await tx.get(claimRef);
+        if (claim.exists) {
+          const claimed = await tx.get(this.careerOpsThreads.doc(claim.data()!.threadId as string));
+          // A claim whose conversation is gone is a leftover, not a conflict:
+          // deletion removes both, so this only happens if that removal was
+          // interrupted. Fall through and let this attempt take the key.
+          if (claimed.exists && claimed.data()!.userId === userId) {
+            return this.mapCareerOpsThread(claimed.id, claimed.data()!);
+          }
+        }
+      }
+
+      // The application was verified before Hermes was asked for a session, and
+      // it can be deleted during that round-trip. Re-read it inside the
+      // transaction so a thread is never written against a record that is gone
+      // — the relational backend gets this from its foreign key.
+      if (applicationId) {
+        const application = await tx.get(this.apps.doc(applicationId));
+        if (!application.exists || application.data()!.userId !== userId) {
+          throw new Error("career_ops_application_not_found");
+        }
+        // Deletion marks the application before it clears Career Ops links, so
+        // a thread written after that sweep but before the final delete would
+        // keep a dangling id and fail context lookup forever. The other
+        // Firestore application mutations reject the marker for the same
+        // reason.
+        if (application.data()!.deletionState === "in_progress") {
+          throw new Error("career_ops_application_not_found");
+        }
+      }
+
+      const now = Timestamp.now();
+      const payload = {
+        userId,
+        hermesSessionId: data.hermesSessionId,
+        title: data.title,
+        applicationId,
+        // Written once, at creation. `clearCareerOpsApplicationLinks` clears
+        // the link below and deliberately leaves this alone: the link is
+        // advisory context that can go away, the scope it recorded is not.
+        applicationScoped: !!applicationId,
+        clientRequestId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      tx.create(ref, payload);
+      // `set`, not `create`: a leftover claim above is deliberately taken over.
+      // The `create` that matters is the thread's — and the read of this claim
+      // is in the transaction's read set either way, so a concurrent attempt
+      // that claimed the key first aborts this one.
+      if (claimRef) {
+        tx.set(claimRef, { userId, threadId: ref.id, createdAt: now });
+      }
+      return this.mapCareerOpsThread(ref.id, payload);
+    });
+  }
+
+  async renameCareerOpsThread(
+    id: string,
+    userId: string,
+    title: string,
+  ): Promise<CareerOpsThreadRecord | null> {
+    const ref = this.careerOpsThreads.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return null;
+    await ref.update({ title, updatedAt: Timestamp.now() });
+    return this.getCareerOpsThread(id, userId);
+  }
+
+  async deleteCareerOpsThread(id: string, userId: string): Promise<CareerOpsThreadDeletion> {
+    // Finish what an earlier request could not, before starting more. Doing it
+    // first rather than last matters: retrying a cleanup in the same request
+    // that just watched it fail retries it under the conditions that made it
+    // fail, and would mask the interruption instead of recording it.
+    await this.resumeCareerOpsThreadDeletions(userId, 3);
+    const threadRef = this.careerOpsThreads.doc(id);
+    // The refusal and the removal of the parent happen in one transaction, so a
+    // submission cannot claim the conversation in a window between them and be
+    // left with a privileged run nothing can address. The run documents are
+    // cleaned up afterwards: once the parent is gone they resolve to nothing
+    // (ownership is always checked through the thread), and Firestore caps a
+    // transaction's writes, which a long conversation would exceed.
+    const result = await this.db.runTransaction<CareerOpsThreadDeletion>(async (tx) => {
+      const snapshot = await tx.get(threadRef);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) {
+        return { outcome: "not_found" };
+      }
+      const active = await tx.get(
+        this.careerOpsRuns
+          .where("threadId", "==", id)
+          .where("status", "in", [...CAREER_OPS_ACTIVE_RUN_STATUSES]),
+      );
+      if (!active.empty) return { outcome: "active_run" };
+      const thread = this.mapCareerOpsThread(snapshot.id, snapshot.data()!);
+      tx.delete(threadRef);
+      // The claim goes with the conversation it points at, or a later retry
+      // carrying that key would resolve to a conversation that no longer
+      // exists.
+      if (thread.clientRequestId) {
+        tx.delete(this.careerOpsThreadRequestRef(userId, thread.clientRequestId));
+      }
+      // Committed with the parent's removal, so the work is recorded before it
+      // can be interrupted. There is no moment where the thread is gone and
+      // nothing says its runs still need collecting.
+      tx.set(this.careerOpsThreadDeletions.doc(id), {
+        threadId: id,
+        userId,
+        deletedAt: Timestamp.now(),
+      });
+      return { outcome: "deleted", thread };
+    });
+
+    if (result.outcome !== "deleted") return result;
+
+    // Failures here must not propagate. The authoritative mapping — the parent
+    // thread — is already gone, so throwing would stop the caller from deleting
+    // the upstream Hermes session while a retry could only ever see
+    // `not_found`, losing the session id for good. Orphaned run documents are
+    // inert in the meantime, because ownership always resolves through the
+    // thread; the tombstone is what makes them collectable rather than
+    // permanent.
+    await this.collectCareerOpsThreadRuns(id, userId);
+    return result;
+  }
+
+  /**
+   * Delete a deleted conversation's run documents, then its tombstone.
+   *
+   * Ordered that way deliberately: the tombstone is removed only once nothing
+   * is left to collect, so an interruption at any point leaves the work
+   * described rather than lost. Re-running it is harmless.
+   */
+  private async collectCareerOpsThreadRuns(id: string, userId: string): Promise<boolean> {
+    try {
+      for (;;) {
+        // Chunked, and re-queried each round: a long-lived conversation exceeds
+        // the 500-write batch cap, and paging by offset over a snapshot taken
+        // once would re-read documents this loop has already removed.
+        const runs = await this.careerOpsRuns
+          .where("threadId", "==", id)
+          .where("userId", "==", userId)
+          .limit(450)
+          .get();
+        if (runs.empty) break;
+        const batch = this.db.batch();
+        for (const document of runs.docs) batch.delete(document.ref);
+        await batch.commit();
+        if (runs.docs.length < 450) break;
+      }
+      await this.careerOpsThreadDeletions.doc(id).delete();
+      return true;
+    } catch {
+      // The tombstone stays, so this is retried rather than forgotten.
+      return false;
+    }
+  }
+
+  /** Finish deletions an earlier request could not complete. */
+  private async resumeCareerOpsThreadDeletions(userId: string, limit: number): Promise<void> {
+    try {
+      const pending = await this.careerOpsThreadDeletions
+        .where("userId", "==", userId)
+        .limit(limit)
+        .get();
+      for (const document of pending.docs) {
+        const data = document.data();
+        if (data.userId !== userId) continue;
+        await this.collectCareerOpsThreadRuns(document.id, userId);
+      }
+    } catch {
+      // Best effort: the tombstones survive for the next attempt.
+    }
+  }
+
+  async getCareerOpsRun(id: string, userId: string): Promise<CareerOpsRunRecord | null> {
+    const snapshot = await this.careerOpsRuns.doc(id).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId) return null;
+    return this.mapCareerOpsRun(snapshot.id, data);
+  }
+
+  async claimCareerOpsRun(
+    userId: string,
+    data: CreateCareerOpsRunInput,
+  ): Promise<CareerOpsRunClaim> {
+    const ref = this.careerOpsRunRef(data.threadId, data.clientRequestId);
+    const threadRef = this.careerOpsThreads.doc(data.threadId);
+    // Firestore has no partial unique index, so the invariant Postgres gets
+    // from one is enforced here by doing every read and the write inside one
+    // transaction. Reading the parent thread in the same transaction is what
+    // stops a concurrent thread deletion from leaving a live run behind with
+    // no mapping to observe or stop it.
+    return this.db.runTransaction<CareerOpsRunClaim>(async (tx) => {
+      const thread = await tx.get(threadRef);
+      if (!thread.exists || thread.data()!.userId !== userId) {
+        return { outcome: "thread_gone" };
+      }
+
+      const mine = await tx.get(ref);
+      if (mine.exists) {
+        const current = mine.data()!;
+        if (current.userId !== userId) return { outcome: "thread_gone" };
+        // A retry must carry the same message. `""` marks a row written before
+        // the digest existed, and is accepted so a mid-flight deploy cannot
+        // start refusing legitimate retries.
+        if (
+          typeof current.requestHash === "string" &&
+          current.requestHash !== "" &&
+          current.requestHash !== data.requestHash
+        ) {
+          return { outcome: "request_mismatch" };
+        }
+        return { outcome: "existing", run: this.mapCareerOpsRun(mine.id, current) };
+      }
+
+      const active = await tx.get(
+        this.careerOpsRuns
+          .where("threadId", "==", data.threadId)
+          .where("status", "in", [...CAREER_OPS_ACTIVE_RUN_STATUSES]),
+      );
+      if (!active.empty) return { outcome: "active_run_exists" };
+
+      const now = Timestamp.now();
+      const payload = {
+        userId,
+        threadId: data.threadId,
+        hermesRunId: data.hermesRunId,
+        clientRequestId: data.clientRequestId,
+        requestHash: data.requestHash,
+        status: data.status,
+        createdAt: now,
+        updatedAt: now,
+      };
+      tx.create(ref, payload);
+      // Same ordering rule as the relational backend: activity, not creation
+      // time, decides where a conversation sits in history.
+      tx.update(threadRef, { updatedAt: now });
+      return { outcome: "claimed", run: this.mapCareerOpsRun(ref.id, payload) };
+    });
+  }
+
+  async updateCareerOpsRunStatus(
+    id: string,
+    userId: string,
+    status: CareerOpsRunStatus,
+  ): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    const terminal = (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(status);
+    // Same monotonicity rule as the relational backend, and for the same
+    // reason: a late poll must not move a settled run back to active. Read and
+    // write in one transaction so the check cannot be raced.
+    await this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+      const current = snapshot.data()!.status as string;
+      const currentIsTerminal = (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(
+        current,
+      );
+      // Monotonic, and terminal states are final. A late `failed` landing on a
+      // `completed` run rewrites what the agent actually did, and the audit
+      // beside it. Re-writing the same terminal status stays a no-op rather
+      // than an error, so a duplicate delivery is harmless.
+      if (currentIsTerminal && current !== status) return;
+      tx.update(ref, {
+        status,
+        updatedAt: Timestamp.now(),
+        // A terminal run has no gate. Leaving one open lets a delayed or direct
+        // denial claim it long after the run finished: the decision would
+        // overwrite the terminal run's approval audit and be forwarded upstream
+        // for an action nobody is waiting on.
+        ...(terminal ? { approvalGateOpenedAt: null, pendingApprovalChallengeId: null } : {}),
+      });
+    });
+  }
+
+  async bindCareerOpsRunHermesId(
+    id: string,
+    userId: string,
+    hermesRunId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<CareerOpsRunRecord | null>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return null;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return null;
+      // Conditional: expiry can reach this row, and only one of the two may win.
+      if (data.hermesRunId !== "") return null;
+      if (!CAREER_OPS_ACTIVE_RUN_STATUSES.includes(data.status)) return null;
+      tx.update(ref, { hermesRunId, updatedAt: Timestamp.now() });
+      return this.mapCareerOpsRun(snapshot.id, { ...data, hermesRunId });
+    });
+  }
+
+  async expireCareerOpsRunReservation(
+    id: string,
+    userId: string,
+    cutoff: Date,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return false;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return false;
+      if (data.hermesRunId !== "") return false;
+      if (!CAREER_OPS_ACTIVE_RUN_STATUSES.includes(data.status)) return false;
+      // Same conversion the rest of this adapter uses; an `instanceof` check
+      // here is narrower than the values Firestore actually returns.
+      const createdAt = toDate(data.createdAt);
+      if (!createdAt || createdAt.getTime() >= cutoff.getTime()) return false;
+      // Not `failed`: Nexus never saw this run end and cannot say that it did.
+      tx.update(ref, { status: "abandoned", updatedAt: Timestamp.now() });
+      return true;
+    });
+  }
+
+  async deleteCareerOpsRun(id: string, userId: string): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+    await ref.delete();
+  }
+
+  async openCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    // One transaction, because the check and the write are a single decision.
+    // Read the status, then write outside it, and the poll that records a
+    // terminal status can commit in between: the run settles, its terminal
+    // write clears the gate, and this write puts the gate back on a finished
+    // run for a stale denial to claim. The relational backend expresses the
+    // same thing as one conditional update.
+    // The result says whether the guarded write happened, not merely that
+    // nothing threw: disclosing controls for a gate that was never opened
+    // leaves the user clicking buttons that can only conflict.
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return false;
+      // Never on a finished run.
+      if (
+        (CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(snapshot.data()!.status)
+      ) {
+        return false;
+      }
+      // The gate lives here, not in `status`: recovery and the event route both
+      // write status, and either would otherwise reopen a claimed gate.
+      tx.update(ref, {
+        approvalGateOpenedAt: Timestamp.now(),
+        pendingApprovalChallengeId: challengeId,
+      });
+      return true;
+    });
+  }
+
+  async claimCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string | null,
+    choice: string,
+  ): Promise<CareerOpsApprovalGateClaim | null> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<CareerOpsApprovalGateClaim | null>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return null;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return null;
+      // The gate is its own state, not the challenge and not the run status: a
+      // prompt whose challenge never landed is still a gate a human may deny,
+      // and a status snapshot from recovery must never reopen a claimed one.
+      if (!data.approvalGateOpenedAt) return null;
+      const outstanding =
+        typeof data.pendingApprovalChallengeId === "string"
+          ? data.pendingApprovalChallengeId
+          : "";
+      // A grant must answer the gate that is actually pending.
+      if (challengeId !== null && outstanding !== challengeId) return null;
+      // The transaction decides: a concurrent claim writing this document makes
+      // the loser re-run and find the gate already closed.
+      tx.update(ref, {
+        approvalGateOpenedAt: null,
+        pendingApprovalChallengeId: null,
+        // Recorded here, not by a following write: between closing the gate and
+        // recording the decision there would be a row that looks exactly like
+        // one recovery should reopen, and a status poll landing in that interval
+        // handed a second decision the gate the first was answering.
+        approvalChoice: choice,
+        approvalAt: Timestamp.now(),
+        approvalChallengeId: outstanding,
+        approvalState: "pending",
+        updatedAt: Timestamp.now(),
+      });
+      return { challengeId: outstanding };
+    });
+  }
+
+  async recoverCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    unresolvedSince: Date,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return false;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return false;
+      // Never on a finished run, and never while one is already open.
+      if ((CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(data.status)) {
+        return false;
+      }
+      if (data.approvalGateOpenedAt) return false;
+      // Never while a decision is unresolved: `pending` means one is in flight
+      // and `outcome_unknown` means one may already have landed, so opening a
+      // gate would let a second decision answer the first's action.
+      //
+      // Bounded, because both reasons expire with the upstream request timeout.
+      // A decision older than `unresolvedSince` is racing nothing; unbounded,
+      // one failed audit write left the run unable to open any further gate. A
+      // decision with no timestamp keeps blocking: unknown age is not old age.
+      if (data.approvalState === "pending" || data.approvalState === "outcome_unknown") {
+        const decidedAt = toDate(data.approvalAt);
+        if (!decidedAt || decidedAt.getTime() >= unresolvedSince.getTime()) return false;
+      }
+      // No challenge: nothing was disclosed, so nothing may be granted.
+      tx.update(ref, {
+        approvalGateOpenedAt: Timestamp.now(),
+        pendingApprovalChallengeId: null,
+        updatedAt: Timestamp.now(),
+      });
+      return true;
+    });
+  }
+
+  async releaseCareerOpsApprovalGate(
+    id: string,
+    userId: string,
+    challengeId: string,
+  ): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    await this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return;
+      // Only if the gate is still exactly as *this* decision left it: closed,
+      // with nothing outstanding, and carrying this decision's own audit. A
+      // gate the agent has since reached is not this caller's to reopen.
+      if (data.approvalGateOpenedAt) return;
+      if (data.pendingApprovalChallengeId) return;
+      // The audit fields are what identify the decision. Without them the
+      // check described a shape, not an owner: after this decision settled as
+      // `not_applied`, a status poll could recover the gate and a second
+      // request claim it — leaving the row closed with nothing outstanding
+      // again — and this rollback would reopen the gate underneath that second
+      // decision while it was still in flight.
+      if ((data.approvalChallengeId ?? "") !== challengeId) return;
+      if (data.approvalState !== "not_applied") return;
+      // And never on a settled run. A terminal transition clears the gate, so
+      // its fields look exactly like the ones this claim left behind; without
+      // this check a rollback would reinstate a gate on a finished run, where a
+      // delayed denial can still claim it, be forwarded upstream for an action
+      // nobody is waiting on, and overwrite that run's approval audit.
+      if ((CAREER_OPS_TERMINAL_RUN_STATUSES as readonly string[]).includes(data.status)) return;
+      tx.update(ref, {
+        approvalGateOpenedAt: Timestamp.now(),
+        pendingApprovalChallengeId: challengeId || null,
+        updatedAt: Timestamp.now(),
+      });
+    });
+  }
+
+  async recordCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    choice: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<void> {
+    const ref = this.careerOpsRuns.doc(id);
+    // The claim of the audit slot. One gate admits one decision — the gate
+    // claim is what serializes that — so this write does not need a condition;
+    // its *outcome* does, which is `settleCareerOpsApprovalDecision`.
+    await this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists || snapshot.data()!.userId !== userId) return;
+      tx.update(ref, {
+        approvalChoice: choice,
+        approvalAt: Timestamp.now(),
+        approvalChallengeId: challengeId,
+        approvalState: state,
+        updatedAt: Timestamp.now(),
+      });
+    });
+  }
+
+  async settleCareerOpsApprovalDecision(
+    id: string,
+    userId: string,
+    challengeId: string,
+    state: CareerOpsApprovalState,
+  ): Promise<boolean> {
+    const ref = this.careerOpsRuns.doc(id);
+    return this.db.runTransaction<boolean>(async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) return false;
+      const data = snapshot.data()!;
+      if (data.userId !== userId) return false;
+      // Only the decision this outcome belongs to, and only while it is still
+      // awaiting one. A decision's two writes straddle a network call, so gate
+      // A's outcome can arrive after gate B's `pending`; unconditional, it
+      // overwrote B's audit and resolved B's state, which is what lets recovery
+      // reopen a gate whose decision is still in flight.
+      if (data.approvalChallengeId !== challengeId) return false;
+      if (data.approvalState !== "pending") return false;
+      // `approvalChoice` and `approvalAt` were written with the claim and still
+      // describe this decision; only its lifecycle moves.
+      tx.update(ref, { approvalState: state, updatedAt: Timestamp.now() });
+      return true;
+    });
+  }
+
+  async findCareerOpsRunByClientRequestId(
+    threadId: string,
+    userId: string,
+    clientRequestId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    // The deterministic id that enforces uniqueness also makes this a direct get.
+    const snapshot = await this.careerOpsRunRef(threadId, clientRequestId).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data()!;
+    if (data.userId !== userId) return null;
+    return this.mapCareerOpsRun(snapshot.id, data);
+  }
+
+  async getLatestCareerOpsRun(
+    threadId: string,
+    userId: string,
+  ): Promise<CareerOpsRunRecord | null> {
+    // Ask the backend for the one row this needs. Reading every historical run
+    // of a conversation and sorting in memory made each drawer open cost reads
+    // and latency proportional to the conversation's whole lifetime.
+    //
+    // The `threadId ASC, userId ASC, createdAt DESC` index already declared for
+    // this collection serves it. Firestore appends an implicit `__name__` tie
+    // break in the direction of the last `orderBy`, so descending `createdAt`
+    // gives the same deterministic winner as the relational backend's
+    // `[{ createdAt: "desc" }, { id: "desc" }]`.
+    const snapshot = await this.careerOpsRuns
+      .where("threadId", "==", threadId)
+      .where("userId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .limit(1)
+      .get();
+    const document = snapshot.docs[0];
+    return document ? this.mapCareerOpsRun(document.id, document.data()) : null;
+  }
+
+  /**
+   * Detach Career Ops conversations from an application that is going away.
+   * The conversation survives; the link is advisory context, not ownership, so
+   * it must not cascade into a delete.
+   *
+   * `applicationScoped` is deliberately untouched. The conversation does not
+   * become a global one — it becomes a scoped one whose opportunity is gone,
+   * and the service refuses to run it until the user starts a general
+   * conversation explicitly. Clearing the marker here would hand a conversation
+   * the user had confined to one opportunity authority over the whole CRM.
+   */
+  private async clearCareerOpsApplicationLinks(applicationId: string, userId: string): Promise<void> {
+    const snapshot = await this.careerOpsThreads
+      .where("userId", "==", userId)
+      .where("applicationId", "==", applicationId)
+      .get();
+    if (snapshot.empty) return;
+    // Same 500-write batch cap as the thread cascade: an application linked to
+    // many conversations would otherwise become undeletable.
+    for (let offset = 0; offset < snapshot.docs.length; offset += 450) {
+      const batch = this.db.batch();
+      for (const document of snapshot.docs.slice(offset, offset + 450)) {
+        // The marker is written here, not only at creation. A document made
+        // before the marker existed carries no such field, and its scope is
+        // inferred from the link — so clearing the link erased the only
+        // evidence and the conversation mapped as one that had never been
+        // scoped, free to act across the whole CRM. Every document this sweep
+        // touches held a link, so `true` is right for all of them.
+        batch.update(document.ref, {
+          applicationId: null,
+          applicationScoped: true,
+          updatedAt: Timestamp.now(),
+        });
+      }
+      await batch.commit();
+    }
   }
 }
