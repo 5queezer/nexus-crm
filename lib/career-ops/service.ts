@@ -738,6 +738,18 @@ const TERMINAL_RUN_STATUSES: readonly string[] = [...CAREER_OPS_TERMINAL_RUN_STA
  */
 const AMBIGUOUS_UPSTREAM_KINDS: readonly string[] = ["timeout", "unreachable", "upstream_error"];
 
+/**
+ * Refusals that leave the same upstream approval gate waiting.
+ *
+ * Hermes stating a refusal proves the decision was not applied, but that is not
+ * the same as proving the gate is still there to answer. A 429 was throttled
+ * before it reached the run and a 401/403 was rejected at the edge, so the
+ * agent is still parked at the prompt that was disclosed. A 404 or a 409 says
+ * the opposite: the run or the gate has moved on. Reopening locally on those
+ * hands the browser back a prompt whose upstream side no longer exists.
+ */
+const GATE_STILL_PENDING_KINDS: readonly string[] = ["rate_limited", "unauthorized"];
+
 /** How long to wait for a stopped run to actually settle. */
 function stopConfirmationWindowMs(config: Extract<CareerOpsConfig, { enabled: true }>): number {
   return Math.min(Math.max(config.connectTimeoutMs * 3, 3_000), 15_000);
@@ -1327,13 +1339,21 @@ export async function resolveCareerOpsApproval(
         undecided ? "outcome_unknown" : "not_applied",
       )
       .catch(() => undefined);
-    if (!undecided) {
-      // Hermes stated the refusal, so the decision provably did nothing and the
-      // gate is still open upstream — a rate limit is the ordinary case. Leaving
-      // it locally claimed strands the run: the client offers a retry, the retry
-      // finds no open gate and drops the prompt, and Hermes waits forever with
-      // nobody able to answer. Reopening is safe precisely because nothing was
-      // applied.
+    // Reopen only when the refusal says the disclosed gate is still waiting.
+    //
+    // Leaving a still-waiting gate locally claimed strands the run: the client
+    // offers a retry, the retry finds no open gate and drops the prompt, and
+    // Hermes waits forever with nobody able to answer. Reopening is safe there
+    // precisely because nothing was applied. But "nothing was applied" was
+    // being read as "still answerable", and a 404 or 409 means neither: the
+    // gate is gone upstream, so reopening it here would only restore controls
+    // for a prompt no decision can reach, and would let a second decision claim
+    // a gate that no longer exists.
+    const reopened =
+      !undecided &&
+      reason instanceof HermesError &&
+      GATE_STILL_PENDING_KINDS.includes(reason.kind);
+    if (reopened) {
       await getDb()
         .releaseCareerOpsApprovalGate(run.id, session.userId, consumedChallengeId)
         .catch(() => undefined);
@@ -1346,7 +1366,7 @@ export async function resolveCareerOpsApproval(
       settled.code,
       settled.message,
       settled.retryAfterSeconds,
-      !undecided,
+      reopened,
     );
   }
   // Attribution only: which owner decided what, and when. The command and its

@@ -114,3 +114,6 @@ against the code it replaced.
 - [x] 8.40 Give the bundled mock and the runbook a default key that clears the configured-secret minimum, guarded by a test.
 - [x] 8.41 Move the active-selection ref in the same statement as the state, so a deletion resolving mid-render cannot read a stale one.
 - [x] 8.42 Report a rejected or expired challenge as leaving the gate open, since nothing was claimed.
+- [x] 8.43 Redact the credential after an authorization scheme word, including Basic, in whole text and across a stream seam.
+- [x] 8.44 Refuse a configured secret longer than the streaming seam can hold, from the same constant the carry cap uses.
+- [x] 8.45 Reopen an approval gate only for refusals that confirm the same upstream gate is still pending.

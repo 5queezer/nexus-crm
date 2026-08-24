@@ -1,6 +1,7 @@
 import {
   CREDENTIAL_CANDIDATES,
   CREDENTIAL_TOKEN_CHAR,
+  MAX_CAREER_OPS_SECRET_LENGTH,
   REDACTED_ERROR_LIMIT,
   REDACTION_PLACEHOLDER,
   configuredSecrets,
@@ -77,8 +78,15 @@ const MIN_BOUNDARY_WINDOW = 32;
  * Holding until a token run ends is what keeps a credential intact for
  * matching, but an upstream streaming an endless token would grow the carry
  * without limit. Nothing legitimate is this long.
+ *
+ * It is the configured maximum secret length, not a separate number, because
+ * the two state the same guarantee from opposite ends: this class can hold a
+ * secret whole only up to the cap, and configuration refuses any secret above
+ * it. Two numbers here would let a key be accepted that the seam cannot
+ * protect — a delta carrying more than the cap of its prefix would emit that
+ * prefix, and no pattern matches a bare high-entropy prefix.
  */
-const MAX_BOUNDARY_CARRY = 4096;
+const MAX_BOUNDARY_CARRY = MAX_CAREER_OPS_SECRET_LENGTH;
 
 /**
  * Strips secrets from a stream of text where a secret may straddle two chunks.
@@ -108,10 +116,10 @@ export class SecretBoundaryRedactor {
     // The cap must not sit below the longest secret this deployment actually
     // accepts, or a long key split across two deltas would have its prefix
     // emitted before the whole value existed to match — the very seam this
-    // class exists to close. Configuration sets no maximum key length, so the
-    // ceiling is the carry limit instead of an arbitrary 512, and a secret
-    // longer than that is documented as outside the guarantee rather than
-    // silently unprotected.
+    // class exists to close. It cannot: configuration refuses any secret above
+    // MAX_CAREER_OPS_SECRET_LENGTH, which is this same ceiling, so the window a
+    // configured secret asks for (its length minus one) is always inside it and
+    // the `min` below never truncates the guarantee.
     this.window = Math.min(Math.max(window, MIN_BOUNDARY_WINDOW), MAX_BOUNDARY_CARRY);
   }
 

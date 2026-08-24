@@ -15,6 +15,14 @@ The system SHALL communicate with Hermes exclusively from the server using opera
 - **WHEN** the configured bearer token or scope secret is shorter than the length exact redaction strips
 - **THEN** the feature reports itself unconfigured and issues no upstream request, because a secret the system accepts but cannot remove from upstream text would reach logs and the browser intact
 
+#### Scenario: A secret too long to hold across a stream seam
+- **WHEN** the configured bearer token or scope secret is longer than the tail the streaming redactor holds back
+- **THEN** the feature reports itself unconfigured and issues no upstream request, because a delta carrying more than that tail of the secret's prefix would emit the prefix before the whole value existed to match
+
+#### Scenario: A credential announced by an authorization scheme
+- **WHEN** upstream text, a transcript, an approval prompt, or a streamed delta carries an authorization value introduced by a scheme word, such as a Basic credential
+- **THEN** the system removes the credential as well as the scheme, for any scheme rather than a fixed list of known ones
+
 #### Scenario: Upstream error text is sanitized
 - **WHEN** Hermes returns an error whose body embeds a credential, token, or internal host detail
 - **THEN** the system returns a controlled error message with the secret-bearing text removed and records the redacted form only

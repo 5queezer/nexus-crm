@@ -1865,6 +1865,24 @@ describe("run controls", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("does not reopen a gate Hermes says is no longer there", async () => {
+    // A 409 or a 404 is a stated refusal too, so "the decision did nothing" is
+    // true of both — but that was being read as "the prompt can be answered
+    // again", which these two deny. The gate is gone upstream: reopening it
+    // locally restored controls for a prompt no decision can reach, and left
+    // the local gate claimable a second time.
+    for (const kind of ["conflict", "not_found"] as const) {
+      mocks.db.releaseCareerOpsApprovalGate.mockClear();
+      const challenge = await challengeFor("run-1", ["once"]);
+      mocks.client.resolveApproval.mockRejectedValue(new HermesError(kind, "gate is gone"));
+
+      await expect(
+        resolveCareerOpsApproval(SESSION_A, "run-1", "once", challenge),
+      ).rejects.toMatchObject({ approvalStillOpen: false });
+      expect(mocks.db.releaseCareerOpsApprovalGate).not.toHaveBeenCalled();
+    }
+  });
+
   it("keeps the gate closed when the outcome is unknown", async () => {
     // A transport failure does not say whether Hermes applied the decision.
     // Reopening then would let a second decision reach a gate the first may

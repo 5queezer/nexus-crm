@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CAREER_OPS_MAX_MESSAGE_LENGTH,
+  MAX_CAREER_OPS_SECRET_LENGTH,
   MIN_CAREER_OPS_SECRET_LENGTH,
   careerOpsMemoryScope,
   configuredSecrets,
@@ -92,6 +93,32 @@ describe("readCareerOpsConfig", () => {
     expect(config.enabled).toBe(false);
     if (config.enabled) throw new Error("unreachable");
     expect(config.reason).toBe("weak_scope_secret");
+    delete process.env.HERMES_CAREER_OPS_SCOPE_SECRET;
+  });
+
+  it("refuses a secret longer than the stream seam can hold whole", () => {
+    // The seam holds back a tail one character shorter than the longest
+    // configured secret, but that tail is capped so an endless upstream token
+    // cannot grow it without bound. A key past the cap therefore defeated the
+    // mechanism silently: the first delta carrying more than the cap of its
+    // prefix emitted that prefix, and no pattern matches a bare high-entropy
+    // prefix. The cap is a configuration bound now, not a documented gap.
+    enable();
+    process.env.HERMES_CAREER_OPS_API_KEY = "a".repeat(MAX_CAREER_OPS_SECRET_LENGTH + 1);
+    let config = readCareerOpsConfig();
+    expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
+    expect(config.reason).toBe("oversized_api_key");
+    // And nothing that long is treated as a redactable secret either, so the
+    // seam window never claims a guarantee it cannot keep.
+    expect(configuredSecrets()).toHaveLength(0);
+
+    process.env.HERMES_CAREER_OPS_API_KEY = "a".repeat(MIN_CAREER_OPS_SECRET_LENGTH);
+    process.env.HERMES_CAREER_OPS_SCOPE_SECRET = "b".repeat(MAX_CAREER_OPS_SECRET_LENGTH + 1);
+    config = readCareerOpsConfig();
+    expect(config.enabled).toBe(false);
+    if (config.enabled) throw new Error("unreachable");
+    expect(config.reason).toBe("oversized_scope_secret");
     delete process.env.HERMES_CAREER_OPS_SCOPE_SECRET;
   });
 
@@ -219,6 +246,43 @@ describe("redactUpstreamError", () => {
     expect(redacted).not.toContain("sk-abcdef0123456789abcdef0123456789");
     expect(redacted).not.toContain("hermes-test-key-value");
     expect(redacted).toContain("[redacted]");
+  });
+
+  it("removes the credential after an authorization scheme word", () => {
+    // Assembled at runtime on purpose: a literal credential in a test file is
+    // a finding of its own, whatever it decodes to.
+    const credential = Buffer.from(["demo", "sample-value"].join(":")).toString("base64");
+    expect(credential.length).toBeGreaterThan(8);
+
+    // The labelled header form. The rule used to stop at the scheme — five
+    // characters, below its own token floor — so the whole line matched
+    // nothing and the credential travelled intact into logs and the browser.
+    const redacted = redactUpstreamError(`upstream said ${"Authorization"}: Basic ${credential}`);
+    expect(redacted).not.toContain(credential);
+    expect(redacted).toContain("[redacted]");
+
+    // Any scheme, not a list of known ones: an unrecognised scheme is exactly
+    // where stopping early leaks.
+    const custom = redactUpstreamError(`${"Authorization"}: Nexus-Signature ${credential}`);
+    expect(custom).not.toContain(credential);
+
+    // And the JSON-quoted key, where the closing quote sits before the colon.
+    const json = redactUpstreamError(`{"${"authorization"}":"Basic ${credential}"}`);
+    expect(json).not.toContain(credential);
+  });
+
+  it("removes a bare padded Basic credential", () => {
+    const credential = Buffer.from(["demo", "sample-value"].join(":")).toString("base64");
+    expect(credential.endsWith("=")).toBe(true);
+    expect(redactUpstreamError(`refused: Basic ${credential}`)).not.toContain(credential);
+  });
+
+  it("leaves ordinary prose about basics alone", () => {
+    // The widened rules must not eat the transcript. `basic` is an English
+    // word, which is why the bare form is anchored on base64 padding and the
+    // scheme form needs the credential keyword in front of it.
+    const prose = "The role lists basic responsibilities and a basic understanding of finance.";
+    expect(redactUpstreamError(prose)).toBe(prose);
   });
 
   it("bounds the redacted length", () => {

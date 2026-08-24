@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_CAREER_OPS_SECRET_LENGTH } from "../config";
 import {
   APPROVAL_TEXT_LIMIT,
   SecretBoundaryRedactor,
@@ -622,9 +623,8 @@ describe("credential stripping in assistant output", () => {
   });
 
   it("holds a seam wide enough for the longest secret configuration accepts", () => {
-    // Configuration sets no maximum key length, so a window capped below the
-    // configured secret would emit its prefix before the whole value existed
-    // to match — the exact seam this class exists to close.
+    // A window capped below the configured secret emits its prefix before the
+    // whole value exists to match — the exact seam this class exists to close.
     // Long enough that half of it exceeds the old 512-character cap: that is
     // the only split where a short window actually emits part of the secret.
     const long = `hermes-${"k".repeat(2_000)}`;
@@ -639,6 +639,27 @@ describe("credential stripping in assistant output", () => {
       expect(out).not.toContain(long);
       expect(out).not.toContain(long.slice(half));
       expect(out).toContain("trailing");
+    } finally {
+      process.env.HERMES_CAREER_OPS_API_KEY = KEY;
+    }
+  });
+
+  it("holds a secret at the maximum length configuration accepts", () => {
+    // The carry cap and the configured maximum are one constant now. They were
+    // two, and a key past the cap defeated the seam silently: the first delta
+    // carrying more than the cap of its prefix emitted that prefix, and no
+    // pattern matches a bare high-entropy prefix. At the boundary itself the
+    // hold must still be complete.
+    const longest = "s".repeat(MAX_CAREER_OPS_SECRET_LENGTH);
+    process.env.HERMES_CAREER_OPS_API_KEY = longest;
+    try {
+      const redactor = new SecretBoundaryRedactor();
+      let out = redactor.push(`upstream said ${longest.slice(0, -10)}`);
+      out += redactor.push(longest.slice(-10));
+      out += redactor.flush();
+
+      expect(out).not.toContain(longest.slice(0, 64));
+      expect(out).toBe("upstream said [redacted]");
     } finally {
       process.env.HERMES_CAREER_OPS_API_KEY = KEY;
     }

@@ -47,6 +47,23 @@ export const REDACTION_PLACEHOLDER = "[redacted]";
  */
 export const MIN_CAREER_OPS_SECRET_LENGTH = 16;
 
+/**
+ * Longest secret this deployment will accept, and the longest one the streaming
+ * seam can hold intact. One constant for both, for the same reason as the
+ * minimum above.
+ *
+ * `SecretBoundaryRedactor` holds back a tail one character shorter than the
+ * longest configured secret so a key split across two deltas is reassembled
+ * before either half is emitted — but that tail is itself capped, because an
+ * upstream streaming an endless token must not grow the buffer without bound.
+ * A key longer than the cap defeats the mechanism silently: the first delta
+ * carrying more than the cap has its prefix emitted, and no pattern matches a
+ * bare high-entropy prefix. So the cap becomes a configuration bound instead: a
+ * key beyond it is refused at startup rather than accepted and streamed in the
+ * clear.
+ */
+export const MAX_CAREER_OPS_SECRET_LENGTH = 4096;
+
 export type CareerOpsDisabledReason =
   | "disabled"
   | "not_configured"
@@ -54,6 +71,9 @@ export type CareerOpsDisabledReason =
   /** A secret shorter than redaction can strip; see MIN_CAREER_OPS_SECRET_LENGTH. */
   | "weak_api_key"
   | "weak_scope_secret"
+  /** A secret longer than the stream seam can hold; see MAX_CAREER_OPS_SECRET_LENGTH. */
+  | "oversized_api_key"
+  | "oversized_scope_secret"
   | "owner_not_configured"
   | "not_owner";
 
@@ -105,9 +125,17 @@ export function readCareerOpsConfig(): CareerOpsConfig {
   if (apiKey.length < MIN_CAREER_OPS_SECRET_LENGTH) {
     return { enabled: false, reason: "weak_api_key" };
   }
+  // ...or one the streaming seam cannot hold intact; see
+  // MAX_CAREER_OPS_SECRET_LENGTH.
+  if (apiKey.length > MAX_CAREER_OPS_SECRET_LENGTH) {
+    return { enabled: false, reason: "oversized_api_key" };
+  }
   const rawScopeSecret = process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim();
   if (rawScopeSecret && rawScopeSecret.length < MIN_CAREER_OPS_SECRET_LENGTH) {
     return { enabled: false, reason: "weak_scope_secret" };
+  }
+  if (rawScopeSecret && rawScopeSecret.length > MAX_CAREER_OPS_SECRET_LENGTH) {
+    return { enabled: false, reason: "oversized_scope_secret" };
   }
   if (flag !== "true" && flag !== "1") return { enabled: false, reason: "disabled" };
 
@@ -167,7 +195,24 @@ export function careerOpsMemoryScope(
 
 const SECRET_PATTERNS: RegExp[] = [
   /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
-  /\b(api[_-]?key|apikey|token|secret|authorization)\b\s*[:=]\s*"?[A-Za-z0-9._~+/=-]{8,}"?/gi,
+  // `<keyword>: <scheme> <credential>`, where the scheme word is optional.
+  //
+  // Without the scheme alternative this rule stopped at `Basic` and matched
+  // nothing at all — five characters is below the eight-character token floor —
+  // so `Authorization: Basic <base64 of user:pass>` passed through intact. The
+  // scheme is matched generically rather than against a list of known ones: a
+  // custom scheme is exactly the case where stopping early leaks, and once the
+  // text says `authorization:` an extra word of over-redaction costs nothing.
+  //
+  // The optional quote before the separator is for JSON, where the key's own
+  // closing quote sits between the keyword and the colon.
+  /\b(?:api[_-]?key|apikey|token|secret|authorization)\b"?\s*[:=]\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,31}\s+)?[A-Za-z0-9._~+/=-]{8,}"?/gi,
+  // A Basic credential with no header name around it, anchored on base64
+  // padding. The label is what makes the rule above safe to widen; `basic` on
+  // its own is an ordinary English word, and only the `=` tail separates a
+  // credential from "basic responsibilities". Unpadded bare Basic values are
+  // therefore outside this rule and rely on the labelled form above.
+  /\bbasic\s+[A-Za-z0-9+/]{8,}={1,2}/gi,
   // Self-identifying credentials, which arrive with no label at all.
   //
   // Exact matching only knows this deployment's own two secrets, and the rules
@@ -205,7 +250,8 @@ export const CREDENTIAL_TOKEN_CHAR = /[A-Za-z0-9._~+/=-]/;
  */
 export const CREDENTIAL_CANDIDATES: RegExp[] = [
   /\bbearer\s*[A-Za-z0-9._~+/=-]*/gi,
-  /\b(?:api[_-]?key|apikey|token|secret|authorization)\b\s*[:=]?\s*"?[A-Za-z0-9._~+/=-]*/gi,
+  /\b(?:api[_-]?key|apikey|token|secret|authorization)\b"?\s*[:=]?\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,31}\s+)?[A-Za-z0-9._~+/=-]*/gi,
+  /\bbasic\s*[A-Za-z0-9+/]*={0,2}/gi,
   /\bsk-[A-Za-z0-9._-]*/gi,
   /\bjt_[A-Za-z0-9._-]*/gi,
   /\bgh[pousr]_[A-Za-z0-9]*/g,
@@ -248,9 +294,14 @@ export function configuredSecrets(): string[] {
     process.env.HERMES_CAREER_OPS_API_KEY?.trim(),
     process.env.HERMES_CAREER_OPS_SCOPE_SECRET?.trim(),
   ]
-    // The same bound configuration enforces, so every accepted secret is one
-    // this can actually strip.
-    .filter((value): value is string => !!value && value.length >= MIN_CAREER_OPS_SECRET_LENGTH)
+    // The same bounds configuration enforces, so every accepted secret is one
+    // this can actually strip and one the stream seam can hold whole.
+    .filter(
+      (value): value is string =>
+        !!value &&
+        value.length >= MIN_CAREER_OPS_SECRET_LENGTH &&
+        value.length <= MAX_CAREER_OPS_SECRET_LENGTH,
+    )
     .sort((a, b) => b.length - a.length);
 }
 

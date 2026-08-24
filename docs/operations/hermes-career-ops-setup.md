@@ -47,6 +47,8 @@ Use a key that is **not** shared with any other profile. Nexus rejects an unauth
 
 Nexus refuses to enable the feature with an API key (or an explicit `HERMES_CAREER_OPS_SCOPE_SECRET`) shorter than **16 characters**, and reports it unconfigured. That is the same bound its redaction uses: a secret shorter than that is not stripped from upstream text, so a key Nexus accepted but could not redact would ride an error message or a transcript straight into the logs and the browser. `openssl rand -hex 32` is well past it.
 
+There is an upper bound too: a key (or scope secret) longer than **4096 characters** is refused the same way. That is the largest tail Nexus holds back while streaming, and holding the tail is what reassembles a secret split across two delta frames before either half is emitted. A longer key would have its prefix streamed to the browser before the whole value existed to match.
+
 ## 3. Configure the Nexus MCP server for the profile
 
 Career Ops must read and write Nexus through the Nexus MCP server rather than a duplicated store. Hermes reads MCP servers from the `mcp_servers` key of the profile's **`config.yaml`** — the same file as section 2, not a separate JSON file. Add:
