@@ -66,6 +66,7 @@ The system SHALL persist, per run, the owning user identifier, the owning thread
 - **WHEN** a conversation is created, its upstream session and Nexus mapping are persisted, and the response never reaches the browser, which then retries the same creation with the same request key
 - **THEN** the retry returns the conversation that already exists rather than creating a second one, because the key is the only thing stable across the retry — the mapping's other uniqueness key contains a session identifier minted fresh on each attempt
 - **AND** any upstream session a losing retry minted before the key resolved is deleted rather than left unreferenced
+- **AND** the key is claimed by a write that conflicts, not by a search that finds nothing, so two concurrent attempts carrying it cannot both create a conversation
 
 #### Scenario: A reservation nothing can settle does not block the conversation
 - **WHEN** a submission's outcome was ambiguous, so its reservation carries no upstream run identifier

@@ -353,6 +353,30 @@ export class FirestoreAdapter implements DatabaseAdapter {
    * children are still pending and is deleted only once they are all gone. The
    * relational backend needs none of this — the foreign key cascades.
    */
+  /**
+   * One document per conversation-creation request key.
+   *
+   * A query inside a transaction cannot serve this. Firestore locks the
+   * documents a read *returns*, so two concurrent creations carrying the same
+   * key both see an empty result, write threads under different ids — the id is
+   * derived from the Hermes session, which each attempt mints fresh — and both
+   * commit. A deterministic document is a lock: `create` fails if it exists, so
+   * exactly one attempt claims the key.
+   */
+  private get careerOpsThreadRequests() {
+    return this.db.collection("careerOpsThreadRequests");
+  }
+
+  private careerOpsThreadRequestRef(userId: string, clientRequestId: string) {
+    return this.careerOpsThreadRequests.doc(
+      submissionRequestHash({
+        kind: "career-ops-thread-request",
+        userId,
+        request: clientRequestId,
+      }),
+    );
+  }
+
   private get careerOpsThreadDeletions() {
     return this.db.collection("careerOpsThreadDeletions");
   }
@@ -2564,13 +2588,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
     userId: string,
     clientRequestId: string,
   ): Promise<CareerOpsThreadRecord | null> {
-    const snapshot = await this.careerOpsThreads
-      .where("userId", "==", userId)
-      .where("clientRequestId", "==", clientRequestId)
-      .limit(1)
-      .get();
-    const document = snapshot.docs[0];
-    return document ? this.mapCareerOpsThread(document.id, document.data()) : null;
+    // Through the claim, not a query: the claim is what the write is decided
+    // on, so reading anything else could disagree with it.
+    const claim = await this.careerOpsThreadRequestRef(userId, clientRequestId).get();
+    if (!claim.exists) return null;
+    const threadId = claim.data()!.threadId as string;
+    return this.getCareerOpsThread(threadId, userId);
   }
 
   async createCareerOpsThread(
@@ -2598,16 +2621,23 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
       // The request key decides, inside the transaction, so two retries of one
       // lost response cannot both create. The relational backend gets this from
-      // its unique index; here the read has to be part of the write.
-      if (clientRequestId) {
-        const claimed = await tx.get(
-          this.careerOpsThreads
-            .where("userId", "==", userId)
-            .where("clientRequestId", "==", clientRequestId)
-            .limit(1),
-        );
-        const already = claimed.docs[0];
-        if (already) return this.mapCareerOpsThread(already.id, already.data());
+      // its unique index; here a deterministic claim document is the lock — a
+      // query would not be, because Firestore locks only what a read returns
+      // and two attempts would both see nothing.
+      const claimRef = clientRequestId
+        ? this.careerOpsThreadRequestRef(userId, clientRequestId)
+        : null;
+      if (claimRef) {
+        const claim = await tx.get(claimRef);
+        if (claim.exists) {
+          const claimed = await tx.get(this.careerOpsThreads.doc(claim.data()!.threadId as string));
+          // A claim whose conversation is gone is a leftover, not a conflict:
+          // deletion removes both, so this only happens if that removal was
+          // interrupted. Fall through and let this attempt take the key.
+          if (claimed.exists && claimed.data()!.userId === userId) {
+            return this.mapCareerOpsThread(claimed.id, claimed.data()!);
+          }
+        }
       }
 
       // The application was verified before Hermes was asked for a session, and
@@ -2644,6 +2674,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
         updatedAt: now,
       };
       tx.create(ref, payload);
+      // `set`, not `create`: a leftover claim above is deliberately taken over.
+      // The `create` that matters is the thread's — and the read of this claim
+      // is in the transaction's read set either way, so a concurrent attempt
+      // that claimed the key first aborts this one.
+      if (claimRef) {
+        tx.set(claimRef, { userId, threadId: ref.id, createdAt: now });
+      }
       return this.mapCareerOpsThread(ref.id, payload);
     });
   }
@@ -2686,6 +2723,12 @@ export class FirestoreAdapter implements DatabaseAdapter {
       if (!active.empty) return { outcome: "active_run" };
       const thread = this.mapCareerOpsThread(snapshot.id, snapshot.data()!);
       tx.delete(threadRef);
+      // The claim goes with the conversation it points at, or a later retry
+      // carrying that key would resolve to a conversation that no longer
+      // exists.
+      if (thread.clientRequestId) {
+        tx.delete(this.careerOpsThreadRequestRef(userId, thread.clientRequestId));
+      }
       // Committed with the parent's removal, so the work is recorded before it
       // can be interrupted. There is no moment where the thread is gone and
       // nothing says its runs still need collecting.

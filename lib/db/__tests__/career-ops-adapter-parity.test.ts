@@ -1843,6 +1843,35 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
     expect(otherKeyless.id).not.toBe(keyless.id);
   });
 
+  it("resolves a repeated creation key through a claim, not a query", async () => {
+    // Firestore locks the documents a read *returns*, so a query for the key
+    // inside the transaction locks nothing when it finds nothing: two attempts
+    // both see empty, write threads under different ids — the id comes from the
+    // Hermes session, minted fresh each attempt — and both commit. The claim
+    // document is the lock, and it is also what the lookup reads, so the two
+    // can never disagree.
+    const first = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-claimed",
+      title: "Pipeline",
+      clientRequestId: "claim-key-1",
+    });
+
+    // The conversation's own copy of the key is not what decides: erase it and
+    // the retry must still resolve.
+    const stored = firestoreStores.careerOpsThreads?.get(first.id);
+    if (stored) firestoreStores.careerOpsThreads.set(first.id, { ...stored, clientRequestId: null });
+
+    await expect(db.getCareerOpsThreadByRequestId("user-a", "claim-key-1")).resolves.toMatchObject({
+      id: first.id,
+    });
+    const retried = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-other",
+      title: "Pipeline",
+      clientRequestId: "claim-key-1",
+    });
+    expect(retried.id).toBe(first.id);
+  });
+
   it("stores no credential material on either record", async () => {
     const thread = await seedThread("user-a");
     const { run } = await claimRun("user-a", {
@@ -2063,18 +2092,6 @@ describe("Firestore index configuration", () => {
         index.collectionGroup === "careerOpsThreads" &&
         index.fields.some((field) => field.fieldPath === "userId") &&
         index.fields.some((field) => field.fieldPath === "updatedAt"),
-    );
-    expect(found).toBeDefined();
-  });
-
-  it("declares the creation-key index the idempotent create queries", () => {
-    // That query runs inside the creation transaction, so a missing index does
-    // not degrade — it makes every conversation creation fail.
-    const found = indexes.indexes.find(
-      (index) =>
-        index.collectionGroup === "careerOpsThreads" &&
-        index.fields.some((field) => field.fieldPath === "userId") &&
-        index.fields.some((field) => field.fieldPath === "clientRequestId"),
     );
     expect(found).toBeDefined();
   });

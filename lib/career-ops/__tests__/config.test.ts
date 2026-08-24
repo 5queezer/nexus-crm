@@ -297,6 +297,25 @@ describe("redactUpstreamError", () => {
     expect(out).toContain("trailing");
   });
 
+  it("removes compound OAuth credential labels", () => {
+    // An underscore is a word character, so `\btoken\b` finds no boundary
+    // inside `access_token` and matched none of these: the OAuth credentials an
+    // agent is most likely to print went through untouched unless they happened
+    // to carry a prefix one of the self-identifying rules knows.
+    const value = ["not", "a", "real", "credential", "9876"].join("-");
+    for (const label of ["access_token", "refresh_token", "client_secret", "api_secret"]) {
+      expect(redactUpstreamError(`connector said ${label}=${value}`)).not.toContain(value);
+    }
+
+    // And across a stream seam, which needs the candidate pattern.
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`${"filler ".repeat(20)}access_token=${value.slice(0, 5)}`);
+    out += redactor.push(`${value.slice(5)} trailing`);
+    out += redactor.flush();
+    expect(out).not.toContain(value);
+    expect(out).toContain("trailing");
+  });
+
   it("leaves ordinary prose about a password alone", () => {
     // The keyword needs a separator and eight token characters after it, so
     // prose that merely mentions one is untouched.

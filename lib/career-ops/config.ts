@@ -204,6 +204,12 @@ const SECRET_PATTERNS: RegExp[] = [
   // custom scheme is exactly the case where stopping early leaks, and once the
   // text says `authorization:` an extra word of over-redaction costs nothing.
   //
+  // The optional prefix is for compound labels — `access_token`,
+  // `refresh_token`, `client_secret`. An underscore is a word character, so
+  // `\btoken\b` finds no boundary inside `access_token` and matched none of
+  // them: the OAuth credentials an agent is most likely to print went through
+  // untouched unless they happened to carry a known prefix.
+  //
   // The scheme is capped at twenty characters, which every real one fits
   // (`Negotiate`, `AWS4-HMAC-SHA256`) and a credential-looking value does not.
   // Uncapped, a labelled value of ordinary words was itself read as a scheme
@@ -211,7 +217,7 @@ const SECRET_PATTERNS: RegExp[] = [
   //
   // The optional quote before the separator is for JSON, where the key's own
   // closing quote sits between the keyword and the colon.
-  /\b(?:api[_-]?key|apikey|token|secret|password|passwd|authorization)\b"?\s*[:=]\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,19}\s+)?[A-Za-z0-9._~+/=-]{8,}"?/gi,
+  /\b(?:[A-Za-z0-9]{1,20}[_-])?(?:api[_-]?key|apikey|token|secret|password|passwd|authorization)\b"?\s*[:=]\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,19}\s+)?[A-Za-z0-9._~+/=-]{8,}"?/gi,
   // A Basic credential with no header name around it, anchored on base64
   // padding. The label is what makes the rule above safe to widen; `basic` on
   // its own is an ordinary English word, and only the `=` tail separates a
@@ -261,7 +267,7 @@ export const CREDENTIAL_TOKEN_CHAR = /[A-Za-z0-9._~+/=-]/;
  */
 export const CREDENTIAL_CANDIDATES: RegExp[] = [
   /\bbearer\s*[A-Za-z0-9._~+/=-]*/gi,
-  /\b(?:api[_-]?key|apikey|token|secret|password|passwd|authorization)\b"?\s*[:=]?\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,19}\s+)?[A-Za-z0-9._~+/=-]*/gi,
+  /\b(?:[A-Za-z0-9]{1,20}[_-])?(?:api[_-]?key|apikey|token|secret|password|passwd|authorization)\b"?\s*[:=]?\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,19}\s+)?[A-Za-z0-9._~+/=-]*/gi,
   /\bbasic\s*[A-Za-z0-9+/]*={0,2}/gi,
   /\bsk-[A-Za-z0-9._-]*/gi,
   /\bjt_[A-Za-z0-9._-]*/gi,

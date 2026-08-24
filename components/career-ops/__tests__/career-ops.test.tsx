@@ -366,6 +366,52 @@ describe("threads", () => {
     expect(keys[1]).toBe(keys[0]);
   });
 
+  it("stops reusing a creation key once the list shows the conversation", async () => {
+    // The lost response is answered out of band: reopening the drawer lists the
+    // conversation that was committed anyway. Holding the key past that made
+    // the next explicit "new conversation" resolve to that same conversation —
+    // and the list gained a second copy of it.
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    let listed: CareerOpsThread[] = [];
+    let created = 0;
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: listed }));
+    route("POST", /\/api\/career-ops\/threads$/, async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { clientRequestId?: string };
+      keys.push(body.clientRequestId ?? "");
+      created += 1;
+      // The first creation commits but its response never arrives.
+      if (created === 1) {
+        listed = [{ ...THREAD, id: "thread-committed" }];
+        return json({ error: "upstream_error" }, 502);
+      }
+      return json({ thread: { ...THREAD, id: `thread-${created}` } }, 201);
+    });
+    renderCareerOps();
+
+    await openDrawer(user);
+    await waitFor(() => expect(keys.length).toBe(1));
+
+    // Reopening finds the committed conversation, which is the answer the lost
+    // response owed.
+    await user.keyboard("{Escape}");
+    const reopened = await openDrawer(user);
+    await waitFor(() =>
+      expect(
+        calls.filter(
+          (call) => call.url.endsWith("/api/career-ops/threads") && call.method === "GET",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    await user.click(within(reopened).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(reopened).getByRole("button", { name: /new conversation/i }));
+
+    await waitFor(() => expect(keys.length).toBe(2));
+    // A genuinely new intent, so a genuinely new key.
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
   it("creates a new conversation", async () => {
     const user = userEvent.setup();
     renderCareerOps();

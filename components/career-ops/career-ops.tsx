@@ -424,7 +424,13 @@ export function CareerOps({
       // moved on would switch away from — and reset — a run that is still
       // executing, aborting its single-consumer stream for good.
       creationKeysRef.current.delete(intent);
-      setThreads((current) => [result.thread, ...current]);
+      // The server can answer with a conversation that already exists — that is
+      // what the key is for — so this list must not gain a second copy of it.
+      setThreads((current) =>
+        current.some((thread) => thread.id === result.thread.id)
+          ? current.map((thread) => (thread.id === result.thread.id ? result.thread : thread))
+          : [result.thread, ...current],
+      );
       if (!stillCurrent()) return result.thread;
       selectionRef.current += 1;
       selectActiveThread(result.thread.id);
@@ -488,6 +494,20 @@ export function CareerOps({
       const result = await careerOpsJson<{ threads: CareerOpsThread[] }>("/api/career-ops/threads");
       if (!current()) return;
       setThreads(result.threads);
+      // The list is the answer a lost creation response never delivered. If a
+      // conversation for the intent this key was minted for is already here,
+      // the creation landed — holding the key would make the next explicit
+      // "new conversation" resolve to that same one and prepend it twice.
+      const intent = application ? `app-${application.id}` : "global";
+      if (
+        result.threads.some((thread) =>
+          application
+            ? thread.applicationId === application.id
+            : thread.applicationId === null && !thread.scopeLost,
+        )
+      ) {
+        creationKeysRef.current.delete(intent);
+      }
       const preferred = application
         ? result.threads.find((thread) => thread.applicationId === application.id)
         : // A conversation whose opportunity was deleted also has no

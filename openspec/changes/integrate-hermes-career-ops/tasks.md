@@ -132,3 +132,6 @@ against the code it replaced.
 - [x] 8.58 Restore a challenge-refused prompt as deniable only, and say that it expired.
 - [x] 8.59 Never adopt a contact snapshot taken before a local write; re-read the server instead.
 - [x] 8.60 Make conversation creation idempotent on a browser request key, in both backends.
+- [x] 8.61 Claim the Firestore request key with a deterministic document, not a transactional query.
+- [x] 8.62 Release a creation key once the thread list shows the conversation it made.
+- [x] 8.63 Redact compound credential labels such as access_token and client_secret.

@@ -58,6 +58,10 @@ The system SHALL communicate the selected application identifier to Hermes throu
 - **WHEN** a run starts in an application-scoped conversation
 - **THEN** the upstream request carries the verified application identifier as run context
 
+#### Scenario: A creation the browser never heard about is reconciled by the list
+- **WHEN** the conversation list already contains a conversation for the intent a held creation key was minted for
+- **THEN** that key is released, so the user's next explicit request for a new conversation creates one instead of resolving to the conversation that already exists
+
 #### Scenario: A refresh lands while a contact write is in flight
 - **WHEN** an agent-triggered refresh delivers a contact list while the user's own contact save or deletion has not yet completed
 - **THEN** that snapshot is not adopted, because it was taken before the write it cannot contain, and the page asks the server for one that reflects the write
