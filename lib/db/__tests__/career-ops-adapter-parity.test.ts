@@ -1910,6 +1910,36 @@ describe("Firestore application deletion clears the Career Ops link", () => {
     });
   });
 
+  it("keeps a pre-marker conversation scoped when its application is deleted", async () => {
+    // A document written before the marker existed carries no such field, and
+    // its scope is inferred from the link. Clearing the link erased the only
+    // evidence: the conversation mapped as one that had never been scoped, and
+    // the service handed it the global instructions — authority over the whole
+    // CRM for a conversation the user had confined to one opportunity.
+    resetStores();
+    const db = new FirestoreAdapter();
+    firestoreStores.applications.set("app-1", { userId: "user-a", company: "Acme", role: "Dev" });
+    // Written by hand in the old shape: a link, and no marker at all.
+    firestoreStores.careerOpsThreads.set("legacy-thread", {
+      userId: "user-a",
+      hermesSessionId: "sess-legacy",
+      title: "Acme",
+      applicationId: "app-1",
+      createdAt: { toDate: () => new Date(0) },
+      updatedAt: { toDate: () => new Date(0) },
+    });
+    await expect(db.getCareerOpsThread("legacy-thread", "user-a")).resolves.toMatchObject({
+      applicationScoped: true,
+    });
+
+    await db.deleteApplication("app-1", "user-a");
+
+    await expect(db.getCareerOpsThread("legacy-thread", "user-a")).resolves.toMatchObject({
+      applicationId: null,
+      applicationScoped: true,
+    });
+  });
+
   it("leaves a conversation that never had an application unscoped", async () => {
     resetStores();
     const db = new FirestoreAdapter();
@@ -2066,10 +2096,12 @@ describe("relational schema guarantees", () => {
       path.join(process.cwd(), "lib/db/firestore-adapter.ts"),
       "utf8",
     );
-    const sweep = firestore.slice(
-      firestore.indexOf("private async clearCareerOpsApplicationLinks"),
-    );
-    expect(sweep.slice(0, sweep.indexOf("\n  }\n"))).not.toContain("applicationScoped");
+    const sweep = firestore
+      .slice(firestore.indexOf("private async clearCareerOpsApplicationLinks"))
+      .split("\n  }\n")[0];
+    // It may *set* the marker — a document written before the marker existed
+    // needs it backfilled as the link goes — but it must never clear it.
+    expect(sweep).not.toMatch(/applicationScoped:\s*(false|null)/);
   });
 
   it("declares the deduplication and ownership indexes", () => {

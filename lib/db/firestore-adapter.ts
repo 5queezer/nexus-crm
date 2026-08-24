@@ -3212,7 +3212,17 @@ export class FirestoreAdapter implements DatabaseAdapter {
     for (let offset = 0; offset < snapshot.docs.length; offset += 450) {
       const batch = this.db.batch();
       for (const document of snapshot.docs.slice(offset, offset + 450)) {
-        batch.update(document.ref, { applicationId: null, updatedAt: Timestamp.now() });
+        // The marker is written here, not only at creation. A document made
+        // before the marker existed carries no such field, and its scope is
+        // inferred from the link — so clearing the link erased the only
+        // evidence and the conversation mapped as one that had never been
+        // scoped, free to act across the whole CRM. Every document this sweep
+        // touches held a link, so `true` is right for all of them.
+        batch.update(document.ref, {
+          applicationId: null,
+          applicationScoped: true,
+          updatedAt: Timestamp.now(),
+        });
       }
       await batch.commit();
     }

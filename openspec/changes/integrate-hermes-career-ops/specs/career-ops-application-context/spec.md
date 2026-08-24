@@ -39,6 +39,10 @@ The system SHALL verify that a requested application belongs to the authenticate
 - **WHEN** a run starts on a conversation whose linked application is no longer readable under the machine-read policy
 - **THEN** the run is refused and the user is told to start a general conversation, because widening a conversation the user confined to one opportunity into one with authority over the whole CRM must be an explicit act
 
+#### Scenario: A conversation created before the scope marker existed
+- **WHEN** the application of a conversation stored before scope was recorded explicitly is deleted, so its scope could only ever be inferred from the link being cleared
+- **THEN** the marker is written as the link is cleared, because the inference has no evidence left afterwards and the conversation would otherwise widen to the whole CRM
+
 #### Scenario: Linked application is deleted
 - **WHEN** a run starts on a conversation that was created against an application that has since been deleted, so the stored link has been cleared
 - **THEN** the run is refused on the same grounds, because a cleared link is not the same as a conversation that never had one
