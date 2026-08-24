@@ -1990,6 +1990,39 @@ describe("recovery is resilient to transient failures", () => {
     stream.close();
   }, 15_000);
 
+  it("restores an expired prompt without an Approve button that cannot work", async () => {
+    // An expired challenge leaves the gate open — nothing was claimed — so the
+    // prompt must come back. But it came back verbatim, with the same dead
+    // token behind Approve: every click resubmitted proof that verification is
+    // bound to reject. Denial needs no challenge, and a fresh one cannot be
+    // minted for a prompt the single-consumer stream will not re-disclose, so
+    // what comes back is deniable only.
+    const user = userEvent.setup();
+    const stream = openSse([
+      'data: {"type":"approval_required","operation":"shell:rm","summary":"Delete a temporary folder","details":"rm -rf /tmp/x","choices":["once","deny"],"challenge":"expired-token"}\n\n',
+    ]);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    route("POST", /\/runs\/[^/]+\/approval$/, () =>
+      json({ error: "invalid_request", approvalStillOpen: true }, 400),
+    );
+
+    renderCareerOps();
+    const dialog = await openDrawer(user);
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "clean up");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await within(dialog).findByText(/needs your approval/i);
+
+    await user.click(within(dialog).getByRole("button", { name: /approve once/i }));
+
+    // Rejection stays, approval goes, and the banner says why.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: /reject/i })).toBeTruthy(),
+    );
+    expect(within(dialog).queryByRole("button", { name: /approve once/i })).toBeNull();
+    expect(within(dialog).getByRole("alert").textContent).toMatch(/expired/i);
+    stream.close();
+  }, 15_000);
+
   it("does not restore a prompt after an outcome the agent may have applied", async () => {
     // A timed-out decision is undecided, not undone: the server leaves the gate
     // closed because Hermes may already have acted on it. Putting the controls

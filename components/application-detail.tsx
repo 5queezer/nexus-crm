@@ -106,7 +106,11 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     markSaved,
     refreshBaselineUpdatedAt,
   } = useApplicationForm(application);
-  const contactRows = useContactRows(application.id, application.contacts);
+  // The third argument is what makes refusing a pre-write snapshot safe: this
+  // page's props keep arriving from the server, so it can ask for one taken
+  // after the write instead of living without whatever the refused refresh
+  // carried.
+  const contactRows = useContactRows(application.id, application.contacts, () => router.refresh());
   // Contact rows persist individually; unsaved row edits must still guard
   // navigation even when the application form itself is clean.
   const hasUnsavedChanges = formDirty || contactRows.hasDirtyRows;

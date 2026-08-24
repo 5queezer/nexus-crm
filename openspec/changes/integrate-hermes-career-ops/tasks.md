@@ -129,3 +129,5 @@ against the code it replaced.
 - [x] 8.55 Redact password-labelled values, and cap the scheme word so a labelled value is not read as one.
 - [x] 8.56 Hold an unbound reservation for the submission timeout as well as the run lifetime.
 - [x] 8.57 Tell the browser the prompt is still open when the limiter refuses an approval decision.
+- [x] 8.58 Restore a challenge-refused prompt as deniable only, and say that it expired.
+- [x] 8.59 Never adopt a contact snapshot taken before a local write; re-read the server instead.

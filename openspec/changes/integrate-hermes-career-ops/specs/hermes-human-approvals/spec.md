@@ -88,6 +88,11 @@ The system SHALL bind every approval that grants permission to the specific prom
 - **WHEN** a run-status poll reporting `waiting_for_approval` arrives while a decision is claiming the gate
 - **THEN** it finds no gate to recover, because winning the gate and recording the decision are one write — so a second decision cannot be admitted while the first is still being forwarded
 
+#### Scenario: A decision is refused because its challenge is no longer valid
+- **WHEN** a decision is refused because its challenge has expired or is not the one outstanding, and the gate is therefore untouched
+- **THEN** the prompt is restored without the ability to grant, because the refused token is what verification rejects and no replacement can be minted for a prompt the stream will not disclose again
+- **AND** the surface says the prompt expired, so the missing approval control is explained rather than merely absent
+
 #### Scenario: Rate limiting refuses a decision
 - **WHEN** a decision is refused by the rate limiter, before the gate is claimed and before the agent is contacted
 - **THEN** the response says the prompt is still open, because the browser clears a prompt the moment it answers one and would otherwise leave the run streaming with no way to answer it

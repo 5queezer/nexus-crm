@@ -949,6 +949,7 @@
     "error_stop_failed": "Der Agent konnte nicht gestoppt werden. Er läuft möglicherweise noch — bitte erneut versuchen.",
     "error_status_unknown": "Nexus verfolgt diesen Lauf nicht mehr. Er arbeitet möglicherweise noch — nutze Stopp, wenn er enden soll.",
     "error_approval_unavailable": "Der Agent wartet auf eine Entscheidung, die nicht angezeigt werden konnte. Nutze Stopp, um den Lauf zu beenden.",
+    "error_approval_expired": "Diese Freigabeanfrage ist abgelaufen und kann nicht mehr genehmigt werden. Ablehnen ist weiterhin möglich.",
     "error_run_state_unknown": "Career Ops konnte nicht prüfen, ob in dieser Unterhaltung ein Lauf aktiv ist. Öffne die Leiste erneut, um es noch einmal zu versuchen.",
     "loading": "Wird geladen …",
     "you": "Du",

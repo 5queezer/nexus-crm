@@ -1108,6 +1108,10 @@ export function CareerOps({
                         if (code === "conflict") return t("error_conflict");
                         if (code === "error_stop_failed") return t("error_stop_failed");
                         if (code === "error_status_unknown") return t("error_status_unknown");
+                        // The prompt is still on screen but deniable only: its
+                        // challenge is gone, so "something went wrong" would
+                        // leave the missing Approve button unexplained.
+                        if (code === "invalid_request") return t("error_approval_expired");
                         if (code === "error_approval_unavailable") {
                           return t("error_approval_unavailable");
                         }

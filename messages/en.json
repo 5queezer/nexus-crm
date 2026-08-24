@@ -949,6 +949,7 @@
     "error_stop_failed": "The agent could not be stopped. It may still be running — try again.",
     "error_status_unknown": "Nexus stopped tracking this run. It may still be working — use Stop if you want it to end.",
     "error_approval_unavailable": "The agent is waiting on a decision that could not be shown. Use Stop to end the run.",
+    "error_approval_expired": "That approval prompt expired, so it can no longer be approved. You can still reject it.",
     "error_run_state_unknown": "Career Ops could not check whether this conversation has a run in progress. Reopen the drawer to try again.",
     "loading": "Loading…",
     "you": "You",

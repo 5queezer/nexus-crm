@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import type { Contact } from "@/types";
@@ -75,6 +75,12 @@ function contactsRevision(contacts: Contact[]): string {
 export function useContactRows(
   applicationId: string | null,
   initialContacts: Contact[] | undefined,
+  /**
+   * Ask the server for a fresh record after a contact write settles. Supplied
+   * only where server props keep arriving underneath this hook — the detail
+   * page — since that is the only place a snapshot can predate a local write.
+   */
+  onWriteSettled?: () => void,
 ) {
   const queryClient = useQueryClient();
   const t = useTranslations("modal");
@@ -89,6 +95,31 @@ export function useContactRows(
   const serverContacts = initialContacts ?? [];
   const revision = contactsRevision(serverContacts);
   const [syncedRevision, setSyncedRevision] = useState(revision);
+  // The revision as of the latest render, readable after an await. A write's
+  // own callback closes over the props of the render that started it, which by
+  // the time it finishes are not the newest ones.
+  const latestRevision = useRef(revision);
+  latestRevision.current = revision;
+
+  /**
+   * Refuse the snapshot that was current when a local write finished, and ask
+   * the server for one that includes the write.
+   *
+   * A refresh arriving mid-write is deferred, then applied — but a snapshot
+   * taken before the write landed cannot contain it. The saved row was dropped
+   * again and a deleted row came back. Only a revision that changes *after* the
+   * write is new information about it.
+   *
+   * Refusing alone would be half the answer: this page does not consume the
+   * invalidated query, so nothing else would deliver the post-write snapshot,
+   * and anything that refresh legitimately carried — a contact the agent added
+   * while the write was in flight — would stay invisible. The refresh is what
+   * turns "ignore this one" into "get the right one".
+   */
+  function resyncAfterWrite() {
+    setSyncedRevision(latestRevision.current);
+    onWriteSettled?.();
+  }
 
   // Rows were read from a `useState` initializer and never again, so a Career
   // Ops run that added or changed a contact left the page on the pre-run list:
@@ -182,6 +213,7 @@ export function useContactRows(
     } catch {
       setContactError(t("error_contact"));
     } finally {
+      resyncAfterWrite();
       setSavingContactIdx(null);
     }
   }
@@ -202,6 +234,7 @@ export function useContactRows(
     } catch {
       setContactError(t("error_contact"));
     } finally {
+      resyncAfterWrite();
       setDeletingContactId(null);
     }
   }

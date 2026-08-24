@@ -532,11 +532,25 @@ export function useCareerOpsRun(
         // restored controls could only ever conflict. That left an unanswerable
         // prompt on screen, which status recovery then kept resurfacing.
         const stillPending = reason.approvalStillOpen;
+        // Restored, but not always as it was. `invalid_request` on this route
+        // means the server refused the *challenge* — expired, or not the one
+        // outstanding — and the gate is untouched because nothing was claimed.
+        // Putting the same challenge back with `once` beside it offered an
+        // Approve button that could only ever be refused again: the token is
+        // what verification rejects, and a fresh one cannot be minted for a
+        // prompt the single-consumer stream will not re-disclose. Denial needs
+        // no challenge, so the prompt comes back deniable — which is also what
+        // a gate recovered by polling looks like.
+        const challengeRefused = code === "invalid_request";
+        const restored =
+          pending && challengeRefused
+            ? { ...pending, challenge: undefined, choices: ["deny" as const] }
+            : pending;
         setState((current) => ({
           ...current,
           errorCode: code,
-          ...(stillPending && pending
-            ? { approval: pending, phase: "waiting_approval" as const }
+          ...(stillPending && restored
+            ? { approval: restored, phase: "waiting_approval" as const }
             : {}),
         }));
       }

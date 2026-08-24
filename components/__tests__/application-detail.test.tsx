@@ -230,6 +230,69 @@ describe("ApplicationDetail", () => {
     expect(screen.queryByDisplayValue("Ada B.")).toBeNull();
   });
 
+  it("does not re-add a contact from a snapshot taken before its deletion", async () => {
+    // A refresh landing mid-write is deferred, not dropped — and then applied
+    // from a snapshot that cannot contain the write it was taken before. The
+    // deleted row came straight back, and this page does not consume the
+    // invalidated query, so it stayed on screen until some later refresh.
+    const user = userEvent.setup();
+    let finishDelete: () => void = () => {};
+    const deleted = new Promise<void>((resolve) => {
+      finishDelete = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "DELETE") {
+          await deleted;
+          return { ok: true, status: 204, json: async () => ({}) } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const view = renderDetail(
+      fixtureApplication({
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "contact_remove" })[0]);
+
+    // A Career Ops refresh lands while the delete is still in flight: a genuine
+    // change — the agent added a contact — but taken before the deletion, so it
+    // still carries the row being removed.
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-02T00:00:00.000Z",
+        contacts: [
+          { id: "c1", name: "Ada", email: "", role: "", linkedIn: "" },
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+
+    finishDelete();
+
+    await waitFor(() => expect(screen.queryByDisplayValue("Ada")).toBeNull());
+    // And the page asks for a snapshot that includes the deletion, rather than
+    // living without whatever that refresh legitimately carried.
+    expect(navigationMocks.refresh).toHaveBeenCalled();
+
+    // A later snapshot that reflects the deletion is adopted normally.
+    view.refreshWith(
+      fixtureApplication({
+        updatedAt: "2026-07-03T00:00:00.000Z",
+        contacts: [
+          { id: "c2", name: "Grace", email: "", role: "", linkedIn: "" },
+        ] as Application["contacts"],
+      }),
+    );
+    await waitFor(() => expect(screen.getAllByDisplayValue("Grace").length).toBe(1));
+    expect(screen.queryByDisplayValue("Ada")).toBeNull();
+  });
+
   it("adopts a newer server record delivered by a refresh", async () => {
     // `useState` reads its initializer once, so the baseline was frozen at
     // mount. A Career Ops run that changes the record calls `router.refresh()`,
