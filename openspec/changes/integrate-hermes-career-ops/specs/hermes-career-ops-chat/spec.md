@@ -160,6 +160,7 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **THEN** the response says so, and the browser keeps the message on screen, keeps its request id for a retry that can resolve to the same run, and refuses further submission — rather than reporting that nothing was sent while a privileged run may be executing
 - **AND** a submission the agent provably refused releases the reservation and returns the draft, because that conversation is idle
 - **AND** a submission the browser received no authoritative answer to counts as unknown, not refused, since the run may already have been started and recorded
+- **AND** a reservation the system has already settled — given up on at its cutoff, or released outright — is reclaimed by a retry that reuses its request id, and is never reported as possibly still starting, because the browser sends no new request id for the same message and would otherwise have no way back
 
 #### Scenario: A transcript that could not be loaded
 - **WHEN** a conversation's transcript fails to load

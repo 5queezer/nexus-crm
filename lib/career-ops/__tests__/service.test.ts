@@ -1045,6 +1045,61 @@ describe("startCareerOpsRun", () => {
     expect(mocks.client.createRun).toHaveBeenCalled();
   });
 
+  it("reclaims a reservation the release could only abandon", async () => {
+    // The durable release marks a reservation it cannot delete `abandoned`
+    // rather than leaving a row nothing can clear — but the row keeps the
+    // request id, and the browser retries with that same id. The retry then
+    // found a terminal reservation and was told an attempt might still be
+    // starting, of a submission that never reached Hermes. The conversation
+    // locked, and no retry could unlock it: a fresh id is never sent for the
+    // same message.
+    const settled = {
+      ...RESERVATION,
+      id: "run-abandoned",
+      hermesRunId: "",
+      clientRequestId: "client-id-retry",
+      status: "abandoned" as const,
+    };
+    mocks.db.claimCareerOpsRun
+      .mockResolvedValueOnce({ outcome: "existing", run: settled })
+      .mockResolvedValueOnce({ outcome: "claimed", run: { ...RESERVATION, id: "run-fresh" } });
+    // No cutoff is involved: the row is finished, whatever its age.
+    mocks.db.expireCareerOpsRunReservation.mockResolvedValue(false);
+
+    await startCareerOpsRun(SESSION_A, "thread-1", {
+      message: "hello",
+      clientRequestId: "client-id-retry",
+    });
+
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-abandoned", "user-a");
+    expect(mocks.db.claimCareerOpsRun).toHaveBeenCalledTimes(2);
+    expect(mocks.client.createRun).toHaveBeenCalled();
+  });
+
+  it("does not call a settled reservation ambiguous when it cannot be removed", async () => {
+    // Reachable only when the row survives its own release. The answer is still
+    // a refusal — the submission is finished, not maybe-running — so the client
+    // hands the draft back instead of locking the conversation.
+    const settled = {
+      ...RESERVATION,
+      id: "run-abandoned",
+      hermesRunId: "",
+      clientRequestId: "client-id-retry",
+      status: "abandoned" as const,
+    };
+    mocks.db.claimCareerOpsRun.mockResolvedValue({ outcome: "existing", run: settled });
+    mocks.db.deleteCareerOpsRun.mockRejectedValue(new Error("database unavailable"));
+    mocks.db.expireCareerOpsRunReservation.mockResolvedValue(false);
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-retry",
+      }),
+    ).rejects.toMatchObject({ code: "conflict", runMayHaveStarted: false });
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+  });
+
   it("still refuses a retry whose reservation has not expired", async () => {
     // Before the cutoff the earlier attempt may genuinely be executing, and
     // Nexus has no id to observe or stop it with. Reclaiming then would start a

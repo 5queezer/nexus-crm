@@ -919,8 +919,16 @@ export async function startCareerOpsRun(
   // Past the cutoff Nexus has already decided it will never observe this run,
   // which is the same judgement the other branch makes. Settle it, free the id,
   // and let this attempt claim it rather than telling the user to keep waiting.
+  //
+  // A settled reservation is reclaimable for a second reason, and this one
+  // needs no cutoff at all: releasing a reservation that could not be deleted
+  // marks it `abandoned` rather than leaving a row nothing can clear, and that
+  // row keeps the request id. The retry the browser sends with that same id
+  // then found a terminal reservation and was told an attempt might still be
+  // starting — of a submission Nexus had already given up on, or never sent —
+  // and the conversation locked with nothing able to unlock it.
   if (claim.outcome === "existing" && isUnbound(claim.run)) {
-    if (await expireUnboundReservation(claim.run, session, config)) {
+    if (isSettled(claim.run) || (await expireUnboundReservation(claim.run, session, config))) {
       await releaseUnusedReservation(db, claim.run.id, session.userId);
       claim = await db.claimCareerOpsRun(session.userId, claimInput);
     }
@@ -932,6 +940,18 @@ export async function startCareerOpsRun(
     // and poll a status that stays `queued` for the whole run lifetime. Say it
     // is uncertain instead.
     if (isUnbound(claim.run)) {
+      // Only an *active* unbound reservation is ambiguous. A settled one is a
+      // submission Nexus has finished with: saying it may still be starting
+      // locks the conversation over a run that is not running. This is
+      // reachable only when the reclaim above could not remove the row, so the
+      // id cannot be reused — but the answer is still a refusal, not an
+      // unknown.
+      if (isSettled(claim.run)) {
+        throw new CareerOpsServiceError(
+          "conflict",
+          "That earlier attempt was abandoned; send the message again",
+        );
+      }
       throw new CareerOpsServiceError(
         "conflict",
         "An earlier attempt may still be starting; wait before retrying",
@@ -1070,6 +1090,11 @@ export async function startCareerOpsRun(
  */
 function isUnbound(run: CareerOpsRunRecord): boolean {
   return run.hermesRunId === "";
+}
+
+/** The run has reached a state nothing will move it out of. */
+function isSettled(run: CareerOpsRunRecord): boolean {
+  return TERMINAL_RUN_STATUSES.includes(run.status);
 }
 
 export async function getCareerOpsRunStatus(
