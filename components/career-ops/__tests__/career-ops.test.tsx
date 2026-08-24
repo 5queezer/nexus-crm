@@ -582,6 +582,50 @@ describe("application context", () => {
     expect(within(dialog).getByRole("button", { name: /switch to global context/i })).toBeTruthy();
   });
 
+  it("does not let a slow creation reset a run started after it", async () => {
+    // Creation is bound to the generation it began in, and submission was the
+    // one thing that moved the drawer without moving that generation: a slow
+    // POST returning after a run had started selected its new conversation and
+    // reset — aborting the run's single-consumer stream, clearing its
+    // transcript and taking its approval prompt with it, while the privileged
+    // run went on executing upstream.
+    const user = userEvent.setup();
+    const existing = { ...THREAD, id: "thread-existing", title: "Pipeline" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [existing] }));
+    let releaseCreation: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseCreation = resolve;
+    });
+    route("POST", /\/api\/career-ops\/threads$/, async () => {
+      await held;
+      return json({ thread: { ...THREAD, id: "thread-slow", title: "New" } }, 201);
+    });
+    const stream = openSse(['data: {"type":"delta","text":"working"}\n\n']);
+    route("GET", /\/runs\/[^/]+\/events$/, () => stream.response);
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(within(dialog).getByRole("button", { name: /new conversation/i }));
+
+    // The creation has not answered yet; send in the conversation on screen.
+    await user.type(within(dialog).getByLabelText(/message career ops/i), "keep going");
+    await user.click(within(dialog).getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(within(dialog).getByText("working")).toBeTruthy());
+
+    releaseCreation();
+
+    // The run's conversation stays on screen, with its transcript and stream
+    // intact. The new conversation is still created — it just is not adopted.
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.includes("/threads/thread-existing/runs"))).toBe(true),
+    );
+    expect(within(dialog).getByText("keep going")).toBeTruthy();
+    expect(within(dialog).getByText("working")).toBeTruthy();
+    expect(calls.some((call) => call.url.includes("/threads/thread-slow/messages"))).toBe(false);
+    stream.close();
+  }, 15_000);
+
   it("never shows one conversation while the composer addresses another", async () => {
     // Reopening commits the selected thread id before its transcript arrives.
     // With the previous conversation's messages still rendered and `loading`

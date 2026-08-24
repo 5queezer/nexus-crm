@@ -139,3 +139,4 @@ against the code it replaced.
 - [x] 8.65 Recover a gate only on evidence that it is a new one, not the one a decision just answered.
 - [x] 8.66 Refuse a deferred contact snapshot only after a write that succeeded.
 - [x] 8.67 Match a held creation key against the conversation it made, not against scope.
+- [x] 8.68 Make a starting run invalidate the creations and loads that were in flight before it.

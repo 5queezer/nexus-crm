@@ -736,6 +736,14 @@ export function CareerOps({
     event.preventDefault();
     const message = draft.trim();
     if (!message || busy || !activeThreadId) return;
+    // Starting a run makes every request that was in flight before it stale.
+    // A creation or a load started earlier is bound to the generation it began
+    // in; without advancing it here, a slow creation returning now would select
+    // its new conversation and reset — aborting the single-consumer stream of
+    // the run being started, clearing its transcript, and taking its approval
+    // prompt with it while the privileged run continued upstream. Submission
+    // was the one thing that moved the drawer without moving the generation.
+    selectionRef.current += 1;
     setDraft("");
     // Move the finished answer of the previous turn into the transcript before
     // the next run resets the live buffer, so earlier replies stay visible.

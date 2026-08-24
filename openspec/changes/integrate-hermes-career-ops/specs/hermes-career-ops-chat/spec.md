@@ -178,6 +178,11 @@ The system SHALL allow a client that lost its event stream to recover the run's 
 - **AND** a submission the browser received no authoritative answer to counts as unknown, not refused, since the run may already have been started and recorded
 - **AND** a reservation the system has already settled — given up on at its cutoff, or released outright — is reclaimed by a retry that reuses its request id, and is never reported as possibly still starting, because the browser sends no new request id for the same message and would otherwise have no way back
 
+#### Scenario: A conversation is created while a run is starting elsewhere
+- **WHEN** a conversation creation is still in flight and the user starts a run in the conversation already on screen
+- **THEN** the creation's response does not select its new conversation, because adopting it would abort the stream of a run that is still executing and clear the transcript and any approval prompt it carries
+- **AND** the new conversation is still created and listed, so nothing the user asked for is lost
+
 #### Scenario: A transcript that could not be loaded
 - **WHEN** a conversation's transcript fails to load
 - **THEN** submission is refused, because a reply would answer history the user cannot see
