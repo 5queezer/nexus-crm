@@ -128,3 +128,4 @@ against the code it replaced.
 - [x] 8.54 Redact the Nexus MCP OAuth access and refresh tokens, in whole text and across a seam.
 - [x] 8.55 Redact password-labelled values, and cap the scheme word so a labelled value is not read as one.
 - [x] 8.56 Hold an unbound reservation for the submission timeout as well as the run lifetime.
+- [x] 8.57 Tell the browser the prompt is still open when the limiter refuses an approval decision.

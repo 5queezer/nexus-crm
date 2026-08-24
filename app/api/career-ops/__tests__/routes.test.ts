@@ -464,6 +464,21 @@ describe("run controls", () => {
     expect(mocks.db.updateCareerOpsRunStatus).toHaveBeenCalledWith("run-1", "user-a", "completed");
   });
 
+  it("says the prompt is still open when the limiter refuses a decision", async () => {
+    // The limiter runs before the gate is claimed and before Hermes is
+    // contacted, so a decision refused here answered nothing — but the browser
+    // clears a prompt the moment it answers one, and only the body can tell it
+    // to put that prompt back. Without the signal the run sat streaming with no
+    // controls and no way to answer it until the stream timed out.
+    let last: Response | null = null;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      last = await approveRun(post({ choice: "deny" }), runContext);
+      if (last.status === 429) break;
+    }
+    expect(last?.status).toBe(429);
+    expect(await last!.json()).toMatchObject({ error: "rate_limited", approvalStillOpen: true });
+  });
+
   it("returns 404 for another user's run on every control", async () => {
     mocks.db.getCareerOpsRun.mockResolvedValue(null);
     expect((await getRun(new Request("http://test"), runContext)).status).toBe(404);

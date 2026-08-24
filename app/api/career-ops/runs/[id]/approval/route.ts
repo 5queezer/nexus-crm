@@ -16,7 +16,10 @@ const CHOICES: readonly CareerOpsApprovalChoice[] = ["once", "session", "always"
 export async function POST(request: Request, context: Context) {
   const session = await requireCareerOpsSession();
   if (!session) return unauthorized();
-  const limited = enforceCareerOpsRateLimit(session);
+  // A decision refused by the limiter answered nothing: this runs before the
+  // gate is claimed and before Hermes is contacted, so the prompt the browser
+  // just cleared is still open and must come back.
+  const limited = enforceCareerOpsRateLimit(session, { approvalStillOpen: true });
   if (limited) return limited;
 
   try {

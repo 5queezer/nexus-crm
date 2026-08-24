@@ -74,12 +74,27 @@ export function unauthorized(): NextResponse {
  * address avoids pooling every client behind one shared proxy address into a
  * single bucket that any one of them could exhaust.
  */
-export function enforceCareerOpsRateLimit(session: CareerOpsSession): NextResponse | null {
+export function enforceCareerOpsRateLimit(
+  session: CareerOpsSession,
+  /**
+   * `approvalStillOpen`: the caller is the approval route, where a refusal here
+   * is provably a non-event — the limiter runs before the gate is claimed and
+   * before anything reaches Hermes, so the prompt is still waiting upstream.
+   * The browser clears a prompt the moment it answers one, and only the body
+   * can tell it to put that prompt back; without this the run sat streaming
+   * with no controls and no way to answer it.
+   */
+  options: { approvalStillOpen?: boolean } = {},
+): NextResponse | null {
   const limit = checkRateLimit(`career-ops:${session.userId}`, "general");
   if (limit.allowed) return null;
   const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
   return NextResponse.json(
-    { error: "rate_limited", message: "Too many Career Ops requests" },
+    {
+      error: "rate_limited",
+      message: "Too many Career Ops requests",
+      ...(options.approvalStillOpen ? { approvalStillOpen: true } : {}),
+    },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
