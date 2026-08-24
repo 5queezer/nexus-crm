@@ -428,16 +428,25 @@ function unboundReservationTtlMs(config: Extract<CareerOpsConfig, { enabled: tru
   // conversation is recoverable, two concurrent agents mutating the same CRM
   // data are not. A real fix needs Hermes to support looking a run up by client
   // key, which it does not — see design.md D10.
-  return Math.max(60_000, config.runTimeoutMs);
+  //
+  // The submission's own timeout counts too. Both bounds are operator
+  // configuration, and nothing makes the run lifetime the larger one: with a
+  // connect timeout above it, the `createRun` call could still legitimately be
+  // awaiting its response after the reservation became expirable, and a
+  // concurrent read or retry would free the slot underneath a submission
+  // Hermes might yet accept — the two overlapping runs this exists to prevent.
+  return Math.max(60_000, config.runTimeoutMs, config.connectTimeoutMs);
 }
 
 /**
  * The instant before which an unbound reservation may be given up on.
  *
- * Deliberately past the full run lifetime plus a margin. `runTimeoutMs` bounds
- * how long Nexus watches a run, not how long Hermes may execute one, so a
- * shorter cutoff would free the conversation's active slot while the upstream
- * run could still be working — and admit a second privileged run beside it.
+ * Deliberately past the whole submission-and-run window plus a margin.
+ * `runTimeoutMs` bounds how long Nexus watches a run, not how long Hermes may
+ * execute one, and the submission itself is bounded separately — so a shorter
+ * cutoff would free the conversation's active slot while the upstream run could
+ * still be working, or before its submission had even been answered, and admit
+ * a second privileged run beside it.
  */
 function reservationCutoff(config: Extract<CareerOpsConfig, { enabled: true }>): Date {
   return new Date(Date.now() - unboundReservationTtlMs(config) - RESERVATION_EXPIRY_MARGIN_MS);

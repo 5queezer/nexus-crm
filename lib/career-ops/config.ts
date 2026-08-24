@@ -204,9 +204,14 @@ const SECRET_PATTERNS: RegExp[] = [
   // custom scheme is exactly the case where stopping early leaks, and once the
   // text says `authorization:` an extra word of over-redaction costs nothing.
   //
+  // The scheme is capped at twenty characters, which every real one fits
+  // (`Negotiate`, `AWS4-HMAC-SHA256`) and a credential-looking value does not.
+  // Uncapped, a labelled value of ordinary words was itself read as a scheme
+  // and the following word swallowed with it.
+  //
   // The optional quote before the separator is for JSON, where the key's own
   // closing quote sits between the keyword and the colon.
-  /\b(?:api[_-]?key|apikey|token|secret|authorization)\b"?\s*[:=]\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,31}\s+)?[A-Za-z0-9._~+/=-]{8,}"?/gi,
+  /\b(?:api[_-]?key|apikey|token|secret|password|passwd|authorization)\b"?\s*[:=]\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,19}\s+)?[A-Za-z0-9._~+/=-]{8,}"?/gi,
   // A Basic credential with no header name around it, anchored on base64
   // padding. The label is what makes the rule above safe to widen; `basic` on
   // its own is an ordinary English word, and only the `=` tail separates a
@@ -256,7 +261,7 @@ export const CREDENTIAL_TOKEN_CHAR = /[A-Za-z0-9._~+/=-]/;
  */
 export const CREDENTIAL_CANDIDATES: RegExp[] = [
   /\bbearer\s*[A-Za-z0-9._~+/=-]*/gi,
-  /\b(?:api[_-]?key|apikey|token|secret|authorization)\b"?\s*[:=]?\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,31}\s+)?[A-Za-z0-9._~+/=-]*/gi,
+  /\b(?:api[_-]?key|apikey|token|secret|password|passwd|authorization)\b"?\s*[:=]?\s*"?(?:[A-Za-z][A-Za-z0-9-]{0,19}\s+)?[A-Za-z0-9._~+/=-]*/gi,
   /\bbasic\s*[A-Za-z0-9+/]*={0,2}/gi,
   /\bsk-[A-Za-z0-9._-]*/gi,
   /\bjt_[A-Za-z0-9._-]*/gi,

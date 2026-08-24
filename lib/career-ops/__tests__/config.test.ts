@@ -278,6 +278,32 @@ describe("redactUpstreamError", () => {
     expect(redactUpstreamError(`refused: Basic ${credential}`)).not.toContain(credential);
   });
 
+  it("removes a password-labelled value", () => {
+    // Exact matching only knows this deployment's own two secrets. Hermes holds
+    // other connectors' credentials, and a password is the one that arrives
+    // labelled in plain words — the keyword set simply did not have it, so it
+    // travelled through transcripts, approval details, deltas and logs intact.
+    const value = ["not", "a", "real", "passphrase", "1234"].join("-");
+    for (const label of ["password", "passwd", "Password"]) {
+      expect(redactUpstreamError(`connector said ${label}=${value}`)).not.toContain(value);
+    }
+
+    // Split across a stream seam, which needs the candidate pattern too.
+    const redactor = new SecretBoundaryRedactor();
+    let out = redactor.push(`${"filler ".repeat(20)}password=${value.slice(0, 6)}`);
+    out += redactor.push(`${value.slice(6)} trailing`);
+    out += redactor.flush();
+    expect(out).not.toContain(value);
+    expect(out).toContain("trailing");
+  });
+
+  it("leaves ordinary prose about a password alone", () => {
+    // The keyword needs a separator and eight token characters after it, so
+    // prose that merely mentions one is untouched.
+    const prose = "The password reset link expires, so request a new one.";
+    expect(redactUpstreamError(prose)).toBe(prose);
+  });
+
   it("leaves ordinary prose about basics alone", () => {
     // The widened rules must not eat the transcript. `basic` is an English
     // word, which is why the bare form is anchored on base64 padding and the

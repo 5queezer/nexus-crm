@@ -1267,6 +1267,36 @@ describe("startCareerOpsRun", () => {
     expect(mocks.db.updateCareerOpsRunStatus).not.toHaveBeenCalled();
   });
 
+  it("holds a reservation until the submission itself can no longer be in flight", async () => {
+    // Both bounds are operator configuration, and nothing makes the run
+    // lifetime the larger one. With a connect timeout above it, the `createRun`
+    // call could still legitimately be awaiting its response while this read
+    // decided the reservation was expirable — freeing the slot underneath a
+    // submission Hermes might yet accept, which is how two privileged runs end
+    // up executing against one session.
+    process.env.HERMES_CAREER_OPS_RUN_TIMEOUT_MS = "60000";
+    process.env.HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS = "1800000";
+    try {
+      const submittedAt = new Date(Date.now() - 10 * 60_000);
+      mocks.db.getLatestCareerOpsRun.mockResolvedValue({
+        ...RESERVATION,
+        hermesRunId: "",
+        status: "queued",
+        createdAt: submittedAt,
+      });
+
+      await getActiveCareerOpsRun(SESSION_A, "thread-1");
+
+      const cutoff = mocks.db.expireCareerOpsRunReservation.mock.calls.at(-1)?.[2] as Date;
+      // The cutoff has to sit before the submission, or the database's
+      // conditional transition would match and settle a live reservation.
+      expect(cutoff.getTime()).toBeLessThan(submittedAt.getTime());
+    } finally {
+      delete process.env.HERMES_CAREER_OPS_RUN_TIMEOUT_MS;
+      delete process.env.HERMES_CAREER_OPS_CONNECT_TIMEOUT_MS;
+    }
+  });
+
   it("settles an expired ambiguous reservation so the conversation is usable again", async () => {
     // Past the reservation lifetime the run can no longer be executing, and a
     // row nothing can settle would otherwise wedge the conversation forever now

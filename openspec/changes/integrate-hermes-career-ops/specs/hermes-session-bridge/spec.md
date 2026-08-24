@@ -65,6 +65,7 @@ The system SHALL persist, per run, the owning user identifier, the owning thread
 #### Scenario: A reservation nothing can settle does not block the conversation
 - **WHEN** a submission's outcome was ambiguous, so its reservation carries no upstream run identifier
 - **THEN** the reservation stops counting as an active run after a bounded period
+- **AND** that period covers the whole window in which the submission or its run could still be live — the run lifetime and the submission timeout alike, whichever the operator configured larger — so the slot is never freed underneath a submission the agent may yet accept
 - **AND** the conversation accepts new submissions again without operator intervention
 
 #### Scenario: Deduplication is scoped to the owner

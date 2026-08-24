@@ -23,6 +23,10 @@ The system SHALL communicate with Hermes exclusively from the server using opera
 - **WHEN** upstream text, a transcript, an approval prompt, or a streamed delta carries an authorization value introduced by a scheme word, such as a Basic credential
 - **THEN** the system removes the credential as well as the scheme, for any scheme rather than a fixed list of known ones
 
+#### Scenario: A password-labelled value is stripped
+- **WHEN** upstream text, a transcript, an approval field or a delta carries a value labelled as a password
+- **THEN** the system removes it, because exact matching knows only this deployment's own secrets and the credentials other connectors hold arrive labelled in plain words
+
 #### Scenario: The agent's own Nexus credential is stripped
 - **WHEN** upstream text, a transcript, a completed output, an approval field or a delta carries the Nexus MCP OAuth access or refresh token this deployment issued to the agent
 - **THEN** the system removes it, in whole text and across a stream seam alike, because that credential is the one the agent actually holds and it is printed bare, with no keyword in front of it
