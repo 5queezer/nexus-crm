@@ -726,6 +726,15 @@ export interface CareerOpsThreadRecord {
   title: string;
   /** Optional Nexus application this conversation is scoped to. */
   applicationId: string | null;
+  /**
+   * True for a conversation created against an application, and never cleared.
+   *
+   * `applicationId` alone cannot carry this: deleting the application clears
+   * the link in both backends, which erased the only evidence the conversation
+   * was ever scoped and let the next run take global instructions. This
+   * outlives the link so the run is refused instead.
+   */
+  applicationScoped: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

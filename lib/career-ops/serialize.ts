@@ -12,6 +12,16 @@ export type CareerOpsThreadView = {
   id: string;
   title: string;
   applicationId: string | null;
+  /**
+   * True when this conversation was created against an application that no
+   * longer exists.
+   *
+   * Without it the browser reads a cleared link as "general conversation" and
+   * presents a thread that refuses every run as the global one — including
+   * selecting it as the default global thread. The server knows the difference;
+   * the client cannot infer it.
+   */
+  scopeLost: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -41,6 +51,7 @@ export function serializeThread(thread: CareerOpsThreadRecord): CareerOpsThreadV
     id: thread.id,
     title: thread.title,
     applicationId: thread.applicationId,
+    scopeLost: thread.applicationScoped && !thread.applicationId,
     createdAt: thread.createdAt.toISOString(),
     updatedAt: thread.updatedAt.toISOString(),
   };

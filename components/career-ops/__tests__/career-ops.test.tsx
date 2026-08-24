@@ -397,6 +397,62 @@ describe("application context", () => {
     expect(within(dialog).queryByText(/Acme — Engineer/)).toBeNull();
   });
 
+  it("does not open onto a conversation whose opportunity was deleted", async () => {
+    // Deleting the application clears the link, so such a conversation has no
+    // application id — exactly what the global conversation looks like from
+    // here. Adopting it dropped the user into a thread where every submission
+    // is refused server-side. The server marks it; the client cannot infer it.
+    const user = userEvent.setup();
+    const lost = {
+      ...THREAD,
+      id: "thread-lost",
+      applicationId: null,
+      scopeLost: true,
+      title: "Acme — Engineer",
+    };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [lost] }));
+    route("POST", /\/api\/career-ops\/threads$/, () =>
+      json({ thread: { ...THREAD, id: "thread-fresh" } }, 201),
+    );
+    renderCareerOps();
+
+    await openDrawer(user);
+    // A general conversation is created instead of borrowing the orphaned one.
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.method === "POST" && call.url.endsWith("/api/career-ops/threads")),
+      ).toBe(true),
+    );
+    expect(calls.some((call) => call.url.includes("/threads/thread-lost/messages"))).toBe(false);
+  });
+
+  it("closes the composer on a conversation whose opportunity was deleted", async () => {
+    const user = userEvent.setup();
+    const lost = {
+      ...THREAD,
+      id: "thread-lost",
+      applicationId: null,
+      scopeLost: true,
+      title: "Acme — Engineer",
+    };
+    const global = { ...THREAD, id: "thread-global", title: "Pipeline" };
+    route("GET", /\/api\/career-ops\/threads$/, () => json({ threads: [global, lost] }));
+    renderCareerOps();
+
+    const dialog = await openDrawer(user);
+    await user.click(within(dialog).getByRole("button", { name: /show conversations/i }));
+    await user.click(await within(dialog).findByRole("button", { name: "Acme — Engineer" }));
+
+    // Named as what it is, not as a general conversation, and the composer is
+    // shut: the server refuses every run in it, so an open one would only hand
+    // the user an error. The way out sits next to the label.
+    await waitFor(() =>
+      expect(within(dialog).getByText(/opportunity no longer available/i)).toBeTruthy(),
+    );
+    expect(within(dialog).getByLabelText(/message/i)).toHaveProperty("disabled", true);
+    expect(within(dialog).getByRole("button", { name: /switch to global context/i })).toBeTruthy();
+  });
+
   it("never shows one conversation while the composer addresses another", async () => {
     // Reopening commits the selected thread id before its transcript arrives.
     // With the previous conversation's messages still rendered and `loading`

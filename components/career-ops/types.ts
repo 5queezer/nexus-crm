@@ -12,6 +12,12 @@ export type CareerOpsThread = {
   id: string;
   title: string;
   applicationId: string | null;
+  /**
+   * The conversation was created against an application that no longer exists.
+   * A cleared link is not the same as never having had one, and only the server
+   * can tell them apart: every run in such a conversation is refused.
+   */
+  scopeLost?: boolean;
   createdAt: string;
   updatedAt: string;
 };

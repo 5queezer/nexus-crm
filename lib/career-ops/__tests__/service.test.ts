@@ -75,6 +75,7 @@ const THREAD = {
   hermesSessionId: "sess-1",
   title: "Career Ops",
   applicationId: null,
+  applicationScoped: false,
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };
@@ -371,7 +372,7 @@ describe("thread lifecycle", () => {
   it("links an owned application and names the thread after it", async () => {
     mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
     mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
-    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42", applicationScoped: true });
 
     await createCareerOpsThread(SESSION_A, { applicationId: "42" });
 
@@ -384,7 +385,7 @@ describe("thread lifecycle", () => {
   it("resolves the application with an agent-visible, demo-excluding read", async () => {
     mocks.db.getApplication.mockResolvedValue({ id: "42", company: "Acme", role: "Engineer" });
     mocks.client.createSession.mockResolvedValue({ id: "sess-new" });
-    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.createCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42", applicationScoped: true });
 
     await createCareerOpsThread(SESSION_A, { applicationId: "42" });
 
@@ -930,7 +931,7 @@ describe("startCareerOpsRun", () => {
   });
 
   it("passes application context as instructions without the job description", async () => {
-    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42", applicationScoped: true });
     mocks.db.getApplication.mockResolvedValue({
       id: "42",
       company: "Acme",
@@ -956,7 +957,7 @@ describe("startCareerOpsRun", () => {
     // Falling back to global instructions would silently widen the run's scope:
     // the surface still shows application context, so the user would believe
     // the agent is confined to one opportunity while it could act CRM-wide.
-    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42", applicationScoped: true });
     mocks.db.getApplication.mockResolvedValue(null);
 
     await expect(
@@ -968,6 +969,33 @@ describe("startCareerOpsRun", () => {
 
     expect(mocks.client.createRun).not.toHaveBeenCalled();
     // Nothing was submitted, so the conversation must not stay claimed.
+    expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
+  });
+
+  it("refuses to run a scoped conversation whose application was deleted", async () => {
+    // Deleting the application clears the link in both backends — a foreign key
+    // SET NULL relationally, an explicit sweep in Firestore. That erased the
+    // only evidence the conversation had ever been scoped, so this run read no
+    // application id and took the *global* instructions: a conversation the
+    // user had confined to one opportunity gained authority over the whole CRM.
+    // The scope marker outlives the link precisely so this is refused.
+    mocks.db.getCareerOpsThread.mockResolvedValue({
+      ...THREAD,
+      applicationId: null,
+      applicationScoped: true,
+    });
+
+    await expect(
+      startCareerOpsRun(SESSION_A, "thread-1", {
+        message: "hello",
+        clientRequestId: "client-id-1",
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    expect(mocks.client.createRun).not.toHaveBeenCalled();
+    // No application was even looked up: there is no id left to look up.
+    expect(mocks.db.getApplication).not.toHaveBeenCalled();
+    // And nothing was submitted, so the conversation must not stay claimed.
     expect(mocks.db.deleteCareerOpsRun).toHaveBeenCalledWith("run-1", "user-a");
   });
 
@@ -1047,7 +1075,7 @@ describe("startCareerOpsRun", () => {
     // The pre-submission failures free the slot for the same reason a stated
     // refusal does — nothing reached Hermes — so a lost delete strands the
     // conversation just as thoroughly. One durable release covers all of them.
-    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42", applicationScoped: true });
     mocks.db.getApplication.mockRejectedValue(new Error("database unavailable"));
     mocks.db.deleteCareerOpsRun.mockRejectedValue(new Error("database unavailable"));
 
@@ -1122,7 +1150,7 @@ describe("startCareerOpsRun", () => {
     // The failure is provably before submission: nothing reached Hermes. Holding
     // the claim would stall the conversation for the whole reservation lifetime
     // over a transient read error.
-    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42" });
+    mocks.db.getCareerOpsThread.mockResolvedValue({ ...THREAD, applicationId: "42", applicationScoped: true });
     mocks.db.getApplication.mockRejectedValue(new Error("database unavailable"));
 
     await expect(
@@ -1932,6 +1960,7 @@ describe("resolveCareerOpsThreadApplication", () => {
     const resolved = await resolveCareerOpsThreadApplication(SESSION_A, {
       ...THREAD,
       applicationId: "42",
+      applicationScoped: true,
     });
     expect(mocks.db.getApplication).toHaveBeenCalledWith("42", "user-a", {
       demoVisibility: "exclude",
@@ -1942,7 +1971,7 @@ describe("resolveCareerOpsThreadApplication", () => {
   it("returns null when the link is gone or no longer agent-visible", async () => {
     mocks.db.getApplication.mockResolvedValue(null);
     expect(
-      await resolveCareerOpsThreadApplication(SESSION_A, { ...THREAD, applicationId: "42" }),
+      await resolveCareerOpsThreadApplication(SESSION_A, { ...THREAD, applicationId: "42", applicationScoped: true }),
     ).toBeNull();
   });
 
@@ -1954,7 +1983,7 @@ describe("resolveCareerOpsThreadApplication", () => {
   it("refuses when the integration is disabled", async () => {
     disable();
     await expect(
-      resolveCareerOpsThreadApplication(SESSION_A, { ...THREAD, applicationId: "42" }),
+      resolveCareerOpsThreadApplication(SESSION_A, { ...THREAD, applicationId: "42", applicationScoped: true }),
     ).rejects.toMatchObject({ code: "unavailable" });
   });
 });

@@ -2469,6 +2469,13 @@ export class FirestoreAdapter implements DatabaseAdapter {
       hermesSessionId: data.hermesSessionId,
       title: data.title,
       applicationId: typeof data.applicationId === "string" ? data.applicationId : null,
+      // A document written before this field existed and still carrying a link
+      // was scoped; one without a link was not. Same reading as the relational
+      // backfill.
+      applicationScoped:
+        typeof data.applicationScoped === "boolean"
+          ? data.applicationScoped
+          : typeof data.applicationId === "string",
       createdAt: toDate(data.createdAt) ?? new Date(0),
       updatedAt: toDate(data.updatedAt) ?? new Date(0),
     };
@@ -2597,6 +2604,10 @@ export class FirestoreAdapter implements DatabaseAdapter {
         hermesSessionId: data.hermesSessionId,
         title: data.title,
         applicationId,
+        // Written once, at creation. `clearCareerOpsApplicationLinks` clears
+        // the link below and deliberately leaves this alone: the link is
+        // advisory context that can go away, the scope it recorded is not.
+        applicationScoped: !!applicationId,
         createdAt: now,
         updatedAt: now,
       };
@@ -3088,8 +3099,14 @@ export class FirestoreAdapter implements DatabaseAdapter {
 
   /**
    * Detach Career Ops conversations from an application that is going away.
-   * The conversation survives as a global thread; the link is advisory context,
-   * not ownership, so it must not cascade into a delete.
+   * The conversation survives; the link is advisory context, not ownership, so
+   * it must not cascade into a delete.
+   *
+   * `applicationScoped` is deliberately untouched. The conversation does not
+   * become a global one — it becomes a scoped one whose opportunity is gone,
+   * and the service refuses to run it until the user starts a general
+   * conversation explicitly. Clearing the marker here would hand a conversation
+   * the user had confined to one opportunity authority over the whole CRM.
    */
   private async clearCareerOpsApplicationLinks(applicationId: string, userId: string): Promise<void> {
     const snapshot = await this.careerOpsThreads

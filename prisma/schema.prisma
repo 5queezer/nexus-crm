@@ -580,17 +580,23 @@ model CvPatch {
 /// Nexus-owned mapping from an authenticated user to a Hermes Career Ops
 /// session. Nexus stores no transcript: message history is read from Hermes.
 model CareerOpsThread {
-  id              String         @id @default(cuid())
-  userId          String
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  hermesSessionId String
-  title           String
+  id                String         @id @default(cuid())
+  userId            String
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hermesSessionId   String
+  title             String
   /// Optional application scope. Cleared, not cascaded, when the application goes away.
-  applicationId   Int?
-  application     Application?   @relation(fields: [applicationId], references: [id], onDelete: SetNull)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  runs            CareerOpsRun[]
+  applicationId     Int?
+  application       Application?   @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  /// True for a conversation created against an application, and never cleared
+  /// afterwards. `applicationId` alone cannot say this: SET NULL erases the
+  /// only evidence the conversation was scoped, so deleting the application
+  /// turned it into an ordinary global thread with authority over the whole
+  /// CRM. This marker outlives the link so such a thread refuses instead.
+  applicationScoped Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  runs              CareerOpsRun[]
 
   @@unique([userId, hermesSessionId])
   @@index([userId, updatedAt])

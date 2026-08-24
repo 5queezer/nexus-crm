@@ -284,16 +284,19 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
                   // conversation scoped to one could never be created — the
                   // launcher would be enabled and permanently broken. Offer an
                   // unscoped conversation instead of a scoped dead end.
-                  application.isDemo
+                  displayApplication.isDemo
                     ? undefined
                     : {
-                        id: String(application.id),
-                        // Persisted values only. The agent resolves this
-                        // opportunity from the database by id, so showing
-                        // unsaved edits would name a target that differs from
-                        // the one the run and its approval prompts act on.
-                        company: application.company,
-                        role: application.role,
+                        id: String(displayApplication.id),
+                        // Persisted values only, and the *latest* persisted
+                        // ones. The agent resolves this opportunity from the
+                        // database by id, so unsaved edits would name a target
+                        // that differs from the one the run and its approval
+                        // prompts act on — and the mount-time prop, which does
+                        // not change when a save succeeds, would keep naming a
+                        // company and role the record no longer has.
+                        company: displayApplication.company,
+                        role: displayApplication.role,
                       }
                 }
               />

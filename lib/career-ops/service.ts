@@ -696,11 +696,28 @@ export async function resolveCareerOpsThreadApplication(
   };
 }
 
+/** One refusal for both ways a conversation can lose its opportunity. */
+function scopeLostError(): CareerOpsServiceError {
+  return new CareerOpsServiceError(
+    "conflict",
+    "This conversation's opportunity is no longer available; start a general conversation instead",
+  );
+}
+
 async function threadInstructions(
   session: CareerOpsSession,
   thread: CareerOpsThreadRecord,
 ): Promise<string> {
-  if (!thread.applicationId) return buildGlobalInstructions();
+  if (!thread.applicationId) {
+    // A conversation created against an application never becomes a global one.
+    // Both backends clear the link when the application is deleted — a foreign
+    // key SET NULL relationally, an explicit sweep in Firestore — which erased
+    // the only evidence the conversation was scoped and let this function hand
+    // it the global instructions. The user, who confined this conversation to
+    // one opportunity, would have had it acting across the whole CRM.
+    if (thread.applicationScoped) throw scopeLostError();
+    return buildGlobalInstructions();
+  }
   // The link can outlive the agent's ability to read it (deleted, or turned
   // into demo data), so re-check visibility on every run rather than trusting
   // the stored id.
@@ -715,10 +732,7 @@ async function threadInstructions(
     // still presents it as application context, so the user would believe the
     // agent is confined to one opportunity while it could act across the whole
     // CRM. Fail closed and require an explicit move to a global conversation.
-    throw new CareerOpsServiceError(
-      "conflict",
-      "This conversation's opportunity is no longer available; start a general conversation instead",
-    );
+    throw scopeLostError();
   }
   return buildApplicationContextInstructions({
     id: thread.applicationId,

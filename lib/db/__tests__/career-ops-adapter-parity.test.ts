@@ -1741,7 +1741,7 @@ describe.each(backends)("Career Ops persistence contract (%s)", (_name, makeAdap
 });
 
 describe("Firestore application deletion clears the Career Ops link", () => {
-  it("keeps the thread as a global conversation when its application is deleted", async () => {
+  it("keeps the thread, and keeps it scoped, when its application is deleted", async () => {
     resetStores();
     const db = new FirestoreAdapter();
     firestoreStores.applications.set("app-1", { userId: "user-a", company: "Acme", role: "Dev" });
@@ -1750,13 +1750,28 @@ describe("Firestore application deletion clears the Career Ops link", () => {
       title: "Acme",
       applicationId: "app-1",
     });
+    expect(thread.applicationScoped).toBe(true);
 
     await db.deleteApplication("app-1", "user-a");
 
     await expect(db.getCareerOpsThread(thread.id, "user-a")).resolves.toMatchObject({
       id: thread.id,
       applicationId: null,
+      // The link is advisory and goes; the scope it recorded does not. Clearing
+      // both turned a conversation the user had confined to one opportunity
+      // into a global one with authority over the whole CRM.
+      applicationScoped: true,
     });
+  });
+
+  it("leaves a conversation that never had an application unscoped", async () => {
+    resetStores();
+    const db = new FirestoreAdapter();
+    const thread = await db.createCareerOpsThread("user-a", {
+      hermesSessionId: "sess-global",
+      title: "Pipeline",
+    });
+    expect(thread.applicationScoped).toBe(false);
   });
 });
 
@@ -1876,6 +1891,39 @@ describe("relational schema guarantees", () => {
   it("clears rather than deletes the thread when its application is removed", () => {
     const threadModel = schema.slice(schema.indexOf("model CareerOpsThread"));
     expect(threadModel).toMatch(/application\s+Application\?\s+@relation\([^)]*onDelete: SetNull/);
+  });
+
+  it("keeps a marker that SET NULL cannot erase, and backfills it", () => {
+    // SET NULL is what makes the marker necessary: it removes the only evidence
+    // the conversation was scoped, and without that evidence the next run takes
+    // global instructions across the whole CRM. The column carries the scope
+    // past the link, so it must exist, default to false for new global threads,
+    // and be true for every conversation that already had an application.
+    const threadModel = schema.slice(schema.indexOf("model CareerOpsThread"));
+    expect(threadModel).toMatch(/applicationScoped\s+Boolean\s+@default\(false\)/);
+
+    const migration = readFileSync(
+      path.join(
+        process.cwd(),
+        "prisma/migrations/20260824073000_career_ops_application_scope_marker/migration.sql",
+      ),
+      "utf8",
+    );
+    expect(migration).toMatch(/ADD COLUMN "applicationScoped" BOOLEAN NOT NULL DEFAULT false/);
+    expect(migration).toMatch(
+      /UPDATE "CareerOpsThread" SET "applicationScoped" = true WHERE "applicationId" IS NOT NULL/,
+    );
+
+    // And the sweep that mirrors SET NULL must not clear it: that update is the
+    // one place where the same bug would come back.
+    const firestore = readFileSync(
+      path.join(process.cwd(), "lib/db/firestore-adapter.ts"),
+      "utf8",
+    );
+    const sweep = firestore.slice(
+      firestore.indexOf("private async clearCareerOpsApplicationLinks"),
+    );
+    expect(sweep.slice(0, sweep.indexOf("\n  }\n"))).not.toContain("applicationScoped");
   });
 
   it("declares the deduplication and ownership indexes", () => {

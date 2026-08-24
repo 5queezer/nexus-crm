@@ -37,7 +37,15 @@ The system SHALL verify that a requested application belongs to the authenticate
 
 #### Scenario: Linked application stops being agent-readable
 - **WHEN** a run starts on a conversation whose linked application is no longer readable under the machine-read policy
-- **THEN** the run proceeds with global context instead of naming an application the agent cannot retrieve
+- **THEN** the run is refused and the user is told to start a general conversation, because widening a conversation the user confined to one opportunity into one with authority over the whole CRM must be an explicit act
+
+#### Scenario: Linked application is deleted
+- **WHEN** a run starts on a conversation that was created against an application that has since been deleted, so the stored link has been cleared
+- **THEN** the run is refused on the same grounds, because a cleared link is not the same as a conversation that never had one
+
+#### Scenario: A conversation whose opportunity is gone is presented as such
+- **WHEN** the conversation list is shown and one conversation was created against an application that no longer exists
+- **THEN** that conversation is labelled as having lost its opportunity rather than as a general conversation, is not opened as the default general conversation, and offers the user the way to a general one
 
 #### Scenario: Only the relationship is stored
 - **WHEN** an application-scoped conversation is created

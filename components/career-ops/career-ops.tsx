@@ -252,15 +252,20 @@ export function CareerOps({
     [threads, activeThreadId],
   );
 
-  // Three distinct states. A thread scoped to a *different* application must
+  // Four distinct states. A thread scoped to a *different* application must
   // never borrow the displayed application's name: the service sends the
   // thread's own id upstream, so a mismatched label would let the user approve
-  // work believing it targets the opportunity on screen.
-  const contextScope: "global" | "named" | "other" = !activeThread?.applicationId
-    ? "global"
-    : application && activeThread.applicationId === application.id
-      ? "named"
-      : "other";
+  // work believing it targets the opportunity on screen. And a thread whose
+  // opportunity was deleted is not a general conversation — the server refuses
+  // every run in it — so it must not be presented as one.
+  const contextScope: "global" | "named" | "other" | "lost" = activeThread?.scopeLost
+    ? "lost"
+    : !activeThread?.applicationId
+      ? "global"
+      : application && activeThread.applicationId === application.id
+        ? "named"
+        : "other";
+  const scopeLost = contextScope === "lost";
 
   /**
    * Load a conversation's transcript, returning when the server took the
@@ -466,7 +471,11 @@ export function CareerOps({
       setThreads(result.threads);
       const preferred = application
         ? result.threads.find((thread) => thread.applicationId === application.id)
-        : result.threads.find((thread) => thread.applicationId === null);
+        : // A conversation whose opportunity was deleted also has no
+          // application id, but it is not the general conversation: opening the
+          // drawer onto it would land the user in a thread that refuses every
+          // run.
+          result.threads.find((thread) => thread.applicationId === null && !thread.scopeLost);
       if (preferred) {
         // Reopening onto the conversation whose run is still live must not
         // disturb it. The hook stays mounted while the drawer is closed and
@@ -841,11 +850,13 @@ export function CareerOps({
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                     <Briefcase className="h-3 w-3" aria-hidden="true" />
                     {t("context_application")}:{" "}
-                    {contextScope === "named" && application
-                      ? `${application.company} — ${application.role}`
-                      : threadApplication
-                        ? `${threadApplication.company} — ${threadApplication.role}`
-                        : t("context_application_other")}
+                    {scopeLost
+                      ? t("context_application_unavailable")
+                      : contextScope === "named" && application
+                        ? `${application.company} — ${application.role}`
+                        : threadApplication
+                          ? `${threadApplication.company} — ${threadApplication.role}`
+                          : t("context_application_other")}
                   </span>
                   <button
                     type="button"
@@ -1134,13 +1145,18 @@ export function CareerOps({
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       placeholder={
-                        activeThread?.applicationId
-                          ? t("composer_placeholder")
-                          : t("composer_placeholder_global")
+                        scopeLost
+                          ? t("composer_placeholder_unavailable")
+                          : activeThread?.applicationId
+                            ? t("composer_placeholder")
+                            : t("composer_placeholder_global")
                       }
                       rows={2}
                       maxLength={8000}
-                      disabled={!activeThreadId}
+                      // Every run in this conversation is refused server-side,
+                      // so an enabled composer only offers the user an error.
+                      // The context bar above it carries the way out.
+                      disabled={!activeThreadId || scopeLost}
                       className="nexus-focus-ring min-h-[44px] w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-white"
                     />
                     {/* Only once a run id exists. During `starting` the run has

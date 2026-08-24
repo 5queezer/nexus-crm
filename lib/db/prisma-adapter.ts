@@ -2154,6 +2154,9 @@ export class PrismaAdapter implements DatabaseAdapter {
         hermesSessionId: data.hermesSessionId,
         title: data.title,
         applicationId: data.applicationId ? nid(data.applicationId) : null,
+        // Set once, at creation, and never written again — the link can be
+        // cleared by a delete, the scope it recorded cannot.
+        applicationScoped: !!data.applicationId,
       },
     });
     return mapCareerOpsThread(row);
@@ -2565,6 +2568,7 @@ function mapCareerOpsThread(row: {
   hermesSessionId: string;
   title: string;
   applicationId: number | null;
+  applicationScoped: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): CareerOpsThreadRecord {
@@ -2574,6 +2578,7 @@ function mapCareerOpsThread(row: {
     hermesSessionId: row.hermesSessionId,
     title: row.title,
     applicationId: row.applicationId === null ? null : sid(row.applicationId),
+    applicationScoped: row.applicationScoped,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

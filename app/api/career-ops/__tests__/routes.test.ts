@@ -69,6 +69,7 @@ const THREAD = {
   hermesSessionId: "sess-1",
   title: "Career Ops",
   applicationId: null,
+  applicationScoped: false,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
@@ -218,6 +219,7 @@ describe("threads", () => {
         id: "thread-1",
         title: "Career Ops",
         applicationId: null,
+        scopeLost: false,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-02T00:00:00.000Z",
       },

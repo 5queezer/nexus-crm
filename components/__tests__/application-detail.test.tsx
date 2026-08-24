@@ -41,6 +41,18 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { signOut: vi.fn() },
 }));
 
+// Career Ops is exercised on its own; here only the opportunity it is handed
+// matters — the agent resolves that record by id and the drawer labels it.
+vi.mock("@/components/career-ops/career-ops", () => ({
+  CareerOps: (props: { application?: { id: string; company: string; role: string } }) => (
+    <div
+      data-testid="career-ops"
+      data-company={props.application?.company ?? ""}
+      data-role={props.application?.role ?? ""}
+    />
+  ),
+}));
+
 function fixtureApplication(overrides: Partial<Application> = {}): Application {
   return {
     id: "application-1",
@@ -253,6 +265,41 @@ describe("ApplicationDetail", () => {
 
     await waitFor(() => expect(patchBodies.length).toBe(1));
     expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-05T00:00:00.000Z");
+  });
+
+  it("hands Career Ops the company that was just saved", async () => {
+    // The page keeps the latest persisted record for display, but Career Ops
+    // was handed the mount-time prop, which does not change when a save
+    // succeeds — only on a server refresh or navigation. So after renaming the
+    // company the drawer went on labelling the conversation with the old name
+    // while the agent, resolving the same id, acted on the new one: the visible
+    // target and the target of the run and its approval prompts disagreed.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () =>
+              fixtureApplication({ company: "Renamed", updatedAt: "2026-07-09T00:00:00.000Z" }),
+          } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    expect(screen.getByTestId("career-ops").getAttribute("data-company")).toBe("Acme");
+
+    const company = screen.getByPlaceholderText("company_placeholder") as HTMLInputElement;
+    await user.clear(company);
+    await user.type(company, "Renamed");
+    await user.click(saveButtons()[0]);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("career-ops").getAttribute("data-company")).toBe("Renamed"),
+    );
   });
 
   it("keeps a stale token rather than dropping unsaved edits on a refresh", async () => {

@@ -117,3 +117,6 @@ against the code it replaced.
 - [x] 8.43 Redact the credential after an authorization scheme word, including Basic, in whole text and across a stream seam.
 - [x] 8.44 Refuse a configured secret longer than the streaming seam can hold, from the same constant the carry cap uses.
 - [x] 8.45 Reopen an approval gate only for refusals that confirm the same upstream gate is still pending.
+- [x] 8.46 Keep a scope marker the application delete cannot clear, and refuse runs on a conversation whose opportunity is gone.
+- [x] 8.47 Present a conversation whose opportunity was deleted as such, and never adopt it as the general conversation.
+- [x] 8.48 Give Career Ops the latest persisted application, not the mount-time prop.
