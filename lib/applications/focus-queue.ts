@@ -2,6 +2,7 @@ import type { Application } from "@/types";
 import {
   localCalendarTimestamp,
   parseLocalCalendarDate,
+  startOfLocalDay,
 } from "./local-calendar";
 
 export type FocusGroupId =
@@ -14,10 +15,6 @@ export type FocusGroupId =
 export interface FocusQueueGroup {
   id: FocusGroupId;
   applications: Application[];
-}
-
-function startOfLocalDay(value: Date): Date {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
 function timestamp(value: string | null | undefined): number {

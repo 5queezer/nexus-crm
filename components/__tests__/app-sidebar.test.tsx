@@ -42,6 +42,20 @@ describe("AppSidebar", () => {
     expect(html).toContain(">C<");
   });
 
+  it("shows an administrator's configured workspace title", () => {
+    const html = renderToStaticMarkup(
+      <AppSidebar
+        user={{ email: "chris@example.com", isAdmin: false }}
+        title="Acme Pipeline"
+      />,
+    );
+
+    // The top bar's brand is hidden from `lg` up, so without this the
+    // configured title would disappear on desktop.
+    expect(html).toContain("Acme Pipeline");
+    expect(html).not.toContain("Nexus CRM");
+  });
+
   it("shows settings for admins", () => {
     const html = renderToStaticMarkup(
       <AppSidebar user={{ email: "chris@example.com", isAdmin: true }} />,

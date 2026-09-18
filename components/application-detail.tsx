@@ -216,6 +216,16 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     setRecordOpen(true);
   }
 
+  function handleContactSelect(contactId: string) {
+    // Click handlers flush synchronously, so the Brief panel is out of its
+    // hidden state by the next frame and the anchor is scrollable.
+    setTab("brief");
+    const anchor = `contact-${encodeURIComponent(contactId)}`;
+    requestAnimationFrame(() => {
+      document.getElementById(anchor)?.scrollIntoView({ block: "center" });
+    });
+  }
+
   const saveLabel = isPending ? ta("saving") : ta("save");
   const company = form.company || application.company;
   const role = form.role || application.role;
@@ -300,6 +310,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
               disabled={hasUnsavedChanges}
               recordOpen={recordOpen}
               onRecordOpenChange={setRecordOpen}
+              onContactSelect={handleContactSelect}
               onProjectionUpdated={() => window.location.reload()}
             />
             <DetailRail label={td("context")}>
@@ -476,7 +487,11 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
                         {contactRows.contacts
                           .filter((contact) => contact.name.trim())
                           .map((contact) => (
-                            <li key={contact.clientId}>
+                            <li
+                              key={contact.clientId}
+                              id={contact.id ? `contact-${encodeURIComponent(contact.id)}` : undefined}
+                              className="scroll-mt-6"
+                            >
                               <span className="block text-slate-800 dark:text-slate-200">
                                 {contact.name}
                               </span>

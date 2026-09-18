@@ -31,7 +31,7 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <div className="nexus-shell flex min-h-dvh">
-      <AppSidebar user={user} />
+      <AppSidebar user={user} title={title} />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppHeader
           user={user}

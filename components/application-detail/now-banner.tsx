@@ -3,23 +3,16 @@
 import { useLocale, useTranslations } from "next-intl";
 import { AlertTriangle, Hourglass } from "lucide-react";
 import type { Application } from "@/types";
+import {
+  formatLocalCalendarDate,
+  parseLocalCalendarDate,
+  startOfLocalDay,
+} from "@/lib/applications/local-calendar";
 import { useNow } from "@/hooks/use-now";
 
 interface NowBannerProps {
   application: Application;
   statusLabel: string;
-}
-
-function formatDay(value: string | null | undefined, locale: string): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(locale, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
 }
 
 /**
@@ -31,13 +24,15 @@ export function NowBanner({ application, statusLabel }: NowBannerProps) {
   const locale = useLocale();
   const now = useNow();
 
-  const followUp = formatDay(application.followUpAt, locale);
-  const lastContact = formatDay(application.lastContact, locale);
-  const applied = formatDay(application.appliedAt, locale);
+  const followUp = formatLocalCalendarDate(application.followUpAt, locale);
+  const lastContact = formatLocalCalendarDate(application.lastContact, locale);
+  const applied = formatLocalCalendarDate(application.appliedAt, locale);
+
+  // Follow-ups are calendar days, not instants: a reminder for today is not
+  // overdue. Matching the dashboard's rule keeps the two views in agreement.
+  const followUpDay = parseLocalCalendarDate(application.followUpAt);
   const overdue =
-    now != null &&
-    application.followUpAt != null &&
-    new Date(application.followUpAt).getTime() < now;
+    now != null && followUpDay != null && followUpDay < startOfLocalDay(new Date(now));
 
   const meta = [
     followUp ? td("follow_up_on", { date: followUp }) : null,

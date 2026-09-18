@@ -13,9 +13,11 @@ import { ApplicationTimeline } from "../application-timeline";
 function TimelineHost({
   disabled,
   onProjectionUpdated,
+  onContactSelect,
 }: {
   disabled: boolean;
   onProjectionUpdated: (updatedAt: string) => void;
+  onContactSelect: (contactId: string) => void;
 }) {
   const [recordOpen, setRecordOpen] = useState(false);
   return (
@@ -25,23 +27,30 @@ function TimelineHost({
       disabled={disabled}
       recordOpen={recordOpen}
       onRecordOpenChange={setRecordOpen}
+      onContactSelect={onContactSelect}
       onProjectionUpdated={onProjectionUpdated}
     />
   );
 }
 
 function renderTimeline(onProjectionUpdated = vi.fn(), disabled = false) {
+  const onContactSelect = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = (isDisabled: boolean) => (
     <NextIntlClientProvider locale="en" messages={messages}>
       <QueryClientProvider client={queryClient}>
-        <TimelineHost disabled={isDisabled} onProjectionUpdated={onProjectionUpdated} />
+        <TimelineHost
+          disabled={isDisabled}
+          onProjectionUpdated={onProjectionUpdated}
+          onContactSelect={onContactSelect}
+        />
       </QueryClientProvider>
     </NextIntlClientProvider>
   );
   const result = render(view(disabled));
   return {
     onProjectionUpdated,
+    onContactSelect,
     rerenderWithDisabled: (isDisabled: boolean) => result.rerender(view(isDisabled)),
   };
 }
@@ -93,11 +102,15 @@ describe("ApplicationTimeline", () => {
       nextCursor: null,
     }), { status: 200 }));
 
-    renderTimeline();
+    const { onContactSelect } = renderTimeline();
+    const user = userEvent.setup();
     expect(await screen.findByText("Unknown event (future_private_event)")).toBeTruthy();
     expect(screen.getByText("Timeline note: Visible note")).toBeTruthy();
     expect(screen.queryByText(/must-not-render/)).toBeNull();
-    expect(screen.getByRole("link", { name: "Contact contact-1" }).getAttribute("href")).toBe("#contact-contact-1");
+    // The contact lives in another tab, so the page resolves it rather than a
+    // fragment link — it still has to receive the exact id, never a fragment.
+    await user.click(screen.getByRole("button", { name: "Contact contact-1" }));
+    expect(onContactSelect).toHaveBeenCalledWith("contact-1");
     expect(screen.getByRole("link", { name: "Document document-1" }).getAttribute("href")).toBe("/documents#document-document-1");
     expect(screen.queryByRole("link", { name: "Submission submission-1" })).toBeNull();
     expect(screen.getByText("Submission submission-1")).toBeTruthy();

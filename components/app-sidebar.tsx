@@ -12,6 +12,8 @@ interface AppSidebarProps {
     email: string;
     isAdmin?: boolean;
   };
+  /** Workspace title configured by an admin; falls back to the product name. */
+  title?: string;
 }
 
 function SidebarLink({ route, active, label }: { route: NavigationRoute; active: boolean; label: string }) {
@@ -59,7 +61,7 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
  * Persistent workspace navigation. Rendered from `lg` upwards only — below
  * that the compact top bar and its sheet take over.
  */
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, title }: AppSidebarProps) {
   const pathname = usePathname();
   const tn = useTranslations("nav");
   const tapp = useTranslations("app");
@@ -79,7 +81,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <BriefcaseBusiness className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
         <span className="truncate text-sm font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8]">
-          {tapp("title")}
+          {title || tapp("title")}
         </span>
       </Link>
 

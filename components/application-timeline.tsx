@@ -35,6 +35,8 @@ interface ApplicationTimelineProps {
   /** Record form visibility, owned by the page so the hero button can open it. */
   recordOpen: boolean;
   onRecordOpenChange: (open: boolean) => void;
+  /** Reveal a contact referenced by an event; the page owns where it lives. */
+  onContactSelect?: (contactId: string) => void;
   onProjectionUpdated?: (updatedAt: string) => void;
 }
 
@@ -96,6 +98,7 @@ export function ApplicationTimeline({
   disabled = false,
   recordOpen,
   onRecordOpenChange,
+  onContactSelect,
   onProjectionUpdated,
 }: ApplicationTimelineProps) {
   const t = useTranslations("timeline");
@@ -360,7 +363,17 @@ export function ApplicationTimeline({
               )}
               {(event.contactId || documentId || submissionId) && (
                 <div className="mt-2 flex flex-wrap gap-3 text-xs">
-                  {event.contactId && <Link className="text-[#5e6ad2] hover:underline dark:text-[#a5a1ff]" href={`#contact-${encodeURIComponent(event.contactId)}`}>{t("contact_link", { id: event.contactId })}</Link>}
+                  {event.contactId && (
+                    // The contact lives in another tab, so a bare fragment
+                    // link would point at a target that is not rendered.
+                    <button
+                      type="button"
+                      onClick={() => onContactSelect?.(event.contactId!)}
+                      className="nexus-focus-ring rounded text-[#5e6ad2] hover:underline dark:text-[#a5a1ff]"
+                    >
+                      {t("contact_link", { id: event.contactId })}
+                    </button>
+                  )}
                   {documentId && <Link className="text-[#5e6ad2] hover:underline dark:text-[#a5a1ff]" href={`/documents#document-${encodeURIComponent(documentId)}`}>{t("document_link", { id: documentId })}</Link>}
                   {submissionId && <span className="text-slate-500 dark:text-slate-400">{t("submission_link", { id: submissionId })}</span>}
                 </div>

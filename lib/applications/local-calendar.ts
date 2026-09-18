@@ -88,3 +88,8 @@ export function localCalendarTimestamp(
 ): number {
   return parseLocalCalendarDate(value)?.getTime() ?? Number.POSITIVE_INFINITY;
 }
+
+/** Midnight of the local calendar day `value` falls on. */
+export function startOfLocalDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
