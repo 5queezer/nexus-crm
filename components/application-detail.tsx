@@ -226,6 +226,10 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   }
 
   function handleCancelEdit() {
+    // A discard mid-flight would restore the old baseline, and the save's
+    // success handler would then set the baseline to the submitted draft —
+    // leaving the page dirty and stale despite the server accepting it.
+    if (isPending) return;
     discardChanges();
     // Contact rows persist individually, so a dirty row is not covered by the
     // discard above. Keeping the editor open leaves it visible and savable
@@ -457,7 +461,8 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
                       <button
                         type="button"
                         onClick={handleCancelEdit}
-                        className="nexus-button-ghost min-h-10 py-2 text-sm"
+                        disabled={isPending}
+                        className="nexus-button-ghost min-h-10 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {ta("cancel")}
                       </button>
@@ -576,7 +581,8 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
                   <button
                     type="button"
                     onClick={handleCancelEdit}
-                    className="nexus-button-ghost flex-1"
+                    disabled={isPending}
+                    className="nexus-button-ghost flex-1 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {ta("cancel")}
                   </button>

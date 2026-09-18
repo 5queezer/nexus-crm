@@ -337,6 +337,55 @@ describe("ApplicationDetail", () => {
     expect(screen.queryByText("unsaved")).toBeNull();
   });
 
+  it("refuses to discard while a save is in flight", async () => {
+    let releaseSave: (() => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          // Hold the response open so Cancel can race the success handler.
+          await new Promise<void>((resolve) => {
+            releaseSave = resolve;
+          });
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ...fixtureApplication(),
+              notes: body.notes,
+              updatedAt: "2026-07-02T00:00:00.000Z",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    await openEditor(user);
+
+    await user.type(notesTextarea(), " im Flug");
+    await user.click(saveButtons()[0]);
+    await waitFor(() => expect(releaseSave).not.toBeNull());
+
+    // Discarding here would restore the old baseline while the success
+    // handler adopts the submitted draft, leaving the page permanently dirty.
+    for (const button of cancelButtons()) {
+      expect(button.disabled).toBe(true);
+    }
+
+    releaseSave!();
+
+    await waitFor(() => {
+      for (const button of saveButtons()) {
+        expect(button.disabled).toBe(true);
+      }
+    });
+    expect(screen.queryByText("unsaved")).toBeNull();
+    expect(notesTextarea().value).toBe("Erste Notiz im Flug");
+  });
+
   it("shows travel and timezone facts that have no editor field", () => {
     vi.stubGlobal(
       "fetch",
