@@ -71,9 +71,12 @@ function metadataSummary(
   metadata: Record<string, unknown> | null,
   labelFor: (key: string) => string,
   locale: string,
+  /** Keys the event body already shows, so details do not repeat them. */
+  promoted: readonly string[] = [],
 ): string[] {
   if (!metadata) return [];
   return VISIBLE_METADATA_KEYS.flatMap((key) => {
+    if (promoted.includes(key)) return [];
     const value = metadata[key];
     if (value === undefined || value === null || value === "" || typeof value === "object") return [];
     const label = labelFor(key);
@@ -311,13 +314,18 @@ export function ApplicationTimeline({
 
       <ol className="m-0 list-none p-0">
         {events.map((event, index) => {
-          const details = metadataSummary(event.metadata, (key) => tm(key), locale);
+          const outcome = typeof event.metadata?.outcome === "string" ? event.metadata.outcome : null;
+          const details = metadataSummary(
+            event.metadata,
+            (key) => tm(key),
+            locale,
+            outcome ? ["outcome"] : [],
+          );
           const title = APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType)
             ? te(event.type as ApplicationEventType)
             : t("unknown_event", { type: event.type });
           const documentId = typeof event.metadata?.documentId === "string" ? event.metadata.documentId : null;
           const submissionId = typeof event.metadata?.submissionId === "string" ? event.metadata.submissionId : null;
-          const outcome = typeof event.metadata?.outcome === "string" ? event.metadata.outcome : null;
           const first = index === 0;
           return (
             <li key={event.id} className="relative pb-6 pl-7 last:pb-0">

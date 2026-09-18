@@ -138,6 +138,37 @@ describe("ApplicationTimeline", () => {
     expect(String(fetchMock.mock.calls[2][0])).toContain("order=oldest");
   });
 
+  it("shows a promoted outcome once, not again inside the details", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      items: [{
+        id: "event-outcome",
+        applicationId: "42",
+        type: "feedback_received",
+        occurredAt: "2026-07-24T09:00:00.000Z",
+        createdAt: "2026-07-24T09:05:00.000Z",
+        source: "mcp",
+        actor: null,
+        contactId: null,
+        outcome: null,
+        metadata: { outcome: "Awaiting client feedback", nextAction: "Wait for Connect Group" },
+      }],
+      nextCursor: null,
+    }), { status: 200 }));
+
+    const user = userEvent.setup();
+    renderTimeline();
+    await screen.findByText("Feedback received");
+
+    // Promoted into the event body, so the details must not repeat it. The
+    // duplicate would render label-prefixed, so match the value loosely.
+    expect(screen.getAllByText(/Awaiting client feedback/)).toHaveLength(1);
+    await user.click(screen.getByText("Event details"));
+    expect(screen.getAllByText(/Awaiting client feedback/)).toHaveLength(1);
+    expect(screen.queryByText(/Outcome: Awaiting client feedback/)).toBeNull();
+    // Other metadata still shows up down there.
+    expect(screen.getByText("Next action: Wait for Connect Group")).toBeTruthy();
+  });
+
   it("records a typed event with an optimistic precondition", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }))
