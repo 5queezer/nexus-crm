@@ -312,6 +312,31 @@ describe("ApplicationDetail", () => {
     expect(notesTextarea().value).toBe("Erste Notiz");
   });
 
+  it("refuses to close the editor over unsaved work", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    await openEditor(user);
+
+    const done = screen.getAllByRole("button", { name: "done_editing" })[0] as HTMLButtonElement;
+    expect(done.disabled).toBe(false);
+
+    await user.type(notesTextarea(), " noch offen");
+
+    // Closing here would hide the only Save and Cancel while the leave guard
+    // stays armed, so the hero's Done has to stand down until it is resolved.
+    expect(
+      (screen.getAllByRole("button", { name: "done_editing" })[0] as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(notesTextarea()).toBeTruthy();
+
+    await user.click(cancelButtons()[0]);
+    expect(screen.queryByText("unsaved")).toBeNull();
+  });
+
   it("shows travel and timezone facts that have no editor field", () => {
     vi.stubGlobal(
       "fetch",

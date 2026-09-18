@@ -12,6 +12,8 @@ interface DetailHeroProps {
   status: Application["status"];
   editing: boolean;
   onToggleEdit: () => void;
+  /** Unsaved work blocks closing the editor; Save or Cancel resolve it. */
+  closeDisabled?: boolean;
   onRecordActivity: () => void;
   recordDisabled?: boolean;
 }
@@ -44,6 +46,7 @@ export function DetailHero({
   status,
   editing,
   onToggleEdit,
+  closeDisabled = false,
   onRecordActivity,
   recordDisabled = false,
 }: DetailHeroProps) {
@@ -103,7 +106,9 @@ export function DetailHero({
           onClick={onToggleEdit}
           aria-expanded={editing}
           aria-controls="application-brief-panel"
-          className="nexus-button-ghost min-h-9 px-3 py-1.5 text-xs"
+          disabled={editing && closeDisabled}
+          title={editing && closeDisabled ? td("resolve_changes_first") : undefined}
+          className="nexus-button-ghost min-h-9 px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
           {editing ? td("done_editing") : td("edit")}

@@ -207,12 +207,17 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   }
 
   function handleToggleEdit() {
+    if (editing) {
+      // Closing over unsaved work would hide the only Save and Cancel while
+      // the leave guard stays armed, so finishing requires resolving it first.
+      if (hasUnsavedChanges) return;
+      setEditing(false);
+      return;
+    }
     // Editing always happens in the Brief tab, so opening the editor from the
     // hero has to bring that tab along.
-    setEditing((value) => {
-      if (!value) setTab("brief");
-      return !value;
-    });
+    setTab("brief");
+    setEditing(true);
   }
 
   function handleRecordActivity() {
@@ -284,6 +289,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
           status={form.status}
           editing={editing}
           onToggleEdit={handleToggleEdit}
+          closeDisabled={hasUnsavedChanges}
           onRecordActivity={handleRecordActivity}
           recordDisabled={hasUnsavedChanges}
         />

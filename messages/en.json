@@ -238,7 +238,8 @@
     "record_details": "Record details",
     "not_rated": "Not rated",
     "no_contacts": "No saved contacts.",
-    "up_to_date": "Up to date"
+    "up_to_date": "Up to date",
+    "resolve_changes_first": "Save or discard your changes first"
   },
   "status": {
     "inbound": "New Lead",
