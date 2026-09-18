@@ -115,6 +115,10 @@ function notesTextarea(): HTMLTextAreaElement {
   ) as HTMLTextAreaElement;
 }
 
+function cancelButtons(): HTMLButtonElement[] {
+  return screen.getAllByRole("button", { name: "cancel" }) as HTMLButtonElement[];
+}
+
 function saveButtons(): HTMLButtonElement[] {
   return screen.getAllByRole("button", { name: "save" }) as HTMLButtonElement[];
 }
@@ -244,7 +248,10 @@ describe("ApplicationDetail", () => {
     await user.type(notesTextarea(), " verworfen");
     expect(screen.getAllByText("unsaved").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "cancel" }));
+    // The editor row is desktop-only, so the mobile action bar has to carry
+    // the discard too — otherwise a phone cannot get out of edit mode.
+    expect(cancelButtons().length).toBe(2);
+    await user.click(cancelButtons()[0]);
 
     // Cancel means cancel: the draft is gone, so the leave guard stands down
     // instead of trapping the user behind a hidden editor.
@@ -279,9 +286,30 @@ describe("ApplicationDetail", () => {
 
     // Contact rows save individually, so the form discard does not cover them.
     await user.type(screen.getByPlaceholderText("contact_name_placeholder"), "x");
-    await user.click(screen.getByRole("button", { name: "cancel" }));
+    await user.click(cancelButtons()[0]);
 
     expect(screen.getByPlaceholderText("contact_name_placeholder")).toBeTruthy();
+  });
+
+  it("discards the draft from the mobile action bar too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    await openEditor(user);
+
+    await user.type(notesTextarea(), " vom Handy verworfen");
+    expect(screen.getAllByText("unsaved").length).toBeGreaterThan(0);
+
+    // The last one is the fixed bottom bar, which is the only control a phone
+    // can reach.
+    await user.click(cancelButtons()[cancelButtons().length - 1]);
+
+    expect(screen.queryByText("unsaved")).toBeNull();
+    await openEditor(user);
+    expect(notesTextarea().value).toBe("Erste Notiz");
   });
 
   it("shows travel and timezone facts that have no editor field", () => {

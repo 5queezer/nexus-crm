@@ -563,25 +563,38 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
               phone, so the primary action of the current mode lives here. */}
           <div className="nexus-safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/90 px-4 pt-3 backdrop-blur-xl dark:border-white/8 dark:bg-[#0f1011]/90 lg:hidden">
             <div className="flex gap-3">
-              <Link href="/" className="nexus-button-ghost flex-1">
-                {td("back")}
-              </Link>
               {editing ? (
-                <button
-                  type="submit"
-                  disabled={!formDirty || isPending}
-                  className="nexus-button-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saveLabel}
-                </button>
+                <>
+                  {/* Discarding has to be reachable here: the editor's own
+                      Cancel sits in a row that only exists from `lg` up. */}
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="nexus-button-ghost flex-1"
+                  >
+                    {ta("cancel")}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!formDirty || isPending}
+                    className="nexus-button-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {saveLabel}
+                  </button>
+                </>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleToggleEdit}
-                  className="nexus-button-primary flex-1"
-                >
-                  {td("edit")}
-                </button>
+                <>
+                  <Link href="/" className="nexus-button-ghost flex-1">
+                    {td("back")}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleToggleEdit}
+                    className="nexus-button-primary flex-1"
+                  >
+                    {td("edit")}
+                  </button>
+                </>
               )}
             </div>
           </div>
