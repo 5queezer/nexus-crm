@@ -193,12 +193,33 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setConflict(false);
 
+    // Native validation is turned off on the form, because the browser cannot
+    // focus a constrained field that sits in a hidden tab panel — it would
+    // just refuse to submit with nothing on screen to explain why. Run the
+    // same constraints here instead, reveal the offending field, and let the
+    // browser report it in its own words.
+    const fields = event.currentTarget.querySelectorAll<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >("input, select, textarea");
+    const invalid = Array.from(fields).find((field) => !field.checkValidity());
+    if (invalid) {
+      setTab("brief");
+      setEditing(true);
+      requestAnimationFrame(() => {
+        invalid.reportValidity();
+      });
+      return;
+    }
+
+    // `required` accepts whitespace, so the trimmed check still has a job.
     if (!form.company.trim() || !form.role.trim()) {
+      setTab("brief");
+      setEditing(true);
       setError(tm("required_fields_error"));
       return;
     }

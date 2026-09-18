@@ -386,6 +386,42 @@ describe("ApplicationDetail", () => {
     expect(notesTextarea().value).toBe("Erste Notiz im Flug");
   });
 
+  it("blocks a save on an invalid field and reveals it instead of posting", async () => {
+    // The reveal defers reporting to the next frame so the Brief panel is no
+    // longer hidden; happy-dom never runs that frame on its own.
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    const patchCalls: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") patchCalls.push(init.body);
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    await openEditor(user);
+
+    const company = screen.getByDisplayValue("Acme") as HTMLInputElement;
+    const reportValidity = vi.fn(() => false);
+    company.reportValidity = reportValidity;
+    await user.clear(company);
+    await user.type(notesTextarea(), " damit dirty");
+
+    // Native validation is off on the form, so the submit path has to run the
+    // constraints itself rather than letting an invalid value reach the API.
+    await user.click(saveButtons()[0]);
+
+    await waitFor(() => expect(reportValidity).toHaveBeenCalled());
+    expect(patchCalls).toHaveLength(0);
+    expect(
+      (screen.getByRole("tab", { selected: true }) as HTMLElement).id,
+    ).toBe("application-brief-tab");
+  });
+
   it("shows travel and timezone facts that have no editor field", () => {
     vi.stubGlobal(
       "fetch",
