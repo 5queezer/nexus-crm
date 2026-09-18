@@ -77,6 +77,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     isDirty: formDirty,
     baselineUpdatedAt,
     markSaved,
+    discardChanges,
     refreshBaselineUpdatedAt,
   } = useApplicationForm(application);
   const contactRows = useContactRows(application.id, application.contacts);
@@ -216,6 +217,14 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
     setRecordOpen(true);
   }
 
+  function handleCancelEdit() {
+    discardChanges();
+    // Contact rows persist individually, so a dirty row is not covered by the
+    // discard above. Keeping the editor open leaves it visible and savable
+    // rather than stranding the user behind the leave guard with no editor.
+    if (!contactRows.hasDirtyRows) setEditing(false);
+  }
+
   function handleContactSelect(contactId: string) {
     // Click handlers flush synchronously, so the Brief panel is out of its
     // hidden state by the next frame and the anchor is scrollable.
@@ -233,11 +242,23 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   const locations = formatLocations(displayApplication);
   const salary = formatSalary(displayApplication);
 
+  const optionalRows: [string, string][] = [
+    displayApplication.travelPercent != null
+      ? [td("travel"), `${displayApplication.travelPercent}%`]
+      : null,
+    displayApplication.timezoneOverlap
+      ? [td("timezone_overlap"), displayApplication.timezoneOverlap]
+      : null,
+  ].filter((row): row is [string, string] => row !== null);
+
+  // These are extracted, read-only facts with no field in the editor, so the
+  // rail is the only place they surface.
   const recordRows: [string, string][] = [
     [tm("source"), form.source || "—"],
     [td("work_model"), displayApplication.workMode || (form.remote ? td("remote") : "—")],
     [td("locations"), locations || "—"],
     [td("salary"), salary || "—"],
+    ...optionalRows,
     [tm("rating"), form.rating ? `${form.rating}/5` : td("not_rated")],
   ];
 
@@ -426,7 +447,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
                       </span>
                       <button
                         type="button"
-                        onClick={() => setEditing(false)}
+                        onClick={handleCancelEdit}
                         className="nexus-button-ghost min-h-10 py-2 text-sm"
                       >
                         {ta("cancel")}

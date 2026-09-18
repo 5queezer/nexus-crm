@@ -232,6 +232,71 @@ describe("ApplicationDetail", () => {
     expect(patchBodies[1].notes).toBe("Erste Notiz v2 v3");
   });
 
+  it("discards the draft when the editor is cancelled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication());
+    await openEditor(user);
+
+    await user.type(notesTextarea(), " verworfen");
+    expect(screen.getAllByText("unsaved").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "cancel" }));
+
+    // Cancel means cancel: the draft is gone, so the leave guard stands down
+    // instead of trapping the user behind a hidden editor.
+    expect(screen.queryByText("unsaved")).toBeNull();
+    await openEditor(user);
+    expect(notesTextarea().value).toBe("Erste Notiz");
+  });
+
+  it("keeps the editor open when a contact row is still unsaved", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const user = userEvent.setup();
+    renderDetail(
+      fixtureApplication({
+        contacts: [
+          {
+            id: "contact-1",
+            name: "Max",
+            email: null,
+            phone: null,
+            role: null,
+            linkedIn: null,
+            applicationId: "application-1",
+            createdAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    await openEditor(user);
+
+    // Contact rows save individually, so the form discard does not cover them.
+    await user.type(screen.getByPlaceholderText("contact_name_placeholder"), "x");
+    await user.click(screen.getByRole("button", { name: "cancel" }));
+
+    expect(screen.getByPlaceholderText("contact_name_placeholder")).toBeTruthy();
+  });
+
+  it("shows travel and timezone facts that have no editor field", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    renderDetail(
+      fixtureApplication({ travelPercent: 20, timezoneOverlap: "CET ± 2h" }),
+    );
+
+    expect(screen.getByText("20%")).toBeTruthy();
+    expect(screen.getByText("CET ± 2h")).toBeTruthy();
+  });
+
   it("copies the absolute canonical URL", async () => {
     vi.stubGlobal(
       "fetch",
