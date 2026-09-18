@@ -94,6 +94,9 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
   const [editing, setEditing] = useState(false);
   // The timeline's record form is opened from the hero, so the page owns it.
   const [recordOpen, setRecordOpen] = useState(false);
+  // Tailoring creates the link, so the id has to live here rather than in the
+  // server-rendered prop — otherwise every view reading it stays pre-tailor.
+  const [resumeId, setResumeId] = useState(application.resumeId);
 
   const updateMutation = useMutation({
     mutationFn: ({
@@ -368,7 +371,7 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
 
               <RailSection kicker={td("latest_material")}>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {application.resumeId ? td("resume_linked") : td("no_resume")}
+                  {resumeId ? td("resume_linked") : td("no_resume")}
                 </p>
                 <button
                   type="button"
@@ -544,14 +547,15 @@ export function ApplicationDetail({ user, application, canonicalPath }: Applicat
           >
             <DocumentsSection
               applicationId={application.id}
-              resumeId={application.resumeId}
+              resumeId={resumeId}
               variant="open"
             />
             <ResumeSection
               applicationId={application.id}
-              resumeId={application.resumeId}
+              resumeId={resumeId}
               variant="open"
               onApplicationUpdated={refreshBaselineUpdatedAt}
+              onResumeLinked={setResumeId}
             />
           </section>
 

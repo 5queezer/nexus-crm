@@ -513,6 +513,39 @@ describe("ApplicationDetail", () => {
     expect(patchBodies[0].expectedUpdatedAt).toBe("2026-07-03T00:00:00.000Z");
   });
 
+  it("adopts the tailored resume across the page without a reload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/tailor")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resumeId: "resume-new",
+              editUrl: "https://resume.example/edit/resume-new",
+              updatedAt: "2026-07-03T00:00:00.000Z",
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => [] } as Response;
+      }),
+    );
+    const user = userEvent.setup();
+    renderDetail(fixtureApplication({ resumeId: null }));
+
+    // The Activity rail reports the link state, so it must not stay stale.
+    expect(screen.getByText("no_resume")).toBeTruthy();
+
+    await openTab(user, "tab_materials");
+    await user.click(screen.getByRole("button", { name: "resume_tailor" }));
+    await screen.findByRole("button", { name: "resume_open" });
+
+    await openTab(user, "tab_activity");
+    expect(screen.getByText("resume_linked")).toBeTruthy();
+    expect(screen.queryByText("no_resume")).toBeNull();
+  });
+
   it("vetoes browser history navigation while edits are unsaved", async () => {
     const confirmSpy = vi.fn(() => false);
     vi.stubGlobal("confirm", confirmSpy);
