@@ -97,6 +97,18 @@ function renderDetail(application: Application) {
   );
 }
 
+async function openEditor(user: ReturnType<typeof userEvent.setup>) {
+  // The hero and the mobile action bar both offer it; either opens the editor.
+  await user.click(screen.getAllByRole("button", { name: "edit" })[0]);
+}
+
+async function openTab(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+) {
+  await user.click(screen.getByRole("tab", { name }));
+}
+
 function notesTextarea(): HTMLTextAreaElement {
   return screen.getByPlaceholderText(
     "notes_placeholder",
@@ -126,12 +138,18 @@ afterEach(() => {
 });
 
 describe("ApplicationDetail", () => {
-  it("renders the application values with a large auto-growing notes field", () => {
+  it("renders the application values with a large auto-growing notes field", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
     );
+    const user = userEvent.setup();
     renderDetail(fixtureApplication());
+
+    // Read-first: the working brief is prose until the editor is opened. It
+    // shows both in the Brief panel and in the Activity tab's context rail.
+    expect(screen.getAllByText("Erste Notiz").length).toBeGreaterThan(0);
+    await openEditor(user);
 
     expect(screen.getByDisplayValue("Acme")).toBeTruthy();
     expect(screen.getByDisplayValue("Engineer")).toBeTruthy();
@@ -150,6 +168,7 @@ describe("ApplicationDetail", () => {
     );
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+    await openEditor(user);
 
     expect(saveButtons().length).toBeGreaterThan(0);
     for (const button of saveButtons()) {
@@ -187,6 +206,7 @@ describe("ApplicationDetail", () => {
     );
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+    await openEditor(user);
 
     await user.type(notesTextarea(), " v2");
     await user.click(saveButtons()[0]);
@@ -202,7 +222,7 @@ describe("ApplicationDetail", () => {
       }
     });
     expect(screen.getAllByText("saved").length).toBeGreaterThan(0);
-    expect(screen.getByText("Updated summary")).toBeTruthy();
+    expect(screen.getAllByText("Updated summary").length).toBeGreaterThan(0);
 
     // A second save uses the renewed updatedAt — no 409 loop.
     await user.type(notesTextarea(), " v3");
@@ -258,6 +278,7 @@ describe("ApplicationDetail", () => {
     );
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+    await openEditor(user);
 
     const company = screen.getByDisplayValue("Acme");
     await user.clear(company);
@@ -285,6 +306,7 @@ describe("ApplicationDetail", () => {
     );
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+    await openEditor(user);
 
     await user.type(notesTextarea(), " wichtig");
     await user.click(saveButtons()[0]);
@@ -304,6 +326,7 @@ describe("ApplicationDetail", () => {
     );
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+    await openEditor(user);
 
     const navLink = screen.getAllByRole("link", { name: "documents" })[0];
 
@@ -351,6 +374,8 @@ describe("ApplicationDetail", () => {
         ],
       }),
     );
+
+    await openEditor(user);
 
     // The application form itself is untouched: no hint, main save disabled.
     expect(saveButtons()[0].disabled).toBe(true);
@@ -409,9 +434,11 @@ describe("ApplicationDetail", () => {
     const user = userEvent.setup();
     renderDetail(fixtureApplication({ resumeId: null }));
 
+    await openTab(user, "tab_materials");
     await user.click(screen.getByRole("button", { name: "resume_tailor" }));
     await screen.findByRole("button", { name: "resume_open" });
 
+    await openEditor(user);
     await user.type(notesTextarea(), " nach Tailoring");
     await user.click(saveButtons()[0]);
 
@@ -431,6 +458,8 @@ describe("ApplicationDetail", () => {
     const pushStateSpy = vi.spyOn(window.history, "pushState");
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+
+    await openEditor(user);
 
     window.dispatchEvent(new Event("popstate"));
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -454,6 +483,7 @@ describe("ApplicationDetail", () => {
     );
     const user = userEvent.setup();
     renderDetail(fixtureApplication());
+    await openEditor(user);
 
     await user.type(notesTextarea(), " ungespeichert");
     await user.click(screen.getAllByRole("button", { name: "account_menu" })[0]);

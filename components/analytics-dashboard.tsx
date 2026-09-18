@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, getSourceCategory } from "@/types";
-import { AppHeader } from "./app-header";
+import { AppShell } from "./app-shell";
 import { realApplications } from "@/lib/demo-workspace/presentation";
 
 async function fetchApplications(): Promise<Application[]> {
@@ -50,6 +50,7 @@ interface AnalyticsDashboardProps {
 
 export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const t = useTranslations("analytics");
+  const tn = useTranslations("nav");
   const ts = useTranslations("status");
   const router = useRouter();
 
@@ -192,8 +193,7 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <AppHeader user={user} />
+    <AppShell user={user} breadcrumbs={[{ label: tn("analytics") }]}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!hasData ? (
           <div className="text-center py-20 text-gray-500 dark:text-gray-400">
@@ -441,6 +441,6 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
           </div>
         )}
       </div>
-    </div>
+    </AppShell>
   );
 }

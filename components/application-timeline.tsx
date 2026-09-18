@@ -32,6 +32,9 @@ interface ApplicationTimelineProps {
   applicationId: string;
   expectedUpdatedAt: string | null;
   disabled?: boolean;
+  /** Record form visibility, owned by the page so the hero button can open it. */
+  recordOpen: boolean;
+  onRecordOpenChange: (open: boolean) => void;
   onProjectionUpdated?: (updatedAt: string) => void;
 }
 
@@ -91,6 +94,8 @@ export function ApplicationTimeline({
   applicationId,
   expectedUpdatedAt,
   disabled = false,
+  recordOpen,
+  onRecordOpenChange,
   onProjectionUpdated,
 }: ApplicationTimelineProps) {
   const t = useTranslations("timeline");
@@ -98,7 +103,6 @@ export function ApplicationTimeline({
   const tm = useTranslations("events.metadata");
   const locale = useLocale();
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [type, setType] = useState<ApplicationEventType>("stage_changed");
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
   const [occurredAt, setOccurredAt] = useState(localDateTimeValue());
@@ -175,7 +179,7 @@ export function ApplicationTimeline({
     },
     onSuccess: async (result) => {
       setError(null);
-      setOpen(false);
+      onRecordOpenChange(false);
       setFields({});
       setOccurredAt(localDateTimeValue());
       await queryClient.invalidateQueries({ queryKey });
@@ -232,47 +236,39 @@ export function ApplicationTimeline({
   const events = timeline.data?.pages.flatMap((page) => Array.isArray(page.items) ? page.items : []) ?? [];
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/8 dark:bg-[#111214]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-slate-950 dark:text-white">{t("title")}</h2>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t("description")}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            aria-label={t("order")}
-            value={order}
-            onChange={(event) => setOrder(event.target.value as "newest" | "oldest")}
-            className="nexus-input"
-          >
-            <option value="newest">{t("newest")}</option>
-            <option value="oldest">{t("oldest")}</option>
-          </select>
-          <button
-            type="button"
-            disabled={disabled}
-            title={disabled ? t("save_first") : undefined}
-            onClick={() => setOpen((value) => !value)}
-            className="nexus-button-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {open ? t("cancel") : t("record_activity")}
-          </button>
-        </div>
+    <section aria-label={t("title")} className="min-w-0">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-[15px] font-semibold text-slate-950 dark:text-[#f7f8f8]">
+          {t("title")}
+        </h2>
+        <select
+          aria-label={t("order")}
+          value={order}
+          onChange={(event) => setOrder(event.target.value as "newest" | "oldest")}
+          className="nexus-focus-ring min-h-8 rounded-md border-0 bg-transparent py-0 pl-0 pr-6 text-xs text-slate-500 dark:text-slate-400"
+        >
+          <option value="newest">{t("newest")}</option>
+          <option value="oldest">{t("oldest")}</option>
+        </select>
       </div>
 
-      {open && (
+      {recordOpen && (
         <form
-          className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/[0.03]"
+          className="mb-6 rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 dark:border-white/8 dark:bg-white/[0.03]"
           onSubmit={(event) => {
             event.preventDefault();
             if (disabled) return;
             mutation.mutate();
           }}
         >
+          <h3 className="mb-3 text-sm font-semibold text-slate-950 dark:text-[#f7f8f8]">
+            {t("record_activity")}
+          </h3>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{t("activity")}</span>
               <select
+                autoFocus
                 value={type}
                 onChange={(event) => { setType(event.target.value as ApplicationEventType); setFields({}); }}
                 className="nexus-input w-full"
@@ -287,11 +283,18 @@ export function ApplicationTimeline({
             {eventFields()}
           </div>
           {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => onRecordOpenChange(false)}
+              className="nexus-button-ghost min-h-10 py-2 text-sm"
+            >
+              {t("cancel")}
+            </button>
             <button
               type="submit"
               disabled={disabled || mutation.isPending || !occurredAt}
-              className="nexus-button-primary disabled:cursor-not-allowed disabled:opacity-50"
+              className="nexus-button-primary min-h-10 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
               {mutation.isPending ? t("recording") : t("record_event")}
             </button>
@@ -299,50 +302,93 @@ export function ApplicationTimeline({
         </form>
       )}
 
-      <div className="mt-5">
-        {timeline.isLoading && <p role="status" aria-live="polite" className="text-sm text-slate-500">{t("loading")}</p>}
-        {timeline.isError && <p role="alert" className="text-sm text-red-600">{t("load_error")}</p>}
-        {!timeline.isLoading && !timeline.isError && events.length === 0 && <p className="text-sm text-slate-500">{t("empty")}</p>}
-        <ol className="space-y-0">
-          {events.map((event, index) => {
-            const details = metadataSummary(event.metadata, (key) => tm(key), locale);
-            const title = APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType)
-              ? te(event.type as ApplicationEventType)
-              : t("unknown_event", { type: event.type });
-            const documentId = typeof event.metadata?.documentId === "string" ? event.metadata.documentId : null;
-            const submissionId = typeof event.metadata?.submissionId === "string" ? event.metadata.submissionId : null;
-            return (
-              <li key={event.id} className="relative pl-7 pb-5 last:pb-0">
-                {index < events.length - 1 && <span className="absolute left-[5px] top-3 h-full w-px bg-slate-200 dark:bg-white/10" />}
-                <span className="absolute left-0 top-2 h-2.5 w-2.5 rounded-full bg-cyan-500 ring-4 ring-cyan-50 dark:ring-cyan-950" />
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
-                  <div className="text-right text-xs text-slate-500">
-                    <time className="block" dateTime={event.occurredAt}>{formatEventDateTime(event.occurredAt, locale)}</time>
-                    {event.createdAt && <time className="block text-[10px]" dateTime={event.createdAt}>{t("recorded_at", { date: formatEventDateTime(event.createdAt, locale) })}</time>}
+      {timeline.isLoading && <p role="status" aria-live="polite" className="text-sm text-slate-500">{t("loading")}</p>}
+      {timeline.isError && <p role="alert" className="text-sm text-red-600">{t("load_error")}</p>}
+      {!timeline.isLoading && !timeline.isError && events.length === 0 && <p className="text-sm text-slate-500">{t("empty")}</p>}
+
+      <ol className="m-0 list-none p-0">
+        {events.map((event, index) => {
+          const details = metadataSummary(event.metadata, (key) => tm(key), locale);
+          const title = APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType)
+            ? te(event.type as ApplicationEventType)
+            : t("unknown_event", { type: event.type });
+          const documentId = typeof event.metadata?.documentId === "string" ? event.metadata.documentId : null;
+          const submissionId = typeof event.metadata?.submissionId === "string" ? event.metadata.submissionId : null;
+          const outcome = typeof event.metadata?.outcome === "string" ? event.metadata.outcome : null;
+          const first = index === 0;
+          return (
+            <li key={event.id} className="relative pb-6 pl-7 last:pb-0">
+              {index < events.length - 1 && (
+                <span aria-hidden="true" className="absolute bottom-0 left-[7px] top-5 w-px bg-slate-200 dark:bg-white/10" />
+              )}
+              <span
+                aria-hidden="true"
+                className={`absolute left-0 top-1 flex h-[15px] w-[15px] items-center justify-center rounded-full ${
+                  first
+                    ? "bg-indigo-100 dark:bg-[#5e6ad2]/30"
+                    : "border border-slate-200 bg-white dark:border-white/10 dark:bg-[#111214]"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${first ? "bg-indigo-600 dark:bg-[#a5a1ff]" : "bg-slate-400 dark:bg-slate-500"}`} />
+              </span>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
+              <time className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400" dateTime={event.occurredAt}>
+                {formatEventDateTime(event.occurredAt, locale)}
+              </time>
+              {(event.source || event.actor) && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {[event.source, event.actor].filter(Boolean).join(" · ")}
+                </p>
+              )}
+              {outcome && (
+                <p className="mt-2 text-xs text-slate-800 dark:text-slate-200">{outcome}</p>
+              )}
+              {(details.length > 0 || event.createdAt) && (
+                <details className="mt-2">
+                  <summary className="nexus-focus-ring cursor-pointer rounded text-[11px] text-slate-500 dark:text-slate-400">
+                    {t("event_details")}
+                  </summary>
+                  <div className="pt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    {details.map((detail) => (
+                      <div key={detail} className="py-0.5">{detail}</div>
+                    ))}
+                    {event.createdAt && (
+                      <div className="py-0.5">{t("recorded_at", { date: formatEventDateTime(event.createdAt, locale) })}</div>
+                    )}
                   </div>
+                </details>
+              )}
+              {(event.contactId || documentId || submissionId) && (
+                <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                  {event.contactId && <Link className="text-[#5e6ad2] hover:underline dark:text-[#a5a1ff]" href={`#contact-${encodeURIComponent(event.contactId)}`}>{t("contact_link", { id: event.contactId })}</Link>}
+                  {documentId && <Link className="text-[#5e6ad2] hover:underline dark:text-[#a5a1ff]" href={`/documents#document-${encodeURIComponent(documentId)}`}>{t("document_link", { id: documentId })}</Link>}
+                  {submissionId && <span className="text-slate-500 dark:text-slate-400">{t("submission_link", { id: submissionId })}</span>}
                 </div>
-                {(event.source || event.actor) && <p className="mt-0.5 text-xs text-slate-500">{[event.source, event.actor].filter(Boolean).join(" · ")}</p>}
-                {details.length > 0 && <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">{details.map((detail) => <li key={detail}>{detail}</li>)}</ul>}
-                {(event.contactId || documentId || submissionId) && (
-                  <div className="mt-2 flex flex-wrap gap-3 text-xs">
-                    {event.contactId && <Link className="text-[#5e6ad2] hover:underline" href={`#contact-${encodeURIComponent(event.contactId)}`}>{t("contact_link", { id: event.contactId })}</Link>}
-                    {documentId && <Link className="text-[#5e6ad2] hover:underline" href={`/documents#document-${encodeURIComponent(documentId)}`}>{t("document_link", { id: documentId })}</Link>}
-                    {submissionId && <span className="text-slate-500 dark:text-slate-400">{t("submission_link", { id: submissionId })}</span>}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-        {timeline.hasNextPage && (
-          <div className="mt-3 flex justify-center">
-            <button type="button" className="nexus-button-ghost" disabled={timeline.isFetchingNextPage} onClick={() => timeline.fetchNextPage()}>
-              {timeline.isFetchingNextPage ? t("loading_more") : t("load_more")}
-            </button>
-          </div>
-        )}
-      </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+
+      {!recordOpen && (
+        <button
+          type="button"
+          disabled={disabled}
+          title={disabled ? t("save_first") : undefined}
+          onClick={() => onRecordOpenChange(true)}
+          className="nexus-focus-ring mt-2 flex w-full items-center gap-2 rounded-lg border border-slate-200/80 bg-white/60 px-3 py-3 text-left text-xs text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/8 dark:bg-white/[0.02] dark:text-slate-400 dark:hover:bg-white/5"
+        >
+          {t("add_note")}
+        </button>
+      )}
+
+      {timeline.hasNextPage && (
+        <div className="mt-3 flex justify-center">
+          <button type="button" className="nexus-button-ghost" disabled={timeline.isFetchingNextPage} onClick={() => timeline.fetchNextPage()}>
+            {timeline.isFetchingNextPage ? t("loading_more") : t("load_more")}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

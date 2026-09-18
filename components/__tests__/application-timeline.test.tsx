@@ -4,21 +4,38 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import messages from "../../messages/en.json";
 import { ApplicationTimeline } from "../application-timeline";
+
+// The page owns the record form's visibility, so the harness stands in for it.
+function TimelineHost({
+  disabled,
+  onProjectionUpdated,
+}: {
+  disabled: boolean;
+  onProjectionUpdated: (updatedAt: string) => void;
+}) {
+  const [recordOpen, setRecordOpen] = useState(false);
+  return (
+    <ApplicationTimeline
+      applicationId="42"
+      expectedUpdatedAt="2026-07-24T08:00:00.000Z"
+      disabled={disabled}
+      recordOpen={recordOpen}
+      onRecordOpenChange={setRecordOpen}
+      onProjectionUpdated={onProjectionUpdated}
+    />
+  );
+}
 
 function renderTimeline(onProjectionUpdated = vi.fn(), disabled = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = (isDisabled: boolean) => (
     <NextIntlClientProvider locale="en" messages={messages}>
       <QueryClientProvider client={queryClient}>
-        <ApplicationTimeline
-          applicationId="42"
-          expectedUpdatedAt="2026-07-24T08:00:00.000Z"
-          disabled={isDisabled}
-          onProjectionUpdated={onProjectionUpdated}
-        />
+        <TimelineHost disabled={isDisabled} onProjectionUpdated={onProjectionUpdated} />
       </QueryClientProvider>
     </NextIntlClientProvider>
   );
@@ -117,7 +134,7 @@ describe("ApplicationTimeline", () => {
     const user = userEvent.setup();
 
     await screen.findByText(/No timeline events yet/);
-    await user.click(screen.getByRole("button", { name: "Record activity" }));
+    await user.click(screen.getByRole("button", { name: "Add a note…" }));
     await user.type(screen.getByLabelText("New stage"), "technical_interview");
     fireEvent.submit(screen.getByRole("button", { name: "Record event" }).closest("form")!);
 
@@ -140,7 +157,7 @@ describe("ApplicationTimeline", () => {
     const user = userEvent.setup();
     const { rerenderWithDisabled } = renderTimeline();
     await screen.findByText(/No timeline events yet/);
-    await user.click(screen.getByRole("button", { name: "Record activity" }));
+    await user.click(screen.getByRole("button", { name: "Add a note…" }));
     await user.type(screen.getByLabelText("New stage"), "technical_interview");
 
     rerenderWithDisabled(true);
