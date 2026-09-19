@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, getSourceCategory } from "@/types";
-import { AppHeader } from "./app-header";
+import { AppShell } from "./app-shell";
 import { realApplications } from "@/lib/demo-workspace/presentation";
 
 async function fetchApplications(): Promise<Application[]> {
@@ -50,6 +50,7 @@ interface AnalyticsDashboardProps {
 
 export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const t = useTranslations("analytics");
+  const tn = useTranslations("nav");
   const ts = useTranslations("status");
   const router = useRouter();
 
@@ -169,31 +170,32 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
 
   const hasData = activeApps.length > 0;
 
+  // The shell wraps every state: navigation has to stay usable while the query
+  // is loading, and especially when it failed.
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <AppShell user={user} breadcrumbs={[{ label: tn("analytics") }]}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
           </div>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   if (isError) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <AppShell user={user} breadcrumbs={[{ label: tn("analytics") }]}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-20 text-red-500">Failed to load data.</div>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <AppHeader user={user} />
+    <AppShell user={user} breadcrumbs={[{ label: tn("analytics") }]}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!hasData ? (
           <div className="text-center py-20 text-gray-500 dark:text-gray-400">
@@ -441,6 +443,6 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
           </div>
         )}
       </div>
-    </div>
+    </AppShell>
   );
 }

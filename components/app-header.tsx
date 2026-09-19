@@ -4,18 +4,15 @@ import { useCallback, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import {
-  BarChart3,
-  Activity,
-  FolderOpen,
-  Bot,
-  Settings,
-  Menu,
-  BriefcaseBusiness,
-} from "lucide-react";
+import { BriefcaseBusiness, ChevronRight, Menu } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { HeaderUtilityMenu } from "./header-utility-menu";
 import { MobileNavigationSheet } from "./mobile-navigation-sheet";
+
+export interface Breadcrumb {
+  label: string;
+  href?: string;
+}
 
 interface AppHeaderProps {
   user: {
@@ -26,6 +23,8 @@ interface AppHeaderProps {
   };
   shareUrl?: string;
   title?: string;
+  /** Trail shown on the desktop bar; the last entry is the current page. */
+  breadcrumbs?: Breadcrumb[];
   /** Optional veto before signing out (e.g. unsaved changes on the page). */
   onBeforeLogout?: () => boolean;
 }
@@ -61,11 +60,23 @@ function MobileNavigationDisclosure({ isAdmin }: { isAdmin?: boolean }) {
   );
 }
 
-export function AppHeader({ user, shareUrl, title, onBeforeLogout }: AppHeaderProps) {
+/**
+ * Slim bar above the page content. On `lg` and up the workspace navigation
+ * lives in the sidebar, so the bar only carries the breadcrumb trail and the
+ * utility menu; below that it also carries the brand and the burger.
+ */
+export function AppHeader({
+  user,
+  shareUrl,
+  title,
+  breadcrumbs = [],
+  onBeforeLogout,
+}: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const tn = useTranslations("nav");
   const tapp = useTranslations("app");
+
   async function handleLogout() {
     if (onBeforeLogout && !onBeforeLogout()) return;
     await authClient.signOut();
@@ -73,99 +84,59 @@ export function AppHeader({ user, shareUrl, title, onBeforeLogout }: AppHeaderPr
     router.refresh();
   }
 
-  const navLinks = [
-    {
-      href: "/",
-      label: tn("opportunities"),
-      icon: BriefcaseBusiness,
-      show: true,
-    },
-    {
-      href: "/activity",
-      label: tn("activity"),
-      icon: Activity,
-      show: true,
-    },
-    {
-      href: "/documents",
-      label: tn("documents"),
-      icon: FolderOpen,
-      show: true,
-    },
-    { href: "/analytics", label: tn("analytics"), icon: BarChart3, show: true },
-    { href: "/resume-review", label: tn("resume_ai"), icon: Bot, show: true },
-    ...(user.isAdmin
-      ? [
-          {
-            href: "/settings",
-            label: tn("settings"),
-            icon: Settings,
-            show: true,
-          },
-        ]
-      : []),
-  ];
-
-  const activeLinks = navLinks.filter((l) => l.show);
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl dark:border-white/8 dark:bg-[#08090a]/80">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex min-h-16 items-center justify-between gap-4">
-          <Link href="/" className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white shadow-sm dark:bg-[#5e6ad2]">
-              <BriefcaseBusiness className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8] sm:text-base">
-                {title || tapp("title")}
-              </div>
-              <div className="hidden truncate text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 sm:block">
-                {tapp("eyebrow")}
-              </div>
-            </div>
-          </Link>
+      <div className="flex min-h-14 items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <Link href="/" className="flex min-w-0 items-center gap-2.5 lg:hidden">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white shadow-sm dark:bg-[#5e6ad2]">
+            <BriefcaseBusiness className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <span className="truncate text-sm font-semibold tracking-[-0.02em] text-slate-950 dark:text-[#f7f8f8]">
+            {title || tapp("title")}
+          </span>
+        </Link>
 
-          <nav className="hidden shrink-0 items-center gap-1 rounded-2xl border border-slate-200/80 bg-slate-100/80 p-1 dark:border-white/8 dark:bg-white/[0.035] lg:flex">
-            {activeLinks.map((link) => {
-              const Icon = link.icon;
-              const active = pathname === link.href;
+        {breadcrumbs.length > 0 && (
+          <nav
+            aria-label={tn("breadcrumb")}
+            className="hidden min-w-0 items-center gap-2 text-sm text-slate-500 dark:text-slate-400 lg:flex"
+          >
+            {breadcrumbs.map((crumb, index) => {
+              const last = index === breadcrumbs.length - 1;
               return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  title={link.label}
-                  aria-label={link.label}
-                  className={`flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-sm font-medium transition ${
-                    active
-                      ? "bg-white text-slate-950 shadow-sm dark:bg-white/8 dark:text-white"
-                      : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                  }`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="hidden xl:inline">{link.label}</span>
-                </Link>
+                <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
+                  {index > 0 && (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+                  )}
+                  {crumb.href && !last ? (
+                    <Link
+                      href={crumb.href}
+                      className="nexus-focus-ring truncate rounded transition hover:text-slate-900 dark:hover:text-white"
+                    >
+                      {crumb.label}
+                    </Link>
+                  ) : (
+                    <span
+                      aria-current={last ? "page" : undefined}
+                      className={`truncate ${last ? "text-slate-900 dark:text-slate-100" : ""}`}
+                    >
+                      {crumb.label}
+                    </span>
+                  )}
+                </span>
               );
             })}
           </nav>
+        )}
 
-          <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            <HeaderUtilityMenu
-              user={user}
-              shareUrl={shareUrl}
-              onLogout={handleLogout}
-            />
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2 lg:hidden">
-            <HeaderUtilityMenu
-              user={user}
-              shareUrl={shareUrl}
-              onLogout={handleLogout}
-            />
-            <MobileNavigationDisclosure
-              key={pathname}
-              isAdmin={user.isAdmin}
-            />
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <HeaderUtilityMenu
+            user={user}
+            shareUrl={shareUrl}
+            onLogout={handleLogout}
+          />
+          <div className="lg:hidden">
+            <MobileNavigationDisclosure key={pathname} isAdmin={user.isAdmin} />
           </div>
         </div>
       </div>
