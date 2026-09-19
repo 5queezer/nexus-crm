@@ -177,7 +177,7 @@ export function Dashboard({
   const { filters, view: viewMode, archived: showArchived } = useMemo(() => parseWorkspaceUrl(urlSearch), [urlSearch]);
   const setViewMode = useCallback((view: WorkspaceViewMode) => writeWorkspaceUrl({ view }), []);
   const setShowArchived = useCallback((archive: boolean) => writeWorkspaceUrl({ archive }), []);
-  const setFilters = useCallback((next: OpportunityFilters) => writeWorkspaceUrl({ search: next.search, status: next.status, source: next.source, remote: next.remoteOnly, priority: next.highPriorityOnly, workMode: next.workMode ?? "" }), []);
+  const setFilters = useCallback((next: OpportunityFilters) => writeWorkspaceUrl({ search: next.search, status: next.status, source: next.source, remote: next.remoteOnly, priority: next.highPriorityOnly, workMode: next.workMode ?? "" }, "replace"), []);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutDialogOpen, setIsShortcutDialogOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

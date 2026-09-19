@@ -13,7 +13,7 @@ export function parseWorkspaceUrl(search: string) {
   };
 }
 
-export function writeWorkspaceUrl(values: Record<string, string | boolean | null>) {
+export function writeWorkspaceUrl(values: Record<string, string | boolean | null>, historyMode: "push" | "replace" = "push") {
   const params = new URLSearchParams(window.location.search);
   for (const [key, value] of Object.entries(values)) {
     if (value === null || value === false || value === "") params.delete(key);
@@ -22,7 +22,8 @@ export function writeWorkspaceUrl(values: Record<string, string | boolean | null
   const query = params.toString();
   const next = query ? `/?${query}` : "/";
   if (next !== window.location.pathname + window.location.search) {
-    window.history.pushState(null, "", next);
+    if (historyMode === "replace") window.history.replaceState(null, "", next);
+    else window.history.pushState(null, "", next);
     window.dispatchEvent(new Event("nexus:workspace-url"));
   }
 }
