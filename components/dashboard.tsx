@@ -15,7 +15,7 @@ import { applicationPath } from "@/lib/applications/slug";
 import { ApplicationTable } from "./application-table";
 import { ApplicationModal } from "./application-modal";
 import { KanbanView } from "./kanban-view";
-import { AppShell } from "./app-shell";
+import { AppHeader } from "./app-header";
 import { loadAppSettings } from "./app-settings";
 import { CommandPalette } from "./command-palette";
 import { KeyboardShortcutBar } from "./keyboard-shortcut-bar";
@@ -799,28 +799,28 @@ export function Dashboard({
 
   if (isLoading) {
     return (
-      <AppShell
-        user={user}
-        shareUrl={shareUrl}
-        title={customTitle || undefined}
-        breadcrumbs={[{ label: tn("opportunities") }]}
-      >
+      <div className="nexus-shell">
+        <AppHeader
+          user={user}
+          shareUrl={shareUrl}
+          title={customTitle || undefined}
+        />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <DashboardLoadingState message={t("loading")} />
         </main>
         <AiOperator key="ai-operator" />
-      </AppShell>
+      </div>
     );
   }
 
   if (isError) {
     return (
-      <AppShell
-        user={user}
-        shareUrl={shareUrl}
-        title={customTitle || undefined}
-        breadcrumbs={[{ label: tn("opportunities") }]}
-      >
+      <div className="nexus-shell">
+        <AppHeader
+          user={user}
+          shareUrl={shareUrl}
+          title={customTitle || undefined}
+        />
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <DashboardErrorState
             message={t("loading_error")}
@@ -829,7 +829,7 @@ export function Dashboard({
           />
         </main>
         <AiOperator key="ai-operator" />
-      </AppShell>
+      </div>
     );
   }
 
@@ -840,12 +840,12 @@ export function Dashboard({
     demoWorkspaceStatus?.canCreateDemoWorkspace === true;
 
   return (
-    <AppShell
-      user={user}
-      shareUrl={shareUrl}
-      title={customTitle || undefined}
-      breadcrumbs={[{ label: tn("opportunities") }]}
-    >
+    <div className="nexus-shell">
+      <AppHeader
+        user={user}
+        shareUrl={shareUrl}
+        title={customTitle || undefined}
+      />
       <p className="sr-only" aria-live="polite">
         {statusAnnouncement}
       </p>
@@ -1112,7 +1112,7 @@ export function Dashboard({
         key="ai-operator"
         hideCompactLauncher={scopedSelectedIds.size > 0}
       />
-    </AppShell>
+    </div>
   );
 }
 

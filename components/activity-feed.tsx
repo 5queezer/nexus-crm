@@ -4,7 +4,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { AppShell } from "./app-shell";
+import { AppHeader } from "./app-header";
 import { APPLICATION_EVENT_TYPES, type ApplicationEventType } from "@/lib/applications/events";
 import { formatEventDateTime } from "@/lib/applications/event-format";
 
@@ -83,7 +83,6 @@ function EventDetails({ event }: { event: ActivityEvent }) {
 
 export function ActivityFeed({ user }: ActivityFeedProps) {
   const t = useTranslations("activityFeed");
-  const tn = useTranslations("nav");
   const te = useTranslations("events.eventTypes");
   const locale = useLocale();
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
@@ -98,7 +97,8 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
   const update = (name: keyof Filters, value: string) => setDraft((current) => ({ ...current, [name]: value }));
 
   return (
-    <AppShell user={user} breadcrumbs={[{ label: tn("activity") }]}>
+    <div className="nexus-shell">
+      <AppHeader user={user} />
       <main className="nexus-page-bottom-space mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{t("title")}</h1>
@@ -164,6 +164,6 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
           )}
         </section>
       </main>
-    </AppShell>
+    </div>
   );
 }

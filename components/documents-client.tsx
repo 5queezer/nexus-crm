@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { format } from "date-fns";
 import { de, enUS } from "date-fns/locale";
 import { useTranslations, useLocale } from "next-intl";
-import { AppShell } from "./app-shell";
+import { AppHeader } from "./app-header";
 
 interface ApplicationRef {
   id: string;
@@ -160,7 +160,6 @@ function InlineRename({ doc, onDone }: { doc: Document; onDone: () => void }) {
 export function DocumentsClient({ user }: DocumentsClientProps) {
   const queryClient = useQueryClient();
   const t = useTranslations("documents_page");
-  const tn = useTranslations("nav");
   const locale = useLocale();
   const dateFnsLocale = locale === "de" ? de : enUS;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -221,7 +220,8 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
   }
 
   return (
-    <AppShell user={user} breadcrumbs={[{ label: tn("documents") }]}>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <AppHeader user={user} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Upload zone */}
@@ -346,6 +346,6 @@ export function DocumentsClient({ user }: DocumentsClientProps) {
           {t("footer")}
         </p>
       </main>
-    </AppShell>
+    </div>
   );
 }

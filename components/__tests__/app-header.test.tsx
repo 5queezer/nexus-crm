@@ -34,7 +34,7 @@ vi.mock("@/lib/auth-client", () => ({
 describe("AppHeader", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("renders one product brand, a home link and the utility menu", () => {
+  it("renders one product brand and names the home destination Opportunities", () => {
     const html = renderToStaticMarkup(
       <AppHeader
         user={{ name: "Chris", email: "chris@example.com", isAdmin: true }}
@@ -44,19 +44,7 @@ describe("AppHeader", () => {
 
     expect(html.match(/Nexus CRM/g)).toHaveLength(1);
     expect(html).toContain('href="/"');
-    expect(html).toContain('aria-label="Account and display"');
-  });
-
-  it("renders the breadcrumb trail with the current page marked", () => {
-    const html = renderToStaticMarkup(
-      <AppHeader
-        user={{ name: "Chris", email: "chris@example.com", isAdmin: false }}
-        breadcrumbs={[{ label: "Opportunities", href: "/" }, { label: "Acme" }]}
-      />,
-    );
-
     expect(html).toContain("Opportunities");
-    expect(html).toContain("Acme");
-    expect(html).toContain('aria-current="page"');
+    expect(html).toContain('aria-label="Account and display"');
   });
 });

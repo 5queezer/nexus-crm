@@ -17,11 +17,8 @@
 }
 
 @layer components {
-  /* `overflow-x: clip` rather than `hidden`: hidden makes this a scroll
-     container, which breaks `position: sticky` for the header and sidebar
-     inside it. Clip contains overflow without creating a scrollport. */
   .nexus-shell {
-    @apply min-h-screen overflow-x-clip bg-slate-50 text-slate-950 transition-colors dark:bg-[#08090a] dark:text-slate-100;
+    @apply min-h-screen overflow-x-hidden bg-slate-50 text-slate-950 transition-colors dark:bg-[#08090a] dark:text-slate-100;
     background-image:
       radial-gradient(circle at top left, rgba(99, 102, 241, 0.10), transparent 32rem),
       radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.08), transparent 30rem);

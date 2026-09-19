@@ -44,11 +44,6 @@ export function useApplicationForm(application: Application | null) {
     setBaselineUpdatedAt(saved.updatedAt);
   }
 
-  /** Throw the draft away and return to the last persisted values. */
-  function discardChanges() {
-    setForm(baseline);
-  }
-
   /**
    * Adopt a server-side updatedAt produced outside the form (e.g. tailoring
    * a resume), so the next save does not collide with a stale baseline.
@@ -65,7 +60,6 @@ export function useApplicationForm(application: Application | null) {
     isDirty: !shallowEqualForm(form, baseline),
     baselineUpdatedAt,
     markSaved,
-    discardChanges,
     refreshBaselineUpdatedAt,
   };
 }

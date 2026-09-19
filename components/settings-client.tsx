@@ -1,14 +1,12 @@
 "use client";
 
-import { useTranslations } from "next-intl";
-
 import { AdminUsers } from "./admin-users";
 import { AuditLog } from "./audit-log";
 import { AppSettingsPanel } from "./app-settings";
 import { EmailIntegration } from "./email-integration";
 import { ScannedEmails } from "./scanned-emails";
 import { ApiToken } from "./api-token";
-import { AppShell } from "./app-shell";
+import { AppHeader } from "./app-header";
 import { McpClientHelp } from "./mcp-client-help";
 
 interface SettingsClientProps {
@@ -22,10 +20,9 @@ interface SettingsClientProps {
 }
 
 export function SettingsClient({ user }: SettingsClientProps) {
-  const tn = useTranslations("nav");
-
   return (
-    <AppShell user={user} breadcrumbs={[{ label: tn("settings") }]}>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <AppHeader user={user} />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         <EmailIntegration />
@@ -40,6 +37,6 @@ export function SettingsClient({ user }: SettingsClientProps) {
           </>
         )}
       </main>
-    </AppShell>
+    </div>
   );
 }
