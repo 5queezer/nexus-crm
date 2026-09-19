@@ -1,7 +1,6 @@
 import type { ApplicationRecord, ApplicationEventRecord } from "@/lib/db/types";
 import { getSourceCategory } from "@/types";
-
-const DAY_MS = 86_400_000;
+import { calendarDayDifference } from "./time-zone";
 
 /**
  * Analytics evidence migration policy:
@@ -28,6 +27,7 @@ export interface AnalyticsFilter {
   cutoff: Date;
   includeArchived: boolean;
   source: string | null;
+  timeZone: string;
 }
 
 export interface AnalyticsMetric {
@@ -190,7 +190,7 @@ export function buildAnalyticsSnapshot(
     const closing = first(recordEvents, isClosing);
     const replyDateKnown = reply ? reply.metadata?.replyDateKnown !== false : false;
     const duration = contact && reply && replyDateKnown && reply.occurredAt >= contact.occurredAt
-      ? Math.round((reply.occurredAt.getTime() - contact.occurredAt.getTime()) / DAY_MS)
+      ? calendarDayDifference(contact.occurredAt, reply.occurredAt, filter.timeZone)
       : null;
     const statusSuggestsProgress = application.status === "interview" || application.status === "offer";
     const stageHistoryGap = !negotiation && (statusSuggestsProgress || closing !== null);

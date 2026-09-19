@@ -62,6 +62,112 @@ describe("GET /api/analytics", () => {
     expect(mocks.listApplications).not.toHaveBeenCalled();
   });
 
+  it("uses the user's timezone for the selected local calendar-day cohort", async () => {
+    mocks.listApplications.mockResolvedValue([
+      {
+        id: "preceding-day",
+        company: "Before",
+        role: "Engineer",
+        status: "inbound",
+        source: "linkedin",
+        archivedAt: null,
+        createdAt: new Date("2026-08-01T06:59:59.999Z"),
+      },
+      {
+        id: "late-selected-day",
+        company: "Late",
+        role: "Engineer",
+        status: "inbound",
+        source: "linkedin",
+        archivedAt: null,
+        createdAt: new Date("2026-08-02T06:59:59.999Z"),
+      },
+    ]);
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/analytics?start=2026-08-01&end=2026-08-01&timeZone=America%2FLos_Angeles",
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      filters: { start: "2026-08-01", end: "2026-08-01", timeZone: "America/Los_Angeles" },
+      cohort: { total: 1 },
+      records: [{ id: "late-selected-day" }],
+    });
+  });
+
+  it("includes a positive-offset local day that begins on the preceding UTC date", async () => {
+    mocks.listApplications.mockResolvedValue([
+      {
+        id: "positive-offset",
+        company: "Ahead",
+        role: "Engineer",
+        status: "inbound",
+        source: "linkedin",
+        archivedAt: null,
+        createdAt: new Date("2026-07-31T20:00:00.000Z"),
+      },
+    ]);
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/analytics?start=2026-08-01&end=2026-08-01&timeZone=Asia%2FKolkata",
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ cohort: { total: 1 } });
+  });
+
+  it("rejects an invalid timezone before reading storage", async () => {
+    const response = await GET(new NextRequest(
+      "http://localhost/api/analytics?start=2026-08-01&end=2026-08-31&timeZone=not-a-timezone",
+    ));
+
+    expect(response.status).toBe(400);
+    expect(mocks.listApplications).not.toHaveBeenCalled();
+  });
+
+  it("accepts a local calendar day whose midnight is skipped by DST", async () => {
+    mocks.listApplications.mockResolvedValue([
+      {
+        id: "before-gap-day",
+        company: "Before",
+        role: "Engineer",
+        status: "inbound",
+        source: "linkedin",
+        archivedAt: null,
+        createdAt: new Date("2026-09-06T03:59:59.999Z"),
+      },
+      {
+        id: "first-gap-day-instant",
+        company: "First",
+        role: "Engineer",
+        status: "inbound",
+        source: "linkedin",
+        archivedAt: null,
+        createdAt: new Date("2026-09-06T04:00:00.000Z"),
+      },
+      {
+        id: "last-gap-day-instant",
+        company: "Last",
+        role: "Engineer",
+        status: "inbound",
+        source: "linkedin",
+        archivedAt: null,
+        createdAt: new Date("2026-09-07T02:59:59.999Z"),
+      },
+    ]);
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/analytics?start=2026-09-06&end=2026-09-06&timeZone=America%2FSantiago",
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      cohort: { total: 2 },
+      records: [{ id: "last-gap-day-instant" }, { id: "first-gap-day-instant" }],
+    });
+  });
+
   it("requires authentication", async () => {
     mocks.requireAuth.mockResolvedValue(null);
     const response = await GET(new NextRequest("http://localhost/api/analytics?start=2026-08-01&end=2026-08-31"));

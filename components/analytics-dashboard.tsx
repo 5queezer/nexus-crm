@@ -23,13 +23,17 @@ interface AnalyticsResponse extends AnalyticsSnapshot {
     cutoff: string;
     source: string | null;
     includeArchived: boolean;
+    timeZone: string;
   };
 }
 
 const SOURCE_OPTIONS = [...SOURCE_PRESETS, "himalayas", "web-search", "unknown"];
 
 function dateInputValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function defaultInterval() {
@@ -44,11 +48,13 @@ async function fetchAnalytics(params: {
   end: string;
   source: string;
   includeArchived: boolean;
+  timeZone: string;
 }): Promise<AnalyticsResponse> {
   const search = new URLSearchParams({
     start: params.start,
     end: params.end,
     includeArchived: String(params.includeArchived),
+    timeZone: params.timeZone,
   });
   if (params.source) search.set("source", params.source);
   const response = await fetch(`/api/analytics?${search}`);
@@ -62,6 +68,11 @@ function formatPercent(value: number | null, noData: string): string {
 
 function formatDate(value: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(value));
+}
+
+function formatCalendarDate(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" })
+    .format(new Date(`${value}T00:00:00Z`));
 }
 
 function MetricCard({
@@ -139,6 +150,7 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const noData = t("redesign.no_data");
   const sourceLabel = (value: string) => t(`source_labels.${value}`);
   const initial = useMemo(() => defaultInterval(), []);
+  const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, []);
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
   const [source, setSource] = useState("");
@@ -148,8 +160,8 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const [detail, setDetail] = useState<{ title: string; recordIds: string[] } | null>(null);
 
   const query = useQuery({
-    queryKey: ["analytics", start, end, source, includeArchived],
-    queryFn: () => fetchAnalytics({ start, end, source, includeArchived }),
+    queryKey: ["analytics", start, end, source, includeArchived, timeZone],
+    queryFn: () => fetchAnalytics({ start, end, source, includeArchived, timeZone }),
   });
   const data = query.data;
   const sortedSources = useMemo(() => {
@@ -256,11 +268,11 @@ export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
               </span>
               <span>
                 {t("redesign.cohort_interval", {
-                  start: formatDate(`${data.filters.start}T00:00:00Z`, locale),
-                  end: formatDate(`${data.filters.end}T00:00:00Z`, locale),
+                  start: formatCalendarDate(data.filters.start, locale),
+                  end: formatCalendarDate(data.filters.end, locale),
                   cutoff: formatDate(data.filters.cutoff, locale),
                   source: data.filters.source ? sourceLabel(data.filters.source) : t("redesign.all_sources_lower"),
-                })}
+                })} · {data.filters.timeZone}
               </span>
             </div>
 

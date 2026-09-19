@@ -45,13 +45,40 @@ describe("owner-scoped assistant domain queries", () => {
     expect(listApplications).toHaveBeenCalledWith("owner-1");
     expect(listApplicationEventsFiltered).toHaveBeenCalledWith("owner-1", expect.objectContaining({ limit: 100 }));
     expect(result).toMatchObject({
-      filters: { start: "2026-08-01", end: "2026-08-31", includeArchived: true },
+      filters: { start: "2026-08-01", end: "2026-08-31", includeArchived: true, timeZone: "UTC" },
       cohort: { total: 2, contacted: 2 },
       replyRate: { numerator: 1, denominator: 2, percentage: 50 },
       coverage: { confirmedReplies: 1, datedReplies: 0, undatedReplies: 1, pendingReplies: 1 },
     });
     expect(result.replyRate).not.toHaveProperty("recordIds");
     expect(result).not.toHaveProperty("records");
+  });
+
+  it("uses an explicit timezone for assistant cohort dates and reply durations", async () => {
+    const listApplications = vi.fn().mockResolvedValue([
+      { ...analyticsApplication("included"), createdAt: new Date("2026-07-31T20:00:00Z") },
+    ]);
+    const listApplicationEventsFiltered = vi.fn().mockResolvedValue({
+      items: [
+        { id: "e1", applicationId: "included", type: "outbound_contact_recorded", occurredAt: new Date("2026-08-01T18:20:00Z"), metadata: {} },
+        { id: "e2", applicationId: "included", type: "reply_received", occurredAt: new Date("2026-08-01T18:40:00Z"), metadata: { responseKind: "human" } },
+      ],
+      nextCursor: null,
+    });
+    const deps = { db: { listApplications, listApplicationEventsFiltered } } as unknown as DomainQueryDependencies;
+
+    const result = await queryOwnerAnalytics("owner-1", {
+      start: "2026-08-01",
+      end: "2026-08-02",
+      cutoff: new Date("2026-09-19T12:00:00Z"),
+      timeZone: "Asia/Kolkata",
+    }, deps);
+
+    expect(result).toMatchObject({
+      filters: { timeZone: "Asia/Kolkata" },
+      cohort: { total: 1 },
+      medianFirstReplyDays: { value: 1, sampleCount: 1 },
+    });
   });
 
   it("returns bounded owner document metadata with explicit truncation", async () => {

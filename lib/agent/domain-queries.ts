@@ -1,5 +1,6 @@
 import { decodeEventCursor } from "@/lib/applications/events";
 import { buildAnalyticsSnapshot } from "@/lib/analytics/metrics";
+import { dateOnlyRangeInTimeZone, normalizeAnalyticsTimeZone } from "@/lib/analytics/time-zone";
 import { getDb } from "@/lib/db";
 import type { DatabaseAdapter } from "@/lib/db/adapter";
 import type { ApplicationEventRecord } from "@/lib/db/types";
@@ -7,7 +8,6 @@ import { prisma } from "@/lib/prisma";
 
 const DEFAULT_LIMIT = 20;
 export const DOMAIN_QUERY_MAX_LIMIT = 50;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL_REVIEW_STATUSES = ["pending", "imported", "dismissed"] as const;
 const ANALYTICS_EVENT_TYPES = [
   "application_submitted",
@@ -82,15 +82,6 @@ function boundedLimit(value?: number): number {
   return Math.min(value, DOMAIN_QUERY_MAX_LIMIT);
 }
 
-function dateOnly(value: string, endOfDay = false): Date {
-  if (!DATE_PATTERN.test(value)) throw new Error("analytics_filter_invalid");
-  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new Error("analytics_filter_invalid");
-  }
-  return date;
-}
-
 async function listAnalyticsEvents(
   db: DomainQueryDb,
   userId: string,
@@ -122,6 +113,8 @@ export interface OwnerAnalyticsQuery {
   cutoff: Date;
   source?: string | null;
   includeArchived?: boolean;
+  /** IANA timezone for calendar-day cohort and reply-duration semantics. Defaults to UTC. */
+  timeZone?: string;
 }
 
 export async function queryOwnerAnalytics(
@@ -130,10 +123,10 @@ export async function queryOwnerAnalytics(
   overrides?: Partial<DomainQueryDependencies>,
 ) {
   const owner = ownerId(userId);
-  const start = dateOnly(input.start);
-  const end = dateOnly(input.end, true);
+  const timeZone = normalizeAnalyticsTimeZone(input.timeZone);
+  const { start, end } = dateOnlyRangeInTimeZone(input.start, input.end, timeZone);
   const cutoff = new Date(input.cutoff);
-  if (start > end || Number.isNaN(cutoff.getTime())) throw new Error("analytics_filter_invalid");
+  if (Number.isNaN(cutoff.getTime())) throw new Error("analytics_filter_invalid");
   const source = input.source?.trim() || null;
   if (source && source.length > 255) throw new Error("analytics_filter_invalid");
   const includeArchived = input.includeArchived !== false;
@@ -148,6 +141,7 @@ export async function queryOwnerAnalytics(
     cutoff,
     source,
     includeArchived,
+    timeZone,
   });
   return {
     filters: {
@@ -156,6 +150,7 @@ export async function queryOwnerAnalytics(
       cutoff: cutoff.toISOString(),
       source,
       includeArchived,
+      timeZone,
     },
     cohort: snapshot.cohort,
     replyRate: {
@@ -198,7 +193,7 @@ export async function queryOwnerAnalytics(
     evidencePolicy: {
       contact: "application_submitted or explicit outbound contact event",
       reply: "reply_received with responseKind=human; automatic acknowledgments and status-only changes excluded",
-      duration: "first dated outbound contact to first dated human reply; unknown and invalid dates excluded",
+      duration: `calendar days in ${timeZone} from first dated outbound contact to first dated human reply; unknown and invalid dates excluded`,
       progression: "unique contacted opportunities with Negotiation event evidence",
     },
   };

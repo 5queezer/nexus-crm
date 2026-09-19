@@ -46,6 +46,7 @@ Reproducible integration scripts: `scripts/verify-bulk-domain.ts` and `scripts/v
 
 - Live external model providers, mailbox scanning and remote MCP servers were not exercised against production accounts. Provider/runtime/connector contracts are covered by tests; real credentials remain required.
 - Analytics intentionally reports unknown evidence instead of inferring replies or stage history from current status. Automatic acknowledgements do not count as human replies.
+- Analytics date filters and reply durations use calendar days in the requested IANA `timeZone`. The browser supplies its timezone; API and assistant callers that omit it retain the explicit UTC default.
 - Bulk target budget is 10,000 matching records; resolution has explicit scan/time limits and never reports a truncated set as complete.
 - Undo is conservative: any intervening record version conflicts and preserves the newer edit, even if the affected field returned to the same value.
 - Model runs can reconnect while the server continues their bounded execution. A server-interrupted model run is marked interrupted; it is not silently replayed against a provider. Bulk jobs resume independently through their durable worker leases.

@@ -73,6 +73,13 @@ describe("agent runtime policy", () => {
 		]);
 	});
 
+	it("exposes the user's calendar timezone to analytics reads", () => {
+		const tools = buildDomainReadTools({ userId: "user-a", runId: "run-1" });
+		const schema = tools.get_analytics_summary.inputSchema as import("zod").ZodType;
+		expect(schema.parse({ start: "2026-09-19", end: "2026-09-19", timeZone: "America/Los_Angeles" }))
+			.toMatchObject({ timeZone: "America/Los_Angeles" });
+	});
+
   it("bounds steps, total runtime, and tool runtime", () => {
     expect(AGENT_LIMITS.maxSteps).toBeLessThanOrEqual(8);
     expect(AGENT_LIMITS.totalMs).toBeLessThanOrEqual(90_000);

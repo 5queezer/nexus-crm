@@ -473,10 +473,11 @@ export function buildDomainReadTools(input: {
 		}),
 		get_analytics_summary: tool({
 			description:
-				"Compute event-evidenced analytics for the authenticated user's cohort. Returns aggregate counts and coverage without record IDs.",
+				"Compute event-evidenced analytics for the authenticated user's cohort. Pass the user's IANA timeZone for local calendar dates; otherwise UTC is used. Returns aggregate counts and coverage without record IDs.",
 			inputSchema: z.object({
 				start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 				end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+				timeZone: z.string().min(1).max(100).optional(),
 				source: z.string().max(255).optional(),
 				includeArchived: z.boolean().optional(),
 			}),

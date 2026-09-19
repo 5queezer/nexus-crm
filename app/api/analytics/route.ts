@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { decodeEventCursor } from "@/lib/applications/events";
 import { buildAnalyticsSnapshot } from "@/lib/analytics/metrics";
+import {
+  addCalendarDays,
+  dateOnlyInTimeZone,
+  dateOnlyRangeInTimeZone,
+  normalizeAnalyticsTimeZone,
+} from "@/lib/analytics/time-zone";
 import { getDb } from "@/lib/db";
 import type { ApplicationEventRecord } from "@/lib/db/types";
 import { requireAuth } from "@/lib/session";
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ANALYTICS_EVENT_TYPES = [
   "application_submitted",
   "recruiter_contacted",
@@ -17,20 +22,6 @@ const ANALYTICS_EVENT_TYPES = [
   "interview_completed",
   "offer_received",
 ] as const;
-
-function parseDateOnly(value: string | null, fallback: Date, endOfDay = false): Date {
-  if (value === null) return fallback;
-  if (!DATE_PATTERN.test(value)) throw new Error("analytics_filter_invalid");
-  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new Error("analytics_filter_invalid");
-  }
-  return date;
-}
-
-function dateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
 
 async function listAllAnalyticsEvents(userId: string, cutoff: Date): Promise<ApplicationEventRecord[]> {
   const db = getDb();
@@ -59,19 +50,20 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const now = new Date();
-  const defaultEnd = new Date(`${dateOnly(now)}T23:59:59.999Z`);
-  const defaultStart = new Date(defaultEnd);
-  defaultStart.setUTCDate(defaultStart.getUTCDate() - 89);
-  defaultStart.setUTCHours(0, 0, 0, 0);
 
   let start: Date;
   let end: Date;
+  let startValue: string;
+  let endValue: string;
+  let timeZone: string;
   let source: string | null;
   let includeArchived: boolean;
   try {
-    start = parseDateOnly(request.nextUrl.searchParams.get("start"), defaultStart);
-    end = parseDateOnly(request.nextUrl.searchParams.get("end"), defaultEnd, true);
-    if (start > end) throw new Error("analytics_filter_invalid");
+    timeZone = normalizeAnalyticsTimeZone(request.nextUrl.searchParams.get("timeZone"));
+    const today = dateOnlyInTimeZone(now, timeZone);
+    startValue = request.nextUrl.searchParams.get("start") ?? addCalendarDays(today, -89);
+    endValue = request.nextUrl.searchParams.get("end") ?? today;
+    ({ start, end } = dateOnlyRangeInTimeZone(startValue, endValue, timeZone));
     const sourceValue = request.nextUrl.searchParams.get("source")?.trim() ?? "";
     if (sourceValue.length > 255) throw new Error("analytics_filter_invalid");
     source = sourceValue || null;
@@ -96,14 +88,16 @@ export async function GET(request: NextRequest) {
       cutoff: now,
       includeArchived,
       source,
+      timeZone,
     });
     return NextResponse.json({
       filters: {
-        start: dateOnly(start),
-        end: dateOnly(end),
+        start: startValue,
+        end: endValue,
         cutoff: now.toISOString(),
         source,
         includeArchived,
+        timeZone,
       },
       ...snapshot,
     });

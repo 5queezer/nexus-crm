@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import messages from "../../messages/en.json";
 import deMessages from "../../messages/de.json";
 
@@ -19,6 +19,7 @@ const snapshot = {
     cutoff: "2026-09-19T12:00:00.000Z",
     source: null,
     includeArchived: true,
+    timeZone: "America/Los_Angeles",
   },
   cohort: { total: 4, archived: 2, active: 2, contacted: 3 },
   replyRate: { numerator: 1, denominator: 3, percentage: 33, recordIds: ["1"] },
@@ -80,6 +81,7 @@ function renderDashboard(locale = "en") {
 
 describe("AnalyticsDashboard", () => {
   beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllEnvs());
 
   it("shows one explicit cohort and evidence-based headline metrics", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -91,6 +93,20 @@ describe("AnalyticsDashboard", () => {
     expect(screen.getByRole("button", { name: /Reply rate/ }).textContent).toContain("1 of 3 contacted");
     expect(screen.getByRole("button", { name: /Median first reply/ }).textContent).toContain("4 days");
     expect(String(fetchMock.mock.calls[0][0])).toContain("includeArchived=true");
+    expect(new URL(String(fetchMock.mock.calls[0][0]), "http://localhost").searchParams.get("timeZone"))
+      .toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(screen.getByText(/America\/Los_Angeles/)).toBeTruthy();
+  });
+
+  it("renders selected calendar dates without shifting them to the preceding day", async () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(snapshot), { status: 200 }),
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByText(/Added Jun 22, 2026 – Sep 19, 2026/)).toBeTruthy();
   });
 
   it("excludes archived records only when the user turns the default off", async () => {
