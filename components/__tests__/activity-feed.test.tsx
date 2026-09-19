@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import messages from "../../messages/en.json";
 
 vi.mock("../app-header", () => ({ AppHeader: () => <header>Header</header> }));
+vi.mock("../bulk-task-history", () => ({ BulkTaskHistory: () => <section>Task history</section> }));
 
 import { ActivityFeed } from "../activity-feed";
 
@@ -72,5 +73,27 @@ describe("ActivityFeed", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ error: "internal details" }), { status: 500 }));
     renderFeed();
     expect((await screen.findByRole("alert")).textContent).toBe("Could not load activity.");
+  });
+
+  it("keeps detected-email review in Activity and preserves real import outcomes", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/events")) return new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 });
+      if (url === "/api/email/scanned?status=pending") return new Response(JSON.stringify({ emails: [{
+        id: "email-1", subject: "Interview invitation", sender: "recruiter@example.com",
+        receivedAt: "2026-07-24T09:00:00.000Z", classification: "interview", confidence: "high",
+        extractedData: { company: "Acme", role: "Engineer" }, status: "pending", applicationId: null,
+      }] }), { status: 200 });
+      if (url === "/api/email/scanned" && init?.method === "PATCH") return new Response(JSON.stringify({ success: true, imported: 1 }), { status: 200 });
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+    });
+    const userEventApi = userEvent.setup();
+    renderFeed();
+
+    await userEventApi.click(screen.getByRole("tab", { name: "Email review" }));
+    expect(await screen.findByText("Interview invitation")).toBeTruthy();
+    await userEventApi.click(screen.getByTitle("Import"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/email/scanned", expect.objectContaining({ method: "PATCH" })));
+    expect((await screen.findByRole("status")).textContent).toContain("1 message imported.");
   });
 });

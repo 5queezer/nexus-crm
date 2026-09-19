@@ -28,6 +28,7 @@ const fake = vi.hoisted(() => {
       jobUrl: null,
       canonicalJobUrl: null,
       currentStage: "screen",
+      nextAction: null,
       eventVersion: 0,
       isDemo: false,
       demoWorkspaceId: null,
@@ -158,7 +159,11 @@ const command = {
   idempotencyKey: "stage-change-1",
   source: "test",
   actor: "owner@example.com",
-  metadata: { toStage: "technical", toStatus: "interview" },
+  metadata: {
+    toStage: "technical",
+    toStatus: "interview",
+    nextAction: "Prepare technical exercise",
+  },
   contactId: null,
   outcome: null,
 };
@@ -200,7 +205,11 @@ describe("PrismaAdapter — atomic application events", () => {
   it("updates the projection and creates one immutable event", async () => {
     const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
     expect(result.replayed).toBe(false);
-    expect(result.application).toMatchObject({ status: "interview", currentStage: "technical" });
+    expect(result.application).toMatchObject({
+      status: "interview",
+      currentStage: "technical",
+      nextAction: "Prepare technical exercise",
+    });
     expect(result.event.metadata).toMatchObject({ fromStage: "screen", toStage: "technical" });
     expect(result.event.metadata).not.toHaveProperty("requestHash");
     expect(fake.events()).toHaveLength(1);

@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const schema = readFileSync(new URL("../../../prisma/schema.prisma", import.meta.url), "utf8");
 
+function modelSchema(name: string) {
+  return schema.match(new RegExp(`model ${name} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? "";
+}
+
 describe("demo workspace persistence schema", () => {
   it("defines tenant-safe workspaces and composite demo relations", () => {
     expect(schema).toContain("model DemoWorkspace");
@@ -10,7 +14,9 @@ describe("demo workspace persistence schema", () => {
     expect(schema).toMatch(/isDemo\s+Boolean\s+@default\(false\)/);
     expect(schema).toMatch(/demoWorkspaceId\s+Int\?/);
     expect(schema).toMatch(/demoKey\s+String\?/);
-    expect(schema.match(/isDemo\s+Boolean\s+@default\(false\)/g)).toHaveLength(2);
+    expect(modelSchema("Application")).toMatch(/isDemo\s+Boolean\s+@default\(false\)/);
+    expect(modelSchema("ApplicationEvent")).toMatch(/isDemo\s+Boolean\s+@default\(false\)/);
+    expect(modelSchema("BulkCommandItem")).toMatch(/isDemo\s+Boolean\s+@default\(false\)/);
     expect(schema).toMatch(/@@unique\(\[id, userId\]\)/);
     expect(schema.match(/fields: \[demoWorkspaceId, userId\], references: \[id, userId\]/g)).toHaveLength(2);
   });

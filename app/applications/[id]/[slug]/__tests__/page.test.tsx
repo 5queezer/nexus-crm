@@ -62,13 +62,17 @@ const application = {
   salaryType: null,
   jobSummary: null,
   currentStage: "technical interview",
+  nextAction: "Prepare system design examples",
   createdAt: new Date("2026-07-01T00:00:00.000Z"),
   updatedAt: new Date("2026-07-02T00:00:00.000Z"),
   contacts: [],
 };
 
-function props(slug: string, id = "106") {
-  return { params: Promise.resolve({ id, slug }) };
+function props(slug: string, id = "106", tab?: string) {
+  return {
+    params: Promise.resolve({ id, slug }),
+    searchParams: Promise.resolve(tab ? { tab } : {}),
+  };
 }
 
 const canonicalPath = "/applications/106/hygraph-senior-fullstack-engineer";
@@ -91,6 +95,12 @@ describe("/applications/[id]/[slug]", () => {
     const result = await ApplicationDetailPage(props("hygraph-senior-fullstack-engineer"));
     expect(mocks.getApplication).toHaveBeenCalledWith("106", "owner-1");
     expect(result).toMatchObject({ props: { canonicalPath } });
+    expect(result).toMatchObject({ props: { application: { nextAction: "Prepare system design examples" } } });
+  });
+
+  it("preserves a validated tab while correcting a stale slug", async () => {
+    await expect(ApplicationDetailPage(props("alter-name", "106", "contacts")))
+      .rejects.toThrow(`REDIRECT:${canonicalPath}?tab=contacts`);
   });
 
   it("redirects a missing or stale presentation slug after loading by ID", async () => {

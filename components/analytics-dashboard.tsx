@@ -1,43 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
-import { Application, ApplicationStatus, STATUS_COLORS, STATUS_ORDER, getSourceCategory } from "@/types";
+import { useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import type { AnalyticsSnapshot } from "@/lib/analytics/metrics";
+import { SOURCE_PRESETS } from "@/types";
 import { AppHeader } from "./app-header";
-import { realApplications } from "@/lib/demo-workspace/presentation";
-
-async function fetchApplications(): Promise<Application[]> {
-  const res = await fetch("/api/applications");
-  if (!res.ok) throw new Error("Failed to fetch applications");
-  return res.json();
-}
-
-// Bar color classes for chart bars (bg only, for the filled portion)
-const STATUS_BAR_COLORS: Record<ApplicationStatus, string> = {
-  inbound: "bg-teal-500 dark:bg-teal-400",
-  applied: "bg-blue-500 dark:bg-blue-400",
-  interview: "bg-purple-500 dark:bg-purple-400",
-  offer: "bg-green-500 dark:bg-emerald-400",
-  rejected: "bg-red-500 dark:bg-red-400",
-};
-
-function getWeekKey(date: Date): string {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
-  d.setDate(diff);
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const dayStr = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${month}-${dayStr}`;
-}
-
-function formatWeekLabel(weekKey: string): string {
-  const [, m, d] = weekKey.split("-");
-  return `${d}.${m}`;
-}
 
 interface AnalyticsDashboardProps {
   user: {
@@ -48,399 +16,384 @@ interface AnalyticsDashboardProps {
   };
 }
 
+interface AnalyticsResponse extends AnalyticsSnapshot {
+  filters: {
+    start: string;
+    end: string;
+    cutoff: string;
+    source: string | null;
+    includeArchived: boolean;
+  };
+}
+
+const SOURCE_OPTIONS = [...SOURCE_PRESETS, "himalayas", "web-search", "unknown"];
+
+function dateInputValue(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function defaultInterval() {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - 89);
+  return { start: dateInputValue(start), end: dateInputValue(end) };
+}
+
+async function fetchAnalytics(params: {
+  start: string;
+  end: string;
+  source: string;
+  includeArchived: boolean;
+}): Promise<AnalyticsResponse> {
+  const search = new URLSearchParams({
+    start: params.start,
+    end: params.end,
+    includeArchived: String(params.includeArchived),
+  });
+  if (params.source) search.set("source", params.source);
+  const response = await fetch(`/api/analytics?${search}`);
+  if (!response.ok) throw new Error("analytics_query_failed");
+  return response.json();
+}
+
+function formatPercent(value: number | null, noData: string): string {
+  return value === null ? noData : `${value}%`;
+}
+
+function formatDate(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(value));
+}
+
+function MetricCard({
+  label,
+  value,
+  note,
+  onClick,
+  viewRecords,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  onClick: () => void;
+  viewRecords: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="min-h-36 rounded-2xl border border-gray-200 bg-white p-5 text-left transition hover:border-violet-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-gray-700 dark:bg-gray-800 dark:hover:border-violet-600"
+      aria-label={`${label}: ${value}. ${note}. ${viewRecords}.`}
+    >
+      <span className="block text-sm font-medium text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="mt-3 block text-3xl font-semibold tracking-tight text-gray-950 dark:text-white">{value}</span>
+      <span className="mt-2 block text-sm text-gray-500 dark:text-gray-400">{note}</span>
+    </button>
+  );
+}
+
+function EvidenceBar({
+  label,
+  count,
+  denominator,
+  percentage,
+  onClick,
+  noData,
+  ofLabel,
+  viewRecords,
+}: {
+  label: string;
+  count: number;
+  denominator: number;
+  percentage: number | null;
+  onClick: () => void;
+  noData: string;
+  ofLabel: string;
+  viewRecords: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full rounded-lg p-2 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:hover:bg-gray-700/50"
+      aria-label={`${label}: ${count} ${ofLabel} ${denominator}. ${viewRecords}.`}
+    >
+      <span className="flex items-baseline justify-between gap-3 text-sm">
+        <span className="font-medium text-gray-800 dark:text-gray-200">{label}</span>
+        <span className="text-gray-600 dark:text-gray-300">
+          {count} <span className="text-xs text-gray-400">{ofLabel} {denominator} · {formatPercent(percentage, noData)}</span>
+        </span>
+      </span>
+      <span className="mt-2 block h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700" aria-hidden="true">
+        <span
+          className="block h-full rounded-full bg-violet-500"
+          style={{ width: `${percentage ?? 0}%` }}
+        />
+      </span>
+    </button>
+  );
+}
+
 export function AnalyticsDashboard({ user }: AnalyticsDashboardProps) {
   const t = useTranslations("analytics");
-  const ts = useTranslations("status");
-  const router = useRouter();
+  const locale = useLocale();
+  const noData = t("redesign.no_data");
+  const sourceLabel = (value: string) => t(`source_labels.${value}`);
+  const initial = useMemo(() => defaultInterval(), []);
+  const [start, setStart] = useState(initial.start);
+  const [end, setEnd] = useState(initial.end);
+  const [source, setSource] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(true);
+  const [showDefinitions, setShowDefinitions] = useState(false);
+  const [sourceSort, setSourceSort] = useState<"volume" | "rate">("volume");
+  const [detail, setDetail] = useState<{ title: string; recordIds: string[] } | null>(null);
 
-  const { data: applications = [], isLoading, isError } = useQuery({
-    queryKey: ["applications"],
-    queryFn: fetchApplications,
+  const query = useQuery({
+    queryKey: ["analytics", start, end, source, includeArchived],
+    queryFn: () => fetchAnalytics({ start, end, source, includeArchived }),
   });
-
-  const activeApps = useMemo(
-    () => realApplications(applications).filter((a) => !a.archivedAt),
-    [applications],
-  );
-
-  // === Status Breakdown ===
-  const { statusCounts, maxStatusCount } = useMemo(() => {
-    const counts: Record<ApplicationStatus, number> = {
-      inbound: 0, applied: 0, interview: 0, offer: 0, rejected: 0,
-    };
-    for (const app of activeApps) {
-      counts[app.status] = (counts[app.status] || 0) + 1;
-    }
-    return { statusCounts: counts, maxStatusCount: Math.max(...Object.values(counts), 1) };
-  }, [activeApps]);
-
-  // === Applications Over Time (weekly buckets, stacked: inbound vs applied) ===
-  const { finalWeeks, weeklyBuckets, maxWeeklyCount } = useMemo(() => {
-    const buckets: Record<string, { inbound: number; applied: number }> = {};
-    for (const app of activeApps) {
-      const date = app.appliedAt ? new Date(app.appliedAt) : new Date(app.createdAt);
-      const week = getWeekKey(date);
-      if (!buckets[week]) buckets[week] = { inbound: 0, applied: 0 };
-      if (app.status === "inbound") {
-        buckets[week].inbound += 1;
-      } else {
-        buckets[week].applied += 1;
-      }
-    }
-    const sorted = Object.keys(buckets).sort();
-    // Fill in gaps between first and last week
-    if (sorted.length > 1) {
-      const current = new Date(sorted[0]);
-      const end = new Date(sorted[sorted.length - 1]);
-      while (current <= end) {
-        const key = getWeekKey(current);
-        if (!buckets[key]) buckets[key] = { inbound: 0, applied: 0 };
-        current.setDate(current.getDate() + 7);
-      }
-    }
-    const weeks = Object.keys(buckets).sort();
-    const maxCount = Math.max(
-      ...weeks.map((w) => buckets[w].inbound + buckets[w].applied),
-      1
-    );
-    return { finalWeeks: weeks, weeklyBuckets: buckets, maxWeeklyCount: maxCount };
-  }, [activeApps]);
-
-  // === Response Rate ===
-  const { totalApplied, responded, interviewCount, offerCount, responseRate } = useMemo(() => {
-    const total = activeApps.filter((a) =>
-      (["applied", "interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
-    ).length;
-    const interviews = activeApps.filter((a) => a.status === "interview").length;
-    const offers = activeApps.filter((a) => a.status === "offer").length;
-    const resp = activeApps.filter((a) =>
-      (["interview", "offer", "rejected"] as ApplicationStatus[]).includes(a.status)
-    ).length;
-    return {
-      totalApplied: total,
-      responded: resp,
-      interviewCount: interviews,
-      offerCount: offers,
-      responseRate: total > 0 ? Math.round((resp / total) * 100) : 0,
-    };
-  }, [activeApps]);
-
-  // === Average Response Time ===
-  const avgResponseTime = useMemo(() => {
-    const times: number[] = [];
-    for (const app of activeApps) {
-      if (
-        app.appliedAt &&
-        app.lastContact &&
-        (["interview", "offer", "rejected"] as ApplicationStatus[]).includes(app.status)
-      ) {
-        const applied = new Date(app.appliedAt).getTime();
-        const contact = new Date(app.lastContact).getTime();
-        const diffDays = Math.round((contact - applied) / (1000 * 60 * 60 * 24));
-        if (diffDays >= 0) times.push(diffDays);
-      }
-    }
-    return times.length > 0
-      ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
-      : null;
-  }, [activeApps]);
-
-  // === Top Companies ===
-  const { topCompanies, maxCompanyCount } = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const app of activeApps) {
-      const name = app.company.trim();
-      if (name) counts[name] = (counts[name] || 0) + 1;
-    }
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    return { topCompanies: top, maxCompanyCount: top.length > 0 ? top[0][1] : 1 };
-  }, [activeApps]);
-
-  // === Source Breakdown (normalized) ===
-  const { topSources, maxSourceCount } = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const app of activeApps) {
-      const source = getSourceCategory(app.source);
-      counts[source] = (counts[source] || 0) + 1;
-    }
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    return { topSources: top, maxSourceCount: top.length > 0 ? top[0][1] : 1 };
-  }, [activeApps]);
-
-  const hasData = activeApps.length > 0;
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center py-20 text-red-500">Failed to load data.</div>
-        </div>
-      </div>
-    );
-  }
+  const data = query.data;
+  const sortedSources = useMemo(() => {
+    const rows = [...(data?.sources ?? [])];
+    return rows.sort((a, b) => sourceSort === "rate"
+      ? (b.progressionPercentage ?? -1) - (a.progressionPercentage ?? -1) || b.contacted - a.contacted
+      : b.contacted - a.contacted || a.source.localeCompare(b.source));
+  }, [data?.sources, sourceSort]);
+  const detailRecords = detail && data
+    ? data.records.filter((record) => detail.recordIds.includes(record.id))
+    : [];
+  const openDetail = (title: string, recordIds: string[]) => setDetail({ title, recordIds });
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <AppHeader user={user} />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {!hasData ? (
-          <div className="text-center py-20 text-gray-500 dark:text-gray-400">
-            {t("no_data")}
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-white">{t("title")}</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t("redesign.subtitle")}</p>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Status Breakdown */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {t("status_breakdown")}
-              </h2>
-              <div className="space-y-3">
-                {STATUS_ORDER.map((status) => (
-                  <div
-                    key={status}
-                    className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                    onClick={() => router.push(`/?status=${status}`)}
-                  >
-                    <span
-                      className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium w-24 text-center ${STATUS_COLORS[status]}`}
-                    >
-                      {ts(status)}
-                    </span>
-                    <div className="flex-1 h-6 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${STATUS_BAR_COLORS[status]}`}
-                        style={{
-                          width: `${(statusCounts[status] / maxStatusCount) * 100}%`,
-                          minWidth: statusCounts[status] > 0 ? "1rem" : "0",
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-8 text-right">
-                      {statusCounts[status]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <button
+            type="button"
+            onClick={() => setShowDefinitions((open) => !open)}
+            aria-expanded={showDefinitions}
+            aria-controls="analytics-definitions"
+            className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          >
+            {t("redesign.how_we_measure")}
+          </button>
+        </header>
 
-            {/* Applications Over Time (stacked: blue = applied, teal = inbound) */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {t("over_time")}
-                </h2>
-                <div className="flex gap-3 text-[10px] text-gray-500 dark:text-gray-400">
-                  <span className="flex items-center gap-1">
-                    <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-500 dark:bg-blue-400" />
-                    {ts("applied")}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="inline-block w-2.5 h-2.5 rounded-sm bg-teal-500 dark:bg-teal-400" />
-                    {ts("inbound")}
-                  </span>
-                </div>
-              </div>
-              {finalWeeks.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">
-                  {t("no_data")}
-                </div>
-              ) : (
-                <div className="flex items-end gap-1 h-48 overflow-x-auto pb-2">
-                  {finalWeeks.map((week) => {
-                    const bucket = weeklyBuckets[week] || { inbound: 0, applied: 0 };
-                    const total = bucket.inbound + bucket.applied;
-                    const appliedPct = (bucket.applied / maxWeeklyCount) * 100;
-                    const inboundPct = (bucket.inbound / maxWeeklyCount) * 100;
-                    return (
-                      <div
-                        key={week}
-                        className="flex flex-col items-center flex-1 min-w-8"
-                        title={`${t("week")} ${formatWeekLabel(week)}: ${bucket.applied} ${ts("applied")}, ${bucket.inbound} ${ts("inbound")}`}
-                      >
-                        <span className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          {total > 0 ? total : ""}
-                        </span>
-                        <div className="w-full flex flex-col items-stretch justify-end h-36">
-                          {bucket.inbound > 0 && (
-                            <div
-                              className="w-full bg-teal-500 dark:bg-teal-400 rounded-t transition-all duration-500"
-                              style={{
-                                height: `${inboundPct}%`,
-                                minHeight: "4px",
-                              }}
-                            />
-                          )}
-                          {bucket.applied > 0 && (
-                            <div
-                              className={`w-full bg-blue-500 dark:bg-blue-400 transition-all duration-500 ${bucket.inbound === 0 ? "rounded-t" : ""}`}
-                              style={{
-                                height: `${appliedPct}%`,
-                                minHeight: "4px",
-                              }}
-                            />
-                          )}
-                        </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 whitespace-nowrap">
-                          {formatWeekLabel(week)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+        <section aria-label={t("redesign.filters_label")} className="mt-7 grid gap-4 rounded-2xl border border-gray-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4 dark:border-gray-700 dark:bg-gray-800">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {t("redesign.added_from")}
+            <input
+              type="date"
+              value={start}
+              max={end}
+              onChange={(event) => { setStart(event.target.value); setDetail(null); }}
+              className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-900"
+            />
+          </label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {t("redesign.added_through")}
+            <input
+              type="date"
+              value={end}
+              min={start}
+              onChange={(event) => { setEnd(event.target.value); setDetail(null); }}
+              className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-900"
+            />
+          </label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {t("redesign.source")}
+            <select
+              value={source}
+              onChange={(event) => { setSource(event.target.value); setDetail(null); }}
+              className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 dark:border-gray-600 dark:bg-gray-900"
+            >
+              <option value="">{t("redesign.all_sources")}</option>
+              {SOURCE_OPTIONS.map((option) => <option key={option} value={option}>{sourceLabel(option)}</option>)}
+            </select>
+          </label>
+          <label className="flex min-h-11 items-center gap-3 self-end rounded-lg px-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(event) => { setIncludeArchived(event.target.checked); setDetail(null); }}
+              className="h-5 w-5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+            />
+            {t("redesign.include_archived")}
+          </label>
+        </section>
 
-            {/* Response Rate */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                {t("response_rate")}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                {t("response_rate_desc")}
-              </p>
-              <div className="flex items-center gap-4">
-                <div className="text-4xl font-bold text-gray-900 dark:text-white">
-                  {responseRate}%
-                </div>
-                <div className="flex-1">
-                  <div className="h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 dark:bg-emerald-400 rounded-full transition-all duration-500"
-                      style={{ width: `${responseRate}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {responded} / {totalApplied} {t("responded")}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-                <span>🟣 {interviewCount} {ts("interview")}</span>
-                <span>🟢 {offerCount} {ts("offer")}</span>
-              </div>
-            </div>
+        {showDefinitions && (
+          <section id="analytics-definitions" className="mt-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-5 text-sm text-gray-700 dark:border-violet-900 dark:bg-violet-950/20 dark:text-gray-300">
+            <h2 className="font-semibold text-gray-950 dark:text-white">{t("redesign.definitions_title")}</h2>
+            <dl className="mt-3 grid gap-4 md:grid-cols-2">
+              <div><dt className="font-medium">{t("redesign.cohort_definition_title")}</dt><dd className="mt-1 text-gray-600 dark:text-gray-400">{t("redesign.cohort_definition")}</dd></div>
+              <div><dt className="font-medium">{t("redesign.reply_rate")}</dt><dd className="mt-1 text-gray-600 dark:text-gray-400">{t("redesign.reply_definition")}</dd></div>
+              <div><dt className="font-medium">{t("redesign.progression")}</dt><dd className="mt-1 text-gray-600 dark:text-gray-400">{t("redesign.progression_definition")}</dd></div>
+              <div><dt className="font-medium">{t("redesign.reply_timing")}</dt><dd className="mt-1 text-gray-600 dark:text-gray-400">{t("redesign.reply_timing_definition")}</dd></div>
+            </dl>
+          </section>
+        )}
 
-            {/* Average Response Time */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                {t("avg_response_time")}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                {t("avg_response_desc")}
-              </p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-bold text-gray-900 dark:text-white">
-                  {avgResponseTime !== null ? avgResponseTime : "—"}
-                </span>
-                {avgResponseTime !== null && (
-                  <span className="text-lg text-gray-500 dark:text-gray-400">
-                    {t("days")}
-                  </span>
-                )}
-              </div>
-              {avgResponseTime !== null && (
-                <div className="mt-3 h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-amber-500 dark:bg-amber-400 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min((avgResponseTime / 30) * 100, 100)}%` }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Top Companies */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {t("top_companies")}
-              </h2>
-              {topCompanies.length === 0 ? (
-                <div className="text-center py-4 text-gray-400 dark:text-gray-500 text-sm">
-                  {t("no_data")}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {topCompanies.map(([company, count]) => (
-                    <div
-                      key={company}
-                      className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                      onClick={() => router.push(`/?search=${encodeURIComponent(company)}`)}
-                    >
-                      <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate" title={company}>
-                        {company}
-                      </span>
-                      <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-indigo-500 dark:bg-indigo-400 rounded-full transition-all duration-500"
-                          style={{
-                            width: `${(count / maxCompanyCount) * 100}%`,
-                            minWidth: "1rem",
-                          }}
-                        />
-                      </div>
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-6 text-right">
-                        {count}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Source Breakdown */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {t("source_breakdown")}
-              </h2>
-              {topSources.length === 0 ? (
-                <div className="text-center py-4 text-gray-400 dark:text-gray-500 text-sm">
-                  {t("no_data")}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {topSources.map(([source, count]) => (
-                    <div
-                      key={source}
-                      className="flex items-center gap-3 cursor-pointer rounded-lg px-1 -mx-1 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                      onClick={() => router.push(`/?source=${encodeURIComponent(source)}`)}
-                    >
-                      <span
-                        className="w-32 truncate text-sm text-gray-700 dark:text-gray-300"
-                        title={t(`source_labels.${source}`)}
-                      >
-                        {t(`source_labels.${source}`)}
-                      </span>
-                      <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-cyan-500 dark:bg-cyan-400 rounded-full transition-all duration-500"
-                          style={{
-                            width: `${(count / maxSourceCount) * 100}%`,
-                            minWidth: "1rem",
-                          }}
-                        />
-                      </div>
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-6 text-right">
-                        {count}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+        {query.isLoading && (
+          <div className="py-24 text-center text-sm text-gray-500" role="status">{t("redesign.loading")}</div>
+        )}
+        {query.isError && (
+          <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950/20" role="alert">
+            <p className="text-sm text-red-700 dark:text-red-300">{t("redesign.error")}</p>
+            <button type="button" onClick={() => query.refetch()} className="mt-3 rounded-lg border border-red-300 px-4 py-2 text-sm font-medium">{t("redesign.retry")}</button>
           </div>
         )}
-      </div>
+
+        {data && (
+          <>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-gray-100 px-4 py-3 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              <span className="font-medium text-gray-800 dark:text-gray-100">
+                {t("redesign.cohort_summary", data.cohort)}
+              </span>
+              <span>
+                {t("redesign.cohort_interval", {
+                  start: formatDate(`${data.filters.start}T00:00:00Z`, locale),
+                  end: formatDate(`${data.filters.end}T00:00:00Z`, locale),
+                  cutoff: formatDate(data.filters.cutoff, locale),
+                  source: data.filters.source ? sourceLabel(data.filters.source) : t("redesign.all_sources_lower"),
+                })}
+              </span>
+            </div>
+
+            <section aria-label={t("redesign.headline_label")} className="mt-5 grid gap-4 md:grid-cols-3">
+              <MetricCard
+                label={t("redesign.reply_rate")}
+                value={formatPercent(data.replyRate.percentage, noData)}
+                note={t("redesign.contacted_note", {
+                  numerator: data.replyRate.numerator,
+                  denominator: data.replyRate.denominator,
+                })}
+                onClick={() => openDetail(t("redesign.confirmed_human_replies"), data.replyRate.recordIds)}
+                viewRecords={t("redesign.view_records")}
+              />
+              <MetricCard
+                label={t("redesign.reached_negotiation")}
+                value={formatPercent(data.progressionRate.percentage, noData)}
+                note={t("redesign.contacted_note", {
+                  numerator: data.progressionRate.numerator,
+                  denominator: data.progressionRate.denominator,
+                })}
+                onClick={() => openDetail(t("redesign.reached_negotiation"), data.progressionRate.recordIds)}
+                viewRecords={t("redesign.view_records")}
+              />
+              <MetricCard
+                label={t("redesign.median_first_reply")}
+                value={data.medianFirstReplyDays.value === null ? noData : t("redesign.days_value", { days: data.medianFirstReplyDays.value })}
+                note={t("redesign.dated_reply_sample", { count: data.medianFirstReplyDays.sampleCount })}
+                onClick={() => openDetail(t("redesign.dated_reply_records"), data.medianFirstReplyDays.recordIds)}
+                viewRecords={t("redesign.view_records")}
+              />
+            </section>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex items-baseline justify-between"><h2 className="font-semibold text-gray-950 dark:text-white">{t("redesign.stage_progression")}</h2><span className="text-xs uppercase tracking-wide text-gray-400">{t("redesign.ever_reached")}</span></div>
+                <p className="mt-1 text-sm text-gray-500">{t("redesign.stage_caption")}</p>
+                <div className="mt-4 space-y-1">
+                  {data.stages.map((stage) => (
+                    <EvidenceBar
+                      key={stage.key}
+                      label={t(`redesign.stage_labels.${stage.key}`)}
+                      count={stage.count}
+                      denominator={stage.denominator}
+                      percentage={stage.percentage}
+                      onClick={() => openDetail(t(`redesign.stage_labels.${stage.key}`), stage.recordIds)}
+                      noData={noData}
+                      ofLabel={t("redesign.of")}
+                      viewRecords={t("redesign.view_records")}
+                    />
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-gray-500">{t("redesign.stage_history_gaps", { count: data.coverage.stageHistoryGaps })}</p>
+              </section>
+
+              <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex items-baseline justify-between"><h2 className="font-semibold text-gray-950 dark:text-white">{t("redesign.time_to_first_reply")}</h2><span className="text-xs uppercase tracking-wide text-gray-400">{t("redesign.calendar_days")}</span></div>
+                <p className="mt-1 text-sm text-gray-500">{t("redesign.time_caption")}</p>
+                <div className="mt-4 space-y-1">
+                  {data.replyTimeDistribution.map((bucket) => (
+                    <EvidenceBar
+                      key={bucket.key}
+                      label={t(`redesign.reply_buckets.${bucket.key}`)}
+                      count={bucket.count}
+                      denominator={bucket.denominator}
+                      percentage={bucket.percentage}
+                      onClick={() => openDetail(t("redesign.replied_in", { range: t(`redesign.reply_buckets.${bucket.key}`) }), bucket.recordIds)}
+                      noData={noData}
+                      ofLabel={t("redesign.of")}
+                      viewRecords={t("redesign.view_records")}
+                    />
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-gray-500">{t("redesign.duration_coverage", {
+                  dated: data.coverage.datedReplies,
+                  undated: data.coverage.undatedReplies,
+                  pending: data.coverage.pendingReplies,
+                  invalid: data.coverage.invalidDatePairs,
+                })}</p>
+              </section>
+            </div>
+
+            <section className="mt-5 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex flex-col gap-3 border-b border-gray-200 p-5 sm:flex-row sm:items-end sm:justify-between dark:border-gray-700">
+                <div><h2 className="font-semibold text-gray-950 dark:text-white">{t("redesign.source_title")}</h2><p className="mt-1 text-sm text-gray-500">{t("redesign.source_caption")}</p></div>
+                <label className="text-sm text-gray-600 dark:text-gray-300">{t("redesign.sort_by")} <select value={sourceSort} onChange={(event) => setSourceSort(event.target.value as "volume" | "rate")} className="ml-2 min-h-10 rounded-lg border border-gray-300 bg-white px-2 dark:border-gray-600 dark:bg-gray-900"><option value="volume">{t("redesign.contacted")}</option><option value="rate">{t("redesign.progression_rate")}</option></select></label>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 dark:bg-gray-900/40"><tr><th className="px-5 py-3">{t("redesign.source")}</th><th className="px-4 py-3">{t("redesign.contacted")}</th><th className="px-4 py-3">{t("redesign.replied")}</th><th className="px-4 py-3">{t("redesign.negotiation")}</th><th className="px-5 py-3">{t("redesign.progression")}</th></tr></thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {sortedSources.map((row) => (
+                      <tr key={row.source}>
+                        <td className="px-5 py-3"><button type="button" className="font-medium text-violet-700 hover:underline dark:text-violet-300" onClick={() => openDetail(t("redesign.source_opportunities", { source: sourceLabel(row.source) }), row.recordIds.all)}>{t("redesign.source_cohort_count", { source: sourceLabel(row.source), count: row.cohort })}</button></td>
+                        <td className="px-4 py-3"><button type="button" className="hover:underline" onClick={() => openDetail(t("redesign.source_metric", { source: sourceLabel(row.source), metric: t("redesign.contacted") }), row.recordIds.contacted)}>{row.contacted}</button></td>
+                        <td className="px-4 py-3"><button type="button" className="hover:underline" onClick={() => openDetail(t("redesign.source_metric", { source: sourceLabel(row.source), metric: t("redesign.confirmed_human_replies") }), row.recordIds.replied)}>{row.replied}</button></td>
+                        <td className="px-4 py-3"><button type="button" className="hover:underline" onClick={() => openDetail(t("redesign.source_metric", { source: sourceLabel(row.source), metric: t("redesign.negotiation") }), row.recordIds.negotiation)}>{row.negotiation}</button></td>
+                        <td className="px-5 py-3 font-medium">{formatPercent(row.progressionPercentage, noData)}</td>
+                      </tr>
+                    ))}
+                    {sortedSources.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-500">{t("redesign.no_cohort")}</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {detail && (
+              <section className="mt-5 rounded-2xl border border-violet-200 bg-white p-5 dark:border-violet-900 dark:bg-gray-800" aria-label={t("redesign.records_behind_metric")}>
+                <div className="flex items-start justify-between gap-4">
+                  <div><h2 className="font-semibold text-gray-950 dark:text-white">{detail.title}</h2><p className="mt-1 text-sm text-gray-500">{t("redesign.record_count", { count: detailRecords.length })}</p></div>
+                  <button type="button" onClick={() => setDetail(null)} className="min-h-10 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:hover:bg-gray-700" aria-label={t("redesign.close_metric_details")}>{t("redesign.close")}</button>
+                </div>
+                {detailRecords.length === 0 ? <p className="mt-5 text-sm text-gray-500">{t("redesign.no_matching")}</p> : (
+                  <div className="mt-4 divide-y divide-gray-100 dark:divide-gray-700">
+                    {detailRecords.map((record) => (
+                      <div key={record.id} className="grid gap-2 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                        <div><a href={`/applications/${record.id}`} className="font-medium text-violet-700 hover:underline dark:text-violet-300" aria-label={`${record.company} — ${record.role}`}>{record.company}</a><p className="text-sm text-gray-500">{record.role} · {sourceLabel(record.source)}</p></div>
+                        <div className="text-xs text-gray-500"><p>{t("redesign.contact")}: {record.firstContactAt ? formatDate(record.firstContactAt, locale) : t("redesign.not_recorded")}</p><p>{t("redesign.reply")}: {record.firstHumanReplyAt ? `${formatDate(record.firstHumanReplyAt, locale)} · ${record.replyDurationDays}d` : record.confirmedHumanReply ? t("redesign.date_missing") : t("redesign.none_recorded")}</p></div>
+                        <span className="w-fit rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300">{record.archived ? t("redesign.archived") : t("redesign.active")}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            <footer className="mt-5 flex flex-wrap justify-between gap-2 text-xs text-gray-500">
+              <span>{t("redesign.snapshot_cutoff", { cutoff: new Date(data.filters.cutoff).toLocaleString(locale) })}</span>
+              <button type="button" onClick={() => openDetail(t("redesign.included_opportunities"), data.records.map((record) => record.id))} className="font-medium text-violet-700 hover:underline dark:text-violet-300">{t("redesign.explore_included")}</button>
+            </footer>
+          </>
+        )}
+      </main>
     </div>
   );
 }

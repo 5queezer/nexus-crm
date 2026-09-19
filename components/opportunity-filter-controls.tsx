@@ -70,7 +70,7 @@ export function OpportunityFilterControls({
         </span>
       </div>
 
-      <div className="hidden items-center gap-2 lg:flex">
+      <div className="hidden flex-wrap items-center gap-2 lg:flex">
         <select
           value={filters.status}
           aria-label={t("status_filter")}
@@ -141,6 +141,14 @@ export function OpportunityFilterControls({
           {t("results", { count: resultCount })}
         </span>
       </div>
+
+      <label className="flex items-center gap-2 text-xs text-slate-500">
+        {t("work_model")}
+        <select aria-label={t("work_model")} value={filters.workMode ?? ""} onChange={event => onChange({ ...filters, workMode: event.target.value })} className="min-h-11 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 dark:border-white/10 dark:bg-[#1d1e22] dark:text-slate-200">
+          <option value="">{t("all_work_models")}</option>
+          <option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option><option value="flexible">Flexible</option>
+        </select>
+      </label>
 
       <div className="flex flex-wrap items-center gap-2 lg:hidden">
         {filters.status && (

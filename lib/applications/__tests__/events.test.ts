@@ -15,6 +15,8 @@ describe("application event taxonomy", () => {
       "opportunity_discovered",
       "application_submitted",
       "recruiter_contacted",
+      "outbound_contact_recorded",
+      "reply_received",
       "stage_changed",
       "interview_invited",
       "interview_scheduled",
@@ -95,6 +97,62 @@ describe("parseApplicationEventCommand", () => {
     });
   });
 
+  it("requires explicit human-or-automatic evidence for received replies", () => {
+    expect(() => parseApplicationEventCommand({
+      type: "reply_received",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: {},
+    })).toThrow("event_metadata_invalid");
+
+    const command = parseApplicationEventCommand({
+      type: "reply_received",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: {
+        responseKind: "human",
+        replyDateKnown: false,
+        channel: "email",
+        contactId: "contact-1",
+      },
+    });
+
+    expect(command.metadata).toEqual({
+      responseKind: "human",
+      replyDateKnown: false,
+      channel: "email",
+      contactId: "contact-1",
+    });
+    expect(command.contactId).toBe("contact-1");
+  });
+
+  it("rejects invalid reply evidence and accepts explicit outbound contact", () => {
+    expect(() => parseApplicationEventCommand({
+      type: "reply_received",
+      occurredAt: "2026-07-24T09:00:00Z",
+      metadata: { responseKind: "bot" },
+    })).toThrow("event_metadata_invalid");
+
+    expect(parseApplicationEventCommand({
+      type: "outbound_contact_recorded",
+      occurredAt: "2026-07-23T09:00:00Z",
+      metadata: { channel: "email", outcome: "sent" },
+    })).toMatchObject({
+      type: "outbound_contact_recorded",
+      outcome: "sent",
+      metadata: { channel: "email", outcome: "sent" },
+    });
+
+    expect(parseApplicationEventCommand({
+      type: "recruiter_contacted",
+      occurredAt: "2026-07-23T09:00:00Z",
+      metadata: { direction: "outbound" },
+    }).metadata).toEqual({ direction: "outbound" });
+    expect(() => parseApplicationEventCommand({
+      type: "recruiter_contacted",
+      occurredAt: "2026-07-23T09:00:00Z",
+      metadata: { direction: "unknown" },
+    })).toThrow("event_metadata_invalid");
+  });
+
   it.each([
     ["follow_up_scheduled", {}, "event_metadata_invalid"],
     ["interview_scheduled", { interviewType: "technical" }, "event_metadata_invalid"],
@@ -139,6 +197,7 @@ describe("deriveEventProjection", () => {
       metadata: {
         interviewType: "technical",
         scheduledAt: "2026-07-28T12:30:00Z",
+        nextAction: "Prepare repository",
       },
     });
     const result = deriveEventProjection(command, application);
@@ -147,6 +206,7 @@ describe("deriveEventProjection", () => {
       currentStage: "interview_scheduled",
       lastContact: new Date("2026-07-24T09:00:00Z"),
       followUpAt: new Date("2026-07-28T12:30:00Z"),
+      nextAction: "Prepare repository",
     });
     expect(result.metadata).toMatchObject({
       fromStage: "recruiter_screen",

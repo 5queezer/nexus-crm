@@ -82,6 +82,7 @@ export interface ApplicationRecord {
   jobLiveness: string | null;
   jobSummary: string | null;
   currentStage: string | null;
+  nextAction: string | null;
   createdAt: Date;
   updatedAt: Date;
   isDemo: boolean;
@@ -319,6 +320,7 @@ export interface StructuredApplicationMetadataInput {
   jobLiveness?: string | null;
   jobSummary?: string | null;
   currentStage?: string | null;
+  nextAction?: string | null;
 }
 
 export interface CreateApplicationInput extends StructuredApplicationMetadataInput {

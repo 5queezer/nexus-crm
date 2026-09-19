@@ -15,6 +15,7 @@ export interface ApplicationFormData {
   appliedAt: string;
   lastContact: string;
   followUpAt: string;
+  nextAction: string;
   notes: string;
   jobDescription: string;
   source: string;
@@ -60,6 +61,7 @@ export function toFormData(
       (application ? "" : toDateInputValue()),
     lastContact: toDateInput(application?.lastContact),
     followUpAt: toDateInput(application?.followUpAt),
+    nextAction: application?.nextAction || "",
     notes: application?.notes || "",
     jobDescription: application?.jobDescription || "",
     source: application?.source || "",
@@ -86,6 +88,7 @@ export function serializeForm(data: ApplicationFormData) {
     appliedAt: data.appliedAt || null,
     lastContact: data.lastContact || null,
     followUpAt: data.followUpAt || null,
+    nextAction: data.nextAction || null,
     notes: data.notes || null,
     jobDescription: data.jobDescription || null,
     source: data.source || null,

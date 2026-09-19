@@ -7,3 +7,5 @@ prisma/dev.db-journal
 *.log
 uploads/
 .worktrees/
+.playwright-cli/
+output/playwright/

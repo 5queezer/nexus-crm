@@ -1523,6 +1523,7 @@ describe("FirestoreAdapter — first-class application events", () => {
       role: "Engineer",
       status: "applied",
       currentStage: "recruiter_screen",
+      nextAction: null,
       followUpAt: { toDate: () => new Date("2026-07-25T10:00:00Z") },
       createdAt: mockTimestamp,
       updatedAt: mockTimestamp,
@@ -1540,13 +1541,18 @@ describe("FirestoreAdapter — first-class application events", () => {
       metadata: {
         interviewType: "technical",
         scheduledAt: "2026-07-28T12:30:00.000Z",
+        nextAction: "Prepare technical exercise",
       },
       contactId: null,
       outcome: null,
     });
 
     expect(result.replayed).toBe(false);
-    expect(result.application).toMatchObject({ status: "interview", currentStage: "interview_scheduled" });
+    expect(result.application).toMatchObject({
+      status: "interview",
+      currentStage: "interview_scheduled",
+      nextAction: "Prepare technical exercise",
+    });
     expect(result.application.followUpAt?.toISOString()).toBe("2026-07-28T12:30:00.000Z");
     expect(result.event.metadata).toMatchObject({
       fromStage: "recruiter_screen",

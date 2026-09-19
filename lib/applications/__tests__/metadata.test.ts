@@ -12,6 +12,7 @@ describe("parseStructuredApplicationMetadata", () => {
         salaryPeriod: "year",
         officeDaysMin: 0,
         jobCapturedAt: "2026-07-13T08:00:00.000Z",
+        nextAction: " Wait for recruiter feedback ",
       }),
     ).toMatchObject({
       canonicalJobUrl: "https://jobs.example.com/roles/1",
@@ -21,7 +22,15 @@ describe("parseStructuredApplicationMetadata", () => {
       salaryPeriod: "year",
       officeDaysMin: 0,
       jobCapturedAt: new Date("2026-07-13T08:00:00.000Z"),
+      nextAction: "Wait for recruiter feedback",
     });
+  });
+
+  it("rejects malformed or oversized next actions instead of coercing or truncating them", () => {
+    expect(() => parseStructuredApplicationMetadata({ nextAction: { text: "wait" } }))
+      .toThrow("nextAction_invalid");
+    expect(() => parseStructuredApplicationMetadata({ nextAction: "x".repeat(2_001) }))
+      .toThrow("nextAction_too_long");
   });
 
   it("rejects invalid enums, ranges, countries, dates, currency, hashes, and URLs", () => {

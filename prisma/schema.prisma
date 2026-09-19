@@ -56,6 +56,7 @@ model Application {
   jobLiveness         String? // unknown | live | closed | expired
   jobSummary          String?
   currentStage        String?
+  nextAction          String?
   eventVersion        Int                     @default(0)
   isDemo              Boolean                 @default(false)
   demoWorkspaceId     Int?
@@ -68,6 +69,7 @@ model Application {
   cvPatch             CvPatch?
   submissions         ApplicationSubmission[]
   events              ApplicationEvent[]
+  bulkCommandItems    BulkCommandItem[]
 
   @@unique([userId, canonicalJobUrl])
   @@unique([demoWorkspaceId, demoKey])
@@ -221,6 +223,7 @@ model User {
   actionProposals        ActionProposal[]
   verificationResults    AgentVerificationResult[]
   mcpConnections         AgentMcpConnection[]
+  bulkCommands           BulkCommand[]
 }
 
 model UserApiToken {
@@ -341,15 +344,16 @@ model LlmCredential {
 }
 
 model AgentThread {
-  id        String           @id @default(cuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  messages  AgentMessage[]
-  runs      AgentRun[]
-  proposals ActionProposal[]
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  messages     AgentMessage[]
+  runs         AgentRun[]
+  proposals    ActionProposal[]
+  bulkCommands BulkCommand[]
 
   @@index([userId, updatedAt])
 }
@@ -389,6 +393,7 @@ model AgentRun {
   messages        AgentMessage[]
   toolInvocations AgentToolInvocation[]
   proposals       ActionProposal[]
+  bulkCommands    BulkCommand[]
 
   @@index([userId, threadId, startedAt])
   @@index([userId, status])
@@ -458,6 +463,85 @@ model AgentVerificationResult {
   createdAt  DateTime       @default(now())
 
   @@index([userId, createdAt])
+}
+
+model BulkCommand {
+  id                String            @id @default(cuid())
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId          String?
+  thread            AgentThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  runId             String?
+  run               AgentRun?         @relation(fields: [runId], references: [id], onDelete: SetNull)
+  actionType        String
+  scope             Json
+  reason            String?
+  exclusions        Json              @default("[]")
+  requestHash       String
+  digest            String
+  approvedDigest    String?
+  idempotencyKey    String
+  status            String            @default("preview")
+  expiresAt         DateTime
+  approvedAt        DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  pauseRequestedAt  DateTime?
+  cancelRequestedAt DateTime?
+  undoRequestedAt   DateTime?
+  workerToken       String?
+  leaseExpiresAt    DateTime?
+  supersedesId      String?           @unique
+  supersedes        BulkCommand?      @relation("BulkCommandRevision", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy      BulkCommand?      @relation("BulkCommandRevision")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  items             BulkCommandItem[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status, createdAt])
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([threadId, createdAt])
+  @@index([runId, createdAt])
+}
+
+model BulkCommandItem {
+  id                  String      @id @default(cuid())
+  commandId           String
+  command             BulkCommand @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  userId              String
+  applicationId       Int
+  isDemo              Boolean     @default(false)
+  application         Application @relation(fields: [applicationId, userId, isDemo], references: [id, userId, isDemo], onDelete: Cascade)
+  company             String
+  role                String
+  ordinal             Int
+  expectedVersion     Int
+  before              Json
+  after               Json
+  reason              String?
+  evidence            Json?
+  idempotencyKey      String
+  status              String      @default("pending")
+  attempts            Int         @default(0)
+  errorCode           String?
+  errorMessage        String?
+  appliedVersion      Int?
+  appliedBefore       Json?
+  appliedAfter        Json?
+  appliedAt           DateTime?
+  verifiedAt          DateTime?
+  undoStatus          String?
+  undoExpectedVersion Int?
+  undoAppliedAt       DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@unique([commandId, applicationId])
+  @@unique([userId, idempotencyKey])
+  @@index([commandId, status, ordinal])
+  @@index([commandId, undoStatus, ordinal])
+  @@index([applicationId, userId])
 }
 
 model AgentMcpConnection {

@@ -99,6 +99,7 @@ const application: Application = {
 };
 
 async function renderDashboard() {
+  window.history.replaceState(null, "", "/?view=table");
   const user = userEvent.setup();
   render(
     <QueryClientProvider
@@ -125,6 +126,7 @@ async function renderDashboard() {
 
 describe("Dashboard detail navigation", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     pushMock.mockClear();
     const values = new Map<string, string>();
     vi.stubGlobal("localStorage", {

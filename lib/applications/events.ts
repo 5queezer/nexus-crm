@@ -4,6 +4,8 @@ export const APPLICATION_EVENT_TYPES = [
   "opportunity_discovered",
   "application_submitted",
   "recruiter_contacted",
+  "outbound_contact_recorded",
+  "reply_received",
   "stage_changed",
   "interview_invited",
   "interview_scheduled",
@@ -19,6 +21,8 @@ export const APPLICATION_EVENT_TYPES = [
 export const RECORDABLE_APPLICATION_EVENT_TYPES = [
   "opportunity_discovered",
   "recruiter_contacted",
+  "outbound_contact_recorded",
+  "reply_received",
   "stage_changed",
   "interview_invited",
   "interview_scheduled",
@@ -56,8 +60,16 @@ const EVENT_KEYS: Record<ApplicationEventType, readonly string[]> = {
   recruiter_contacted: [
     ...COMMON_KEYS,
     "channel",
+    "direction",
     "followUpAt",
     "toStage",
+  ],
+  outbound_contact_recorded: [...COMMON_KEYS, "channel"],
+  reply_received: [
+    ...COMMON_KEYS,
+    "channel",
+    "responseKind",
+    "replyDateKnown",
   ],
   stage_changed: ["fromStage", "toStage", "toStatus"],
   interview_invited: [
@@ -93,6 +105,7 @@ const ISO_KEYS = new Set(["scheduledAt", "followUpAt"]);
 const ARRAY_KEYS = new Set(["documentIds"]);
 const INTEGER_KEYS = new Set(["durationMinutes", "answerCount"]);
 const OBJECT_KEYS = new Set(["policy"]);
+const BOOLEAN_KEYS = new Set(["replyDateKnown"]);
 
 export interface ApplicationEventCommandInput {
   type: unknown;
@@ -120,6 +133,7 @@ export interface EventProjectionApplication {
   status: string;
   currentStage: string | null;
   followUpAt: Date | null;
+  nextAction?: string | null;
 }
 
 export interface EventProjectionPatch {
@@ -128,6 +142,7 @@ export interface EventProjectionPatch {
   appliedAt?: Date | null;
   lastContact?: Date | null;
   followUpAt?: Date | null;
+  nextAction?: string | null;
 }
 
 export interface EventCursor {
@@ -273,6 +288,35 @@ function parseMetadata(
       metadata[key] = item;
       continue;
     }
+    if (BOOLEAN_KEYS.has(key)) {
+      if (typeof item !== "boolean") {
+        invalidMetadata(`metadata.${key}`, "boolean", `${key} must be a boolean`);
+      }
+      metadata[key] = item;
+      continue;
+    }
+    if (key === "responseKind") {
+      if (item !== "human" && item !== "automatic") {
+        invalidMetadata(
+          "metadata.responseKind",
+          "one of: human, automatic",
+          "responseKind must identify a human or automatic response",
+        );
+      }
+      metadata[key] = item;
+      continue;
+    }
+    if (key === "direction") {
+      if (item !== "inbound" && item !== "outbound") {
+        invalidMetadata(
+          "metadata.direction",
+          "one of: inbound, outbound",
+          "direction must identify an inbound or outbound contact",
+        );
+      }
+      metadata[key] = item;
+      continue;
+    }
     if (key === "toStatus" || key === "fromStatus") {
       const status = optionalString(item, 255, `metadata.${key}`) as ApplicationStatus | null;
       if (!status || !STATUS_SET.has(status)) {
@@ -292,6 +336,7 @@ function parseMetadata(
 
   const required: Partial<Record<ApplicationEventType, readonly string[]>> = {
     stage_changed: ["toStage"],
+    reply_received: ["responseKind"],
     interview_scheduled: ["interviewType", "scheduledAt"],
     follow_up_scheduled: ["followUpAt"],
     document_attached: ["documentId"],
@@ -372,6 +417,8 @@ export function deriveEventProjection(
   const currentStatus = STATUS_SET.has(application.status as ApplicationStatus)
     ? application.status as ApplicationStatus
     : undefined;
+  const nextAction = metadataString(metadata, "nextAction");
+  if (nextAction !== undefined) patch.nextAction = nextAction;
   const setTransition = (status: ApplicationStatus, stage: string) => {
     patch.status = status;
     patch.currentStage = stage;
@@ -414,6 +461,13 @@ export function deriveEventProjection(
       if (followUpAt) patch.followUpAt = new Date(followUpAt);
       break;
     }
+    case "outbound_contact_recorded":
+      patch.status = "applied";
+      patch.lastContact = command.occurredAt;
+      break;
+    case "reply_received":
+      patch.lastContact = command.occurredAt;
+      break;
     case "recruiter_contacted":
     case "feedback_received": {
       patch.lastContact = command.occurredAt;

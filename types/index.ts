@@ -87,6 +87,7 @@ export interface Application {
   salaryType?: string | null;
   jobSummary?: string | null;
   currentStage?: string | null;
+  nextAction?: string | null;
 }
 
 // Color mapping per status — labels come from i18n translations

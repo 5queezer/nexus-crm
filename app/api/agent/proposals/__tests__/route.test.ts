@@ -55,4 +55,18 @@ describe("GET /api/agent/proposals", () => {
     expect(response.status).toBe(401);
     expect(mocks.findMany).not.toHaveBeenCalled();
   });
+
+	it("redacts legacy sensitive MCP argument fields from review responses", async () => {
+		mocks.findMany.mockResolvedValue([{ id: "proposal-1", userId: "user-a", kind: "mcp_tool", payload: {
+			toolName: "search",
+			arguments: { query: "roles", nested: { apiKey: "must-not-leak" } },
+		} }]);
+		const response = await GET(new Request("http://test/api/agent/proposals"));
+		const body = await response.json();
+		expect(JSON.stringify(body)).not.toContain("must-not-leak");
+		expect(body.proposals[0].sanitizedPayload.arguments).toEqual({
+			query: "roles",
+			nested: { apiKey: "[REDACTED]" },
+		});
+	});
 });

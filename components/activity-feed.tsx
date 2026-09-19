@@ -3,8 +3,10 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { AppHeader } from "./app-header";
+import { ScannedEmails } from "./scanned-emails";
+import { BulkTaskHistory } from "./bulk-task-history";
 import { APPLICATION_EVENT_TYPES, type ApplicationEventType } from "@/lib/applications/events";
 import { formatEventDateTime } from "@/lib/applications/event-format";
 
@@ -45,6 +47,14 @@ const EMPTY_FILTERS = {
 };
 
 type Filters = typeof EMPTY_FILTERS;
+
+function subscribeToHash(callback: () => void) {
+  window.addEventListener("hashchange", callback);
+  return () => window.removeEventListener("hashchange", callback);
+}
+
+function getHash() { return window.location.hash; }
+function getServerHash() { return ""; }
 
 async function fetchActivity(filters: Filters, cursor: string): Promise<ActivityPage> {
   const params = new URLSearchParams({ limit: "50" });
@@ -87,6 +97,9 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
   const locale = useLocale();
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const hash = useSyncExternalStore(subscribeToHash, getHash, getServerHash);
+  const [selectedView, setSelectedView] = useState<"history" | "email" | null>(null);
+  const view = selectedView ?? (hash === "#email-review" ? "email" : "history");
   const activity = useInfiniteQuery({
     queryKey: ["application-activity", filters],
     initialPageParam: "",
@@ -104,6 +117,14 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{t("title")}</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("description")}</p>
         </div>
+
+        <div className="mb-6 flex gap-1 border-b border-slate-200 dark:border-white/10" role="tablist" aria-label={t("views")}>
+          <button type="button" role="tab" aria-selected={view === "history"} aria-controls="activity-history" onClick={() => setSelectedView("history")} className={`min-h-11 border-b-2 px-3 text-sm font-medium ${view === "history" ? "border-indigo-500 text-indigo-600 dark:text-indigo-300" : "border-transparent text-slate-500"}`}>{t("history")}</button>
+          <button type="button" role="tab" aria-selected={view === "email"} aria-controls="activity-email-review" onClick={() => setSelectedView("email")} className={`min-h-11 border-b-2 px-3 text-sm font-medium ${view === "email" ? "border-indigo-500 text-indigo-600 dark:text-indigo-300" : "border-transparent text-slate-500"}`}>{t("email_review")}</button>
+        </div>
+
+        {view === "email" ? <div id="activity-email-review" role="tabpanel" aria-label={t("email_review")}><ScannedEmails /></div> : <div id="activity-history" role="tabpanel" aria-label={t("history")}>
+        <BulkTaskHistory />
 
         <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/8 dark:bg-[#111214]">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -163,6 +184,7 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
             </div>
           )}
         </section>
+        </div>}
       </main>
     </div>
   );

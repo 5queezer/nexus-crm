@@ -17,6 +17,7 @@ describe("updateApplication", () => {
       appliedAt: "2026-07-01",
       lastContact: "2026-07-10",
       followUpAt: "2026-07-30",
+      nextAction: "Send portfolio",
       notes: "summary",
     } as ApplicationFormData;
 
@@ -27,6 +28,7 @@ describe("updateApplication", () => {
       company: "Acme",
       role: "Engineer",
       notes: "summary",
+      nextAction: "Send portfolio",
       expectedUpdatedAt: "2026-07-24T08:00:00.000Z",
     });
     expect(body).not.toHaveProperty("status");

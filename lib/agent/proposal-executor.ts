@@ -240,7 +240,7 @@ async function approveMcpProposal(input: {
   if (!completed) throw new Error("External outcome could not be finalized");
   const proposal =
     (await input.repository.find(input.userId, input.proposal.id)) ?? input.proposal;
-  return { proposal, verification, externalResult };
+  return { proposal, verification };
 }
 
 export async function approveProposal(input: {

@@ -140,6 +140,7 @@ vi.mock("../kanban-view", () => ({
 
 describe("Dashboard archive view", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     localStorage.clear();
     localStorage.setItem("onboarding-complete", "true");
     vi.stubGlobal(
@@ -160,7 +161,7 @@ describe("Dashboard archive view", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders compact archive in Table with unarchive after an explicit Focus selection", async () => {
+  it("opens archive in List without carrying Focus-only overview chrome", async () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -176,7 +177,7 @@ describe("Dashboard archive view", () => {
     );
 
     expect(await screen.findByText("focus-queue")).toBeTruthy();
-    expect(screen.getByText("total")).toBeTruthy();
+    expect(screen.queryByText("total")).toBeNull();
     await user.click(screen.getByRole("button", { name: "select-focus" }));
     await user.click(screen.getByRole("button", { name: "toggle-archive" }));
 

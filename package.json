@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "next build",
+    "build": "next build && npm run build:bulk-worker",
+    "build:bulk-worker": "esbuild scripts/bulk-worker.ts --bundle --platform=node --format=cjs --outfile=.next/bulk-worker.cjs --external:@prisma/client",
     "start": "next start -p 3001",
+    "bulk:worker": "tsx scripts/bulk-worker.ts",
     "seed": "tsx prisma/seed.ts",
     "lint": "eslint",
     "test": "vitest run"

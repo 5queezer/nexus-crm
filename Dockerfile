@@ -26,7 +26,9 @@ COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /tmp/prisma-cli ./prisma-cli
 COPY --from=builder /app/scripts/pre-deploy-backup.mjs ./scripts/pre-deploy-backup.mjs
+COPY --from=builder /app/.next/bulk-worker.cjs ./scripts/bulk-worker.cjs
+COPY --from=builder /app/scripts/start-services.mjs ./scripts/start-services.mjs
 USER nextjs
 ENV PORT=8080
 EXPOSE ${PORT}
-CMD ["node", "server.js"]
+CMD ["node", "scripts/start-services.mjs"]

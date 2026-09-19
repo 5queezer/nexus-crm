@@ -18,10 +18,7 @@
 
 @layer components {
   .nexus-shell {
-    @apply min-h-screen overflow-x-hidden bg-slate-50 text-slate-950 transition-colors dark:bg-[#08090a] dark:text-slate-100;
-    background-image:
-      radial-gradient(circle at top left, rgba(99, 102, 241, 0.10), transparent 32rem),
-      radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.08), transparent 30rem);
+    @apply min-h-screen overflow-x-hidden bg-white text-slate-950 transition-colors dark:bg-[#151618] dark:text-slate-100;
   }
 
   .nexus-surface {
@@ -29,7 +26,7 @@
   }
 
   .nexus-panel {
-    @apply rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl dark:border-white/8 dark:bg-white/[0.035];
+    @apply rounded-lg border border-slate-200/80 bg-white dark:border-white/8 dark:bg-[#1d1e22];
   }
 
   .nexus-muted {
@@ -132,7 +129,54 @@
 }
 
 @media (min-width: 1024px) {
+  body > div:has(> .nexus-app-header),
+  div:has(> .nexus-app-header) {
+    padding-left: 196px;
+  }
+
+  .nexus-brand {
+    position: fixed;
+    top: 22px;
+    left: 20px;
+    z-index: 32;
+    width: 160px;
+  }
+
+  .nexus-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 196px;
+    padding: 100px 12px 24px;
+    flex-direction: column;
+    gap: 5px;
+    background: #f5f5f7;
+    border-right: 1px solid #e5e5ec;
+    z-index: 31;
+  }
+
+  .dark .nexus-sidebar { background: #101113; border-color: #2b2d34; }
+  .nexus-sidebar a { border-radius: 6px; min-height: 42px; font-size: 13px; }
+  .nexus-sidebar a[aria-current="page"] { background: #eaeaf0; box-shadow: none; }
+  .dark .nexus-sidebar a[aria-current="page"] { background: #25262d; }
+  .nexus-sidebar a[aria-current="page"] svg { color: #7567d7; }
+  .nexus-sidebar a:last-child { margin-top: auto; }
+
   .nexus-page-bottom-space {
     padding-bottom: 2rem;
   }
+}
+
+@media (max-width: 639px) {
+  .nexus-focus-row { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 4px; }
+  .nexus-focus-row > button { grid-column: 2; }
+  .nexus-focus-actions { grid-column: 2; justify-content: flex-end; }
+  .nexus-focus-row > label { grid-column: 1; grid-row: 1; min-width: 40px; }
+  .nexus-focus-row > button > div:first-child { flex-wrap: wrap; }
+  .nexus-brand > div:first-child { flex-shrink: 0; }
+  .nexus-brand > div:last-child { display: none; }
+}
+
+@media (pointer: fine) and (min-width: 1024px) {
+  .nexus-button-primary, .nexus-button-ghost, .nexus-input { min-height: 38px; border-radius: 6px; box-shadow: none; }
+  .nexus-button-primary { background: #6157ce; }
 }

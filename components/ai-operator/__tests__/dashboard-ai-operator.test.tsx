@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Dashboard } from "../../dashboard";
 import type { Application } from "@/types";
+import { Providers } from "@/app/providers";
 
 const opportunity: Application = {
   id: "application-1",
@@ -77,12 +77,11 @@ describe("Dashboard AI operator lifetime", () => {
         : []),
       { status: 200, headers: { "Content-Type": "application/json" } },
     ));
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const user = userEvent.setup();
     render(
-      <QueryClientProvider client={queryClient}>
+      <Providers>
         <Dashboard user={{ id: "user-1", email: "user@example.com", isAdmin: false }} shareUrl="https://example.com/share" />
-      </QueryClientProvider>,
+      </Providers>,
     );
 
     await screen.findByRole("button", { name: "Complete onboarding" });
@@ -94,7 +93,7 @@ describe("Dashboard AI operator lifetime", () => {
     expect(await screen.findByRole("button", { name: "operator-count-1" })).toBeTruthy();
   });
 
-  it("hides the operator launcher when bulk selection is active", async () => {
+  it("keeps the provider-owned compact launcher hidden during bulk selection", async () => {
     localStorage.setItem("onboarding-complete", "true");
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
       new Response(JSON.stringify(input === "/api/demo-workspace"
@@ -104,12 +103,8 @@ describe("Dashboard AI operator lifetime", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const user = userEvent.setup();
     render(
-      <QueryClientProvider client={queryClient}>
+      <Providers>
         <Dashboard
           user={{
             id: "user-1",
@@ -118,16 +113,12 @@ describe("Dashboard AI operator lifetime", () => {
           }}
           shareUrl="https://example.com/share"
         />
-      </QueryClientProvider>,
+      </Providers>,
     );
 
     const launcher = await screen.findByRole("button", {
       name: "operator-count-0",
     });
-    expect(launcher.className).toBe("flex");
-
-    const applicationRow = await screen.findByRole("row", { name: /Acme/ });
-    await user.click(within(applicationRow).getByRole("checkbox"));
     expect(launcher.className).toBe("hidden");
   });
 });

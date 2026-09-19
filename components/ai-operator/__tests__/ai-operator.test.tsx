@@ -1,12 +1,22 @@
 /** @vitest-environment jsdom */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import messages from "@/messages/en.json";
 import { AiOperator } from "../ai-operator";
+import {
+	AssistantContextProvider,
+	ASSISTANT_CONTEXT_EVENT,
+	ASSISTANT_OPEN_EVENT,
+} from "../context";
+
+vi.mock("next/navigation", () => ({
+	useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+	usePathname: () => "/",
+}));
 
 function json(body: unknown, status = 200) {
 	return Promise.resolve(
@@ -40,7 +50,9 @@ function renderOperator(hideCompactLauncher = false) {
 	return render(
 		<QueryClientProvider client={queryClient}>
 			<NextIntlClientProvider locale="en" messages={messages}>
-				<AiOperator hideCompactLauncher={hideCompactLauncher} />
+				<AssistantContextProvider>
+					<AiOperator hideCompactLauncher={hideCompactLauncher} />
+				</AssistantContextProvider>
 			</NextIntlClientProvider>
 		</QueryClientProvider>,
 	);
@@ -76,6 +88,141 @@ describe("AiOperator", () => {
 		expect(hiddenLauncher.className).toContain("hidden");
 		expect(hiddenLauncher.className).not.toContain("lg:flex");
 		expect(hiddenLauncher.className).toContain("lg:right-6");
+	});
+
+	it("opens from the global assistant event while its launcher is hidden", async () => {
+		vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+			const url = String(input);
+			if (url.endsWith("/api/agent/credentials"))
+				return json({ providers: [], credentials: [] });
+			if (url.endsWith("/api/agent/threads")) return json({ threads: [] });
+			return json({ error: "not found" }, 404);
+		});
+		renderOperator(true);
+
+		act(() => window.dispatchEvent(new CustomEvent(ASSISTANT_OPEN_EVENT)));
+
+		expect(
+			await screen.findByRole("dialog", { name: "Nexus Operator" }),
+		).toBeTruthy();
+	});
+
+	it("sends bounded page context and renders typed stream content", async () => {
+		const now = new Date().toISOString();
+		const thread = {
+			id: "thread-1",
+			title: "Review selection",
+			createdAt: now,
+			updatedAt: now,
+			messages: [],
+		};
+		const chatBodies: Array<Record<string, unknown>> = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = String(input);
+			if (url.endsWith("/api/agent/credentials"))
+				return json({
+					providers: [{
+						id: "openai",
+						label: "OpenAI",
+						models: [{ id: "gpt", label: "GPT", description: "Fast" }],
+					}],
+					credentials: [{
+						id: "credential-1",
+						provider: "openai",
+						keyHint: "••••1234",
+						defaultModel: "gpt",
+						status: "configured",
+					}],
+				});
+			if (url.endsWith("/api/agent/threads") && init?.method === "POST")
+				return json({ thread });
+			if (url.endsWith("/api/agent/threads")) return json({ threads: [] });
+			if (url.endsWith("/api/agent/chat")) {
+				chatBodies.push(JSON.parse(String(init?.body)));
+				const events = [
+					{ eventId: "run-1:1", runId: "run-1", threadId: "thread-1", sequence: 1, timestamp: 1, type: "RUN_STARTED" },
+					{ eventId: "run-1:2", runId: "run-1", threadId: "thread-1", sequence: 2, timestamp: 2, type: "TEXT_MESSAGE_START", messageId: "message-1", role: "assistant" },
+					{ eventId: "run-1:3", runId: "run-1", threadId: "thread-1", sequence: 3, timestamp: 3, type: "TEXT_MESSAGE_CONTENT", messageId: "message-1", delta: "Review ready" },
+					{ eventId: "run-1:4", runId: "run-1", threadId: "thread-1", sequence: 4, timestamp: 4, type: "TEXT_MESSAGE_END", messageId: "message-1" },
+					{ eventId: "run-1:5", runId: "run-1", threadId: "thread-1", sequence: 5, timestamp: 5, type: "RUN_FINISHED" },
+				];
+				return new Response(
+					events.map((event) => `id: ${event.eventId}\ndata: ${JSON.stringify(event)}\n\n`).join(""),
+					{ headers: { "Content-Type": "text/event-stream", "X-Agent-Run-Id": "run-1" } },
+				);
+			}
+			if (url.endsWith("/api/agent/threads/thread-1"))
+				return json({
+					thread: {
+						...thread,
+						messages: [{ id: "assistant-1", role: "assistant", content: "Review ready", createdAt: now }],
+					},
+				});
+			if (url.includes("/api/agent/proposals?threadId="))
+				return json({ proposals: [] });
+			return json({ error: "not found" }, 404);
+		});
+		const user = userEvent.setup();
+		renderOperator();
+		act(() => {
+			window.dispatchEvent(new CustomEvent(ASSISTANT_CONTEXT_EVENT, {
+				detail: {
+					route: "/",
+					selectedIds: ["application-1"],
+					visibleIds: ["application-1"],
+					visibleCount: 1,
+				},
+			}));
+		});
+		await user.click(screen.getByRole("button", { name: "Open AI operator" }));
+		const input = await screen.findByRole("textbox", { name: "Message" });
+		await user.type(input, "Review my selection");
+		await user.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect((await screen.findAllByText("Review ready")).length).toBeGreaterThan(0);
+		expect(chatBodies[0]?.context).toMatchObject({
+			route: "/",
+			selectedIds: ["application-1"],
+		});
+	});
+
+	it("prevents a second send while a restored run is active", async () => {
+		const now = new Date().toISOString();
+		const thread = {
+			id: "thread-running",
+			title: "Active task",
+			createdAt: now,
+			updatedAt: now,
+			messages: [{ id: "message-1", role: "user", content: "Work on this", createdAt: now }],
+			activities: [{ id: "run-active", type: "run", runId: "run-active", toolName: null, status: "running", durationMs: null, proposalId: null, createdAt: now }],
+		};
+		vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+			const url = String(input);
+			if (url.endsWith("/api/agent/credentials")) return json({
+				providers: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt", label: "GPT", description: "Fast" }] }],
+				credentials: [{ id: "credential-1", provider: "openai", keyHint: "••••1234", defaultModel: "gpt", status: "configured" }],
+			});
+			if (url.endsWith("/api/agent/threads")) return json({ threads: [thread] });
+			if (url.endsWith("/api/agent/threads/thread-running")) return json({ thread });
+			if (url.includes("/api/agent/proposals?threadId=")) return json({ proposals: [] });
+			if (url.endsWith("/api/agent/runs/run-active")) return json({ snapshot: {
+				runId: "run-active", threadId: "thread-running", status: "running", lastSequence: 1,
+				events: [{ eventId: "run-active:1", runId: "run-active", threadId: "thread-running", sequence: 1, timestamp: Date.now(), type: "RUN_STARTED" }],
+				pendingEvents: [], pendingSequences: [], text: "", state: {}, activities: [], tools: {},
+			} });
+			return json({ error: "not found" }, 404);
+		});
+		const user = userEvent.setup();
+		renderOperator();
+		await user.click(screen.getByRole("button", { name: "Open AI operator" }));
+		const input = await screen.findByRole("textbox", { name: "Message" });
+		await waitFor(() =>
+			expect((input as HTMLTextAreaElement).disabled).toBe(true),
+		);
+		expect(
+			(screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
 	});
 
 	it("opens as an accessible dialog and guides a user without credentials through BYOK setup", async () => {

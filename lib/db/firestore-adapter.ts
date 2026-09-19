@@ -129,6 +129,7 @@ function mapApp(id: string, data: FirebaseFirestore.DocumentData): ApplicationRe
     jobLiveness: data.jobLiveness ?? null,
     jobSummary: data.jobSummary ?? null,
     currentStage: data.currentStage ?? null,
+    nextAction: data.nextAction ?? null,
     isDemo: data.isDemo === true,
     demoWorkspaceId: data.demoWorkspaceId ?? null,
     demoKey: data.demoKey ?? null,
@@ -236,7 +237,7 @@ const STRUCTURED_METADATA_FIELDS = [
   "canonicalJobUrl", "workMode", "eligibleCountries", "primaryLocations",
   "officeDaysMin", "travelPercent", "visaSponsorship", "rightToWorkRequired",
   "timezoneOverlap", "salaryCurrency", "salaryPeriod", "salaryType", "atsName",
-  "requisitionId", "jobContentHash", "jobLiveness", "jobSummary", "currentStage",
+  "requisitionId", "jobContentHash", "jobLiveness", "jobSummary", "currentStage", "nextAction",
 ] as const;
 
 const STRUCTURED_DATE_FIELDS = [

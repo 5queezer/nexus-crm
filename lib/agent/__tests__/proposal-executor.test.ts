@@ -24,7 +24,7 @@ function application(overrides: Partial<ApplicationRecord> = {}): ApplicationRec
     salaryCurrency: null, salaryPeriod: null, salaryType: null, atsName: null,
     requisitionId: null, jobCapturedAt: null, jobVerifiedAt: null, jobPostedAt: null,
     jobClosedAt: null, jobContentHash: null, jobLiveness: null, jobSummary: null,
-    currentStage: null, createdAt: new Date("2026-07-01T00:00:00Z"),
+    currentStage: null, nextAction: null, createdAt: new Date("2026-07-01T00:00:00Z"),
     updatedAt: new Date("2026-07-10T00:00:00Z"), ...overrides,
   };
 }
@@ -204,6 +204,7 @@ describe("proposal executor", () => {
     });
     expect(result.verification!.success).toBe(true);
     expect(repository.value.status).toBe("applied");
+		expect(result).not.toHaveProperty("externalResult");
   });
 
   it("returns recorded outcome when approval is retried", async () => {

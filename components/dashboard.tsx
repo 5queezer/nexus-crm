@@ -21,9 +21,9 @@ import { CommandPalette } from "./command-palette";
 import { KeyboardShortcutBar } from "./keyboard-shortcut-bar";
 import { KeyboardShortcutDialog } from "./keyboard-shortcut-dialog";
 import { BulkActionBar } from "./bulk-action-bar";
+import { BulkReviewControls, requestBulkReview } from "./bulk-review-controls";
 import { OnboardingWizard } from "./onboarding-wizard";
 import { ActionMenu, ActionMenuItem } from "./action-menu";
-import { AiOperator } from "./ai-operator/ai-operator";
 import { WorkspaceToolbar, type WorkspaceViewMode } from "./workspace-toolbar";
 import { FocusQueue } from "./focus-queue";
 import { OverdueFollowUpsBanner } from "./overdue-followups-banner";
@@ -45,6 +45,8 @@ import { parseLocalCalendarDate } from "@/lib/applications/local-calendar";
 import { useApplicationStatusMutation } from "@/hooks/use-application-status-mutation";
 import { applicationsToCsv } from "@/lib/applications/csv-export";
 import { realApplications } from "@/lib/demo-workspace/presentation";
+import { parseWorkspaceUrl, subscribeWorkspaceUrl, writeWorkspaceUrl } from "@/lib/applications/workspace-url";
+import { frontendCapabilityCommandSchema } from "@/lib/assistant/frontend-capabilities";
 
 interface DashboardProps {
   user: {
@@ -170,16 +172,12 @@ export function Dashboard({
     getCompactViewport,
     getServerCompactViewport,
   );
-  const [viewMode, setViewMode] = useState<WorkspaceViewMode | null>(null);
-  const [filters, setFilters] = useState<OpportunityFilters>(() => ({
-    ...EMPTY_OPPORTUNITY_FILTERS,
-    search: initialSearch ?? "",
-    status: STATUS_ORDER.includes(initialStatus as ApplicationStatus)
-      ? (initialStatus as ApplicationStatus)
-      : "",
-    source: initialSource ? getSourceCategory(initialSource) : "",
-  }));
-  const [showArchived, setShowArchived] = useState(false);
+  const initialQuery = new URLSearchParams({ ...(initialSearch ? { search: initialSearch } : {}), ...(initialStatus ? { status: initialStatus } : {}), ...(initialSource ? { source: getSourceCategory(initialSource) } : {}) }).toString();
+  const urlSearch = useSyncExternalStore(subscribeWorkspaceUrl, () => window.location.search, () => initialQuery);
+  const { filters, view: viewMode, archived: showArchived } = useMemo(() => parseWorkspaceUrl(urlSearch), [urlSearch]);
+  const setViewMode = useCallback((view: WorkspaceViewMode) => writeWorkspaceUrl({ view }), []);
+  const setShowArchived = useCallback((archive: boolean) => writeWorkspaceUrl({ archive }), []);
+  const setFilters = useCallback((next: OpportunityFilters) => writeWorkspaceUrl({ search: next.search, status: next.status, source: next.source, remote: next.remoteOnly, priority: next.highPriorityOnly, workMode: next.workMode ?? "" }), []);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutDialogOpen, setIsShortcutDialogOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -299,7 +297,7 @@ export function Dashboard({
 
   const bulkArchiveMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      await Promise.all(ids.map((id) => archiveApplication(id, true)));
+      await requestBulkReview("archive", { mode: "selected", applicationIds: ids });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
@@ -356,6 +354,31 @@ export function Dashboard({
     [scopedSelectedIds, filteredApplicationIds],
   );
   const filtersActive = hasOpportunityFilters(filters);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("nexus:assistant-context", { detail: {
+      route: "/", activeRecordId: null,
+      filters: { query: filters.search, statuses: filters.status ? [filters.status] : [], sources: filters.source ? [filters.source] : [], workModes: filters.workMode ? [filters.workMode] : filters.remoteOnly ? ["remote"] : [], archived: showArchived },
+      visibleIds: filteredApplications.slice(0, 200).map(app => app.id), visibleCount: filteredApplications.length,
+      selectedIds: [...scopedSelectedIds], dirtyEditorIds: isModalOpen ? ["new-opportunity"] : [],
+      capabilities: ["navigate", "set_filters", "select_ids", "open_record", "open_review"],
+    } }));
+  }, [filters, filteredApplications, scopedSelectedIds, showArchived, isModalOpen]);
+
+  useEffect(() => {
+    function onCapability(event: Event) {
+      const parsed = frontendCapabilityCommandSchema.safeParse((event as CustomEvent).detail);
+      if (!parsed.success || isModalOpen) return;
+      const command = parsed.data;
+      if (command.name === "set_filters") {
+        const args = command.arguments;
+        setFilters({ ...filters, search: args.query ?? filters.search, status: args.statuses ? (args.statuses[0] ?? "") as ApplicationStatus : filters.status, source: args.sources ? args.sources[0] ?? "" : filters.source, workMode: args.workModes ? args.workModes[0] ?? "" : filters.workMode });
+        if (args.archived !== undefined) setShowArchived(args.archived);
+      }
+      if (command.name === "select_ids") setSelectedIds(new Set(command.arguments.applicationIds.filter(id => visibleApplicationIds.has(id))));
+    }
+    window.addEventListener("nexus:assistant-capability", onCapability);
+    return () => window.removeEventListener("nexus:assistant-capability", onCapability);
+  }, [filters, isModalOpen, setFilters, setShowArchived, visibleApplicationIds]);
   const isTrueEmpty = !isLoading && visibleApplications.length === 0;
   const isFilteredEmpty =
     !isLoading &&
@@ -635,10 +658,7 @@ export function Dashboard({
     );
     const ids = [...scopedSelectedIds].filter((id) => !demoIds.has(id));
     if (ids.length === 0) return;
-    if (confirm(tc("bulk_archive_confirm", { count: ids.length }))) {
-      bulkArchiveMutation.mutate(ids);
-      clearSelection();
-    }
+    bulkArchiveMutation.mutate(ids);
   }
 
   function handleBulkDeleteSelected() {
@@ -773,8 +793,7 @@ export function Dashboard({
           if (statusIdx < STATUS_ORDER.length) {
             // This will be picked up by the URL - just navigate
             const status = STATUS_ORDER[statusIdx];
-            window.history.replaceState(null, "", `/?status=${status}`);
-            window.location.reload();
+            writeWorkspaceUrl({ status });
           }
           break;
         }
@@ -795,6 +814,7 @@ export function Dashboard({
     toggleSelect,
     handleEdit,
     handleNewApplication,
+    setViewMode,
   ]);
 
   if (isLoading) {
@@ -808,7 +828,6 @@ export function Dashboard({
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <DashboardLoadingState message={t("loading")} />
         </main>
-        <AiOperator key="ai-operator" />
       </div>
     );
   }
@@ -828,7 +847,6 @@ export function Dashboard({
             onRetry={() => void refetch()}
           />
         </main>
-        <AiOperator key="ai-operator" />
       </div>
     );
   }
@@ -887,15 +905,15 @@ export function Dashboard({
           </p>
         )}
         {/* Overdue follow-ups, collapsed into a single summary banner */}
-        <OverdueFollowUpsBanner
+        {resolvedView !== "focus" && <OverdueFollowUpsBanner
           applications={overdueFollowUps}
           onOpen={handleEdit}
           onDismiss={(app) => dismissOverdueEntries([app])}
           onDismissAll={dismissOverdueEntries}
-        />
+        />}
 
         {/* Decision-oriented overview */}
-        {!isTrueEmpty && !showArchived && (
+        {!isTrueEmpty && !showArchived && resolvedView !== "focus" && (
           <section className="mb-5 rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-slate-200/80 backdrop-blur-xl dark:bg-white/[0.035] dark:ring-white/8 sm:mb-6 sm:px-5 sm:py-4">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
               <StatItem
@@ -939,6 +957,7 @@ export function Dashboard({
           <WorkspaceToolbar
             title={showArchived ? ta("archive") : t("applications")}
             count={visibleApplications.length}
+            countLabel={tw("opportunity_count", { count: visibleApplications.length })}
             viewMode={resolvedView}
             onViewModeChange={setViewMode}
             moreMenu={
@@ -971,6 +990,14 @@ export function Dashboard({
         )}
 
         {/* Content */}
+        {!isTrueEmpty && <BulkReviewControls
+          selectedIds={[...scopedSelectedIds]}
+          visibleIds={filteredApplications.filter(app => !app.isDemo).map(app => app.id)}
+          filters={{ query: filters.search, statuses: filters.status ? [filters.status] : [], sources: filters.source ? [filters.source] : [], workModes: filters.workMode ? [filters.workMode] : [], remote: filters.remoteOnly || undefined, triageQualityMin: filters.highPriorityOnly ? 4 : undefined, archived: showArchived ? "archived" : "active" }}
+          hiddenCount={hiddenSelectedCount}
+          onClear={clearSelection}
+        />}
+        {bulkArchiveMutation.isError && <p role="alert" className="mb-4 text-sm text-red-700 dark:text-red-300">{bulkArchiveMutation.error.message}</p>}
         {compactViewport === null ? (
           <div className="flex items-center justify-center py-20">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
@@ -1108,10 +1135,6 @@ export function Dashboard({
         </>
       )}
 
-      <AiOperator
-        key="ai-operator"
-        hideCompactLauncher={scopedSelectedIds.size > 0}
-      />
     </div>
   );
 }

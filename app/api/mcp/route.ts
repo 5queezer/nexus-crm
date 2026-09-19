@@ -60,6 +60,7 @@ const structuredApplicationToolFields = {
   jobLiveness: z.enum(["unknown", "live", "closed", "expired"]).nullable().optional(),
   jobSummary: z.string().max(10_000).nullable().optional(),
   currentStage: z.string().max(255).nullable().optional(),
+  nextAction: z.string().max(2_000).nullable().optional(),
 };
 
 const MACHINE_DEMO_READ = { demoVisibility: "exclude" } as const;
@@ -271,7 +272,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           searchFields: ["company", "role"],
           fields: fields?.length
             ? fields
-            : ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+            : ["id", "company", "role", "status", "currentStage", "nextAction", "rating", "updatedAt"],
           limit,
           cursor,
         }, MACHINE_DEMO_READ);
