@@ -40,6 +40,7 @@ describe("buildFocusQueue", () => {
     const queue = buildFocusQueue([
       app("future", { followUpAt: "2026-07-22" }),
       app("hold", { status: "interview", followUpAt: "2026-07-10", notes: "Wait for recruiter feedback; do not follow up yet." }),
+      app("historical", { status: "interview", followUpAt: "2026-07-11", notes: "No follow-up received from the recruiter." }),
       app("today", { followUpAt: "2026-07-14" }),
       app("overdue", { followUpAt: "2026-07-12" }),
       app("new"),
@@ -48,13 +49,13 @@ describe("buildFocusQueue", () => {
       app("lost", { status: "rejected" }),
     ], new Date(2026, 6, 14, 12));
     expect(queue.map(group => [group.id, group.applications.map(item => item.id)])).toEqual([
-      ["overdue", ["overdue", "today"]],
+      ["overdue", ["historical", "overdue", "today"]],
       ["dueSoon", ["future"]],
       ["waiting", ["hold", "waiting"]],
       ["newLeads", ["new"]],
       ["completed", ["closed", "lost"]],
     ]);
-    expect(new Set(queue.flatMap(group => group.applications.map(item => item.id))).size).toBe(8);
+    expect(new Set(queue.flatMap(group => group.applications.map(item => item.id))).size).toBe(9);
   });
   it("keeps serialized calendar dates on the intended local day", () => {
     const value = "2026-07-14T00:00:00.000Z";

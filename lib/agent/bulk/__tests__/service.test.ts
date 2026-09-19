@@ -124,6 +124,7 @@ describe("bulk preview lifecycle", () => {
     const repository = new MemoryBulkRepository();
     repository.candidates = Array.from({ length: 32 }, (_, index) => candidate(index + 1));
     repository.candidates[7] = candidate(8, { notes: "Wait for recruiter feedback; do not follow up yet." });
+    repository.candidates[8] = candidate(9, { notes: "No follow-up received from the recruiter." });
 
     const preview = await createBulkPreview({
       repository,
@@ -139,6 +140,7 @@ describe("bulk preview lifecycle", () => {
 
     expect(repository.resolveCalls).toBe(1);
     expect(preview.items).toHaveLength(31);
+    expect(preview.items.some((item) => item.applicationId === "9")).toBe(true);
     expect(preview.items.at(-1)?.applicationId).toBe("32");
     expect(preview.exclusions).toEqual([
       expect.objectContaining({ applicationId: "8", code: "explicit_wait_instruction" }),
