@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LOCAL_DEV_DB_PORT:?Run npm run dev:setup}:5432"
+    environment:
+      POSTGRES_USER: nexus_local_dev
+      POSTGRES_DB: nexus_local_dev
+      POSTGRES_PASSWORD: "${LOCAL_DEV_DB_PASSWORD:?Run npm run dev:setup}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus_local_dev -d nexus_local_dev"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  postgres-data:
