@@ -29,23 +29,26 @@ export async function seedLocalData(db: PrismaClient, signUp: SignUp, env: NodeJ
     await db.user.update({ where: { id: user.id }, data: { isAdmin: role === "ADMIN", emailVerified: true } });
     for (const fixture of fixtures.applications) {
       const { demoKey, ...fields } = fixture;
-      const canonicalJobUrl = `https://local-fixtures.invalid/${demoKey}`;
       const events = fixtures.events.filter(event => event.applicationDemoKey === demoKey);
-      await db.application.upsert({
-        where: { userId_canonicalJobUrl: { userId: user.id, canonicalJobUrl } },
-        update: {},
-        create: {
-          ...fields, userId: user.id, canonicalJobUrl, source: "local-development", isDemo: false,
-          jobSummary: "Fictional, editable local development record.", workMode: fields.remote ? "remote" : "hybrid",
-          nextAction: fields.status === "inbound" ? "Review this fictional lead" : "Review the next step",
-          eventVersion: events.length,
-          events: { create: events.map(event => ({
-            type: event.type, occurredAt: event.occurredAt,
-            idempotencyKey: `local-seed:${event.demoKey}`, source: "local-development", actor: email,
-            metadata: event.metadata as Prisma.InputJsonValue,
-          })) },
-        },
+      // Existing local databases depend on discovery-event demo keys. Keep these keys stable when editing fixtures.
+      const identityEvent = events.find(event => event.type === "opportunity_discovered");
+      if (!identityEvent) throw new Error(`Local fixture ${demoKey} needs an opportunity_discovered event`);
+      const idempotencyKey = `local-seed:${identityEvent.demoKey}`;
+      const existing = await db.applicationEvent.findUnique({
+        where: { userId_idempotencyKey: { userId: user.id, idempotencyKey } },
       });
+      if (existing) continue;
+      await db.application.create({ data: {
+        ...fields, userId: user.id, source: "local-development", isDemo: false,
+        jobSummary: "Fictional, editable local development record.", workMode: fields.remote ? "remote" : "hybrid",
+        nextAction: fields.status === "inbound" ? "Review this fictional lead" : "Review the next step",
+        eventVersion: events.length,
+        events: { create: events.map(event => ({
+          type: event.type, occurredAt: event.occurredAt,
+          idempotencyKey: `local-seed:${event.demoKey}`, source: "local-development", actor: email,
+          metadata: event.metadata as Prisma.InputJsonValue,
+        })) },
+      } });
     }
     accounts.push({ email, isAdmin: role === "ADMIN" });
   }
