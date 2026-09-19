@@ -60,6 +60,21 @@ describe("ApplicationTimeline", () => {
     vi.restoreAllMocks();
   });
 
+  it.each([
+    ["bulk_change_undone", "Bulk changes undone"],
+    ["application_archived", "Opportunity archived"],
+    ["application_restored", "Opportunity restored"],
+  ])("labels the system event %s without exposing a raw event identifier", async (type, title) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      items: [{ id: "audit-event", applicationId: "42", type, occurredAt: "2026-09-19T08:31:00.000Z", createdAt: "2026-09-19T08:31:00.000Z", source: "agent_bulk", actor: "user", contactId: null, outcome: null, metadata: { taskId: "task-17" } }],
+      nextCursor: null,
+    }), { status: 200 }));
+    renderTimeline();
+    expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
+    expect(screen.queryByText(/Unknown event/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open related task" }).getAttribute("href")).toBe("/tasks/task-17");
+  });
+
   it("renders immutable history without leaking internal request hashes", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       items: [{

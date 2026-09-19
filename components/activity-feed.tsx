@@ -7,8 +7,8 @@ import { useState, useSyncExternalStore } from "react";
 import { AppHeader } from "./app-header";
 import { ScannedEmails } from "./scanned-emails";
 import { BulkTaskHistory } from "./bulk-task-history";
-import { APPLICATION_EVENT_TYPES, type ApplicationEventType } from "@/lib/applications/events";
-import { formatEventDateTime } from "@/lib/applications/event-format";
+import { APPLICATION_EVENT_TYPES } from "@/lib/applications/events";
+import { formatEventDateTime, hasEventLabel } from "@/lib/applications/event-format";
 
 interface ActivityEvent {
   id: string;
@@ -163,7 +163,7 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
                 <span className="absolute left-0 top-6 h-2.5 w-2.5 rounded-full bg-[#5e6ad2]" />
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType) ? te(event.type as ApplicationEventType) : event.type}</h2>
+                    <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{hasEventLabel(event.type) ? te(event.type) : event.type}</h2>
                     <p className="mt-0.5 text-xs text-slate-500">
                       {event.application ? <Link className="font-medium text-[#5e6ad2] hover:underline" href={`/applications/${event.application.id}`}>{event.application.company} — {event.application.role}</Link> : t("application_link", { id: event.applicationId })}
                       {(event.source || event.actor) && <> · {[event.source, event.actor].filter(Boolean).join(" · ")}</>}

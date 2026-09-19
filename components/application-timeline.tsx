@@ -8,7 +8,7 @@ import {
   APPLICATION_EVENT_TYPES,
   type ApplicationEventType,
 } from "@/lib/applications/events";
-import { formatEventDateTime } from "@/lib/applications/event-format";
+import { formatEventDateTime, hasEventLabel } from "@/lib/applications/event-format";
 
 interface TimelineEvent {
   id: string;
@@ -367,8 +367,8 @@ export function ApplicationTimeline({
             locale,
             outcome ? ["outcome"] : [],
           );
-          const title = APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType)
-            ? te(event.type as ApplicationEventType)
+          const title = hasEventLabel(event.type)
+            ? te(event.type)
             : t("unknown_event", { type: event.type });
           const documentId = typeof event.metadata?.documentId === "string" ? event.metadata.documentId : null;
           const submissionId = typeof event.metadata?.submissionId === "string" ? event.metadata.submissionId : null;
@@ -377,17 +377,18 @@ export function ApplicationTimeline({
           return (
             <li key={event.id} className="relative pb-6 pl-7 last:pb-0">
               {index < events.length - 1 && (
-                <span aria-hidden="true" className="absolute bottom-0 left-[7px] top-5 w-px bg-slate-200 dark:bg-white/10" />
+                <span aria-hidden="true" data-timeline-rail className="absolute -bottom-0.5 left-[7px] top-[18px] w-0.5 bg-slate-200 dark:bg-white/10" />
               )}
               <span
                 aria-hidden="true"
-                className={`absolute left-0 top-1 flex h-[15px] w-[15px] items-center justify-center rounded-full ${
+                data-timeline-marker
+                className={`absolute left-0 top-0.5 grid h-4 w-4 place-items-center rounded-full border ${
                   first
-                    ? "bg-indigo-100 dark:bg-[#5e6ad2]/30"
-                    : "border border-slate-200 bg-white dark:border-white/10 dark:bg-[#111214]"
+                    ? "border-transparent bg-indigo-100 dark:bg-[#5e6ad2]/30"
+                    : "border-slate-200 bg-white dark:border-white/10 dark:bg-[#111214]"
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${first ? "bg-indigo-600 dark:bg-[#a5a1ff]" : "bg-slate-400 dark:bg-slate-500"}`} />
+                <span data-timeline-dot className={`block h-1.5 w-1.5 rounded-full ${first ? "bg-indigo-600 dark:bg-[#a5a1ff]" : "bg-slate-400 dark:bg-slate-500"}`} />
               </span>
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
               <time className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400" dateTime={event.occurredAt}>

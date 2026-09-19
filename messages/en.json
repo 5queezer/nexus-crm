@@ -1001,6 +1001,9 @@
   },
   "events": {
     "eventTypes": {
+      "application_archived": "Opportunity archived",
+      "application_restored": "Opportunity restored",
+      "bulk_change_undone": "Bulk changes undone",
       "opportunity_discovered": "Opportunity discovered",
       "application_submitted": "Application submitted",
       "recruiter_contacted": "Recruiter contacted",
