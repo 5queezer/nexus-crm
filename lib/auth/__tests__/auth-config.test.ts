@@ -11,6 +11,13 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 describe("Better Auth local credential configuration", () => {
   beforeEach(() => {
+    // This suite models a local workstation, independent of the test runner's host.
+    // Guard tests separately verify that deployment markers still reject local auth.
+    for (const marker of [
+      "CI", "VERCEL", "VERCEL_ENV", "NETLIFY", "RENDER", "RENDER_SERVICE_ID",
+      "RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_ID", "RAILWAY_ENVIRONMENT_NAME",
+      "RAILWAY_PROJECT_ID", "FLY_APP_NAME", "K_SERVICE", "CF_PAGES", "AWS_LAMBDA_FUNCTION_NAME",
+    ]) vi.stubEnv(marker, undefined);
     vi.resetModules();
     vi.clearAllMocks();
     mocks.betterAuth.mockReturnValue({ handler: vi.fn() });

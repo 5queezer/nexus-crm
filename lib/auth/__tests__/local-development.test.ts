@@ -57,4 +57,14 @@ describe("local development authentication guard", () => {
       expect(() => assertLocalDevelopmentEnvironment(environment)).not.toThrow();
     }
   });
+
+  it.each([
+    "CI", "VERCEL", "VERCEL_ENV", "NETLIFY", "RENDER", "RENDER_SERVICE_ID",
+    "RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_ID", "RAILWAY_ENVIRONMENT_NAME",
+    "RAILWAY_PROJECT_ID", "FLY_APP_NAME", "K_SERVICE", "CF_PAGES", "AWS_LAMBDA_FUNCTION_NAME",
+  ])("still blocks local auth when %s is present", (marker) => {
+    const environment = { ...validEnvironment, [marker]: "true" };
+    expect(() => assertLocalDevelopmentEnvironment(environment)).toThrow(/cloud deployment/);
+    expect(() => isLocalDevelopmentAuthEnabled(environment)).toThrow(/cloud deployment/);
+  });
 });
