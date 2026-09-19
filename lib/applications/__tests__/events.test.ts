@@ -216,6 +216,20 @@ describe("deriveEventProjection", () => {
     });
   });
 
+  it.each(["applied", "interview", "offer", "rejected"])("preserves %s when recording an outbound contact", (status) => {
+    const occurredAt = new Date("2026-09-19T10:00:00Z");
+    const command = parseApplicationEventCommand({ type: "outbound_contact_recorded", occurredAt, metadata: { channel: "email" } });
+    const result = deriveEventProjection(command, { ...application, status });
+    expect(result.patch).toEqual({ lastContact: occurredAt });
+    expect({ ...application, status, ...result.patch }).toMatchObject({ status, currentStage: application.currentStage, followUpAt: application.followUpAt });
+  });
+
+  it("promotes only a new lead when recording the first outbound contact", () => {
+    const occurredAt = new Date("2026-09-19T10:00:00Z");
+    const command = parseApplicationEventCommand({ type: "outbound_contact_recorded", occurredAt, metadata: { channel: "email" } });
+    expect(deriveEventProjection(command, { ...application, status: "inbound" }).patch).toEqual({ status: "applied", lastContact: occurredAt });
+  });
+
   it("derives the previous status for stage-only changes", () => {
     const command = parseApplicationEventCommand({
       type: "stage_changed",

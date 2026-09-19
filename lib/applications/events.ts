@@ -462,7 +462,7 @@ export function deriveEventProjection(
       break;
     }
     case "outbound_contact_recorded":
-      patch.status = "applied";
+      if (currentStatus === "inbound") patch.status = "applied";
       patch.lastContact = command.occurredAt;
       break;
     case "reply_received":

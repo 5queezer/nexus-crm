@@ -216,6 +216,21 @@ describe("PrismaAdapter — atomic application events", () => {
     expect(fake.events()[0].requestHash).toEqual(expect.any(String));
   });
 
+  it.each(["interview", "offer", "rejected"])("records outbound contact without regressing persisted %s status", async (status) => {
+    const followUpAt = new Date("2026-07-28T10:00:00Z");
+    fake.setApplication({ status, currentStage: "existing-stage", followUpAt });
+    const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", {
+      ...command,
+      type: "outbound_contact_recorded",
+      idempotencyKey: `${status}-outbound-1`,
+      metadata: { channel: "email" },
+    });
+    expect(result.application).toMatchObject({ status, currentStage: "existing-stage", followUpAt, lastContact: command.occurredAt });
+    expect(fake.app().status).toBe(status);
+    expect(fake.events()).toHaveLength(1);
+    expect(fake.events()[0].type).toBe("outbound_contact_recorded");
+  });
+
   it("propagates demo ownership markers to ordinary event writes", async () => {
     fake.setApplication({ isDemo: true, demoWorkspaceId: 9, demoKey: "fixture-app" });
     await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
