@@ -67,11 +67,13 @@ function serializeApplication(record: ApplicationRecord): Application {
     salaryType: record.salaryType,
     jobSummary: record.jobSummary,
     currentStage: record.currentStage,
+    nextAction: record.nextAction,
   };
 }
 
 interface ApplicationDetailPageProps {
   params: Promise<{ id: string; slug: string }>;
+  searchParams?: Promise<{ tab?: string | string[] }>;
 }
 
 export async function generateMetadata({
@@ -92,9 +94,11 @@ export async function generateMetadata({
   };
 }
 
-export default async function ApplicationDetailPage({ params }: ApplicationDetailPageProps) {
+export default async function ApplicationDetailPage({ params, searchParams }: ApplicationDetailPageProps) {
   const { id, slug } = await params;
-  const requestedPath = `/applications/${encodeURIComponent(id)}/${encodeURIComponent(slug)}`;
+  const query = await searchParams;
+  const tab = typeof query?.tab === "string" && ["activity", "brief", "materials", "contacts"].includes(query.tab) ? `?tab=${query.tab}` : "";
+  const requestedPath = `/applications/${encodeURIComponent(id)}/${encodeURIComponent(slug)}${tab}`;
   const session = await requireAuth();
   if (!session) redirect(`/login?callbackURL=${encodeURIComponent(requestedPath)}`);
   if (!isSafeApplicationId(id)) notFound();
@@ -106,7 +110,7 @@ export default async function ApplicationDetailPage({ params }: ApplicationDetai
 
   const canonicalSlug = applicationSlug(record.company, record.role);
   const canonicalPath = applicationPath(record);
-  if (slug !== canonicalSlug) redirect(canonicalPath);
+  if (slug !== canonicalSlug) redirect(canonicalPath + tab);
 
   return (
     <ApplicationDetail

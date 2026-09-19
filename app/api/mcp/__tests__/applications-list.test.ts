@@ -26,6 +26,7 @@ const applications = Array.from({ length: 100 }, (_, index) => ({
   role: `Engineer ${index}`,
   status: "applied",
   currentStage: "screen",
+  nextAction: "Wait for recruiter feedback",
   rating: 4,
   updatedAt: `2026-08-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
   notes: `Note ${index}`,
@@ -77,14 +78,14 @@ describe("MCP application list", () => {
 
     expect(defaultRows).toHaveLength(50);
     expect(Object.keys(defaultRows[0])).toEqual([
-      "id", "company", "role", "status", "currentStage", "rating", "updatedAt",
+      "id", "company", "role", "status", "currentStage", "nextAction", "rating", "updatedAt",
     ]);
     expect(defaultText.length).toBeLessThan(20_000);
     expect(mocks.listApplications).not.toHaveBeenCalled();
     expect(mocks.listApplicationsFiltered).toHaveBeenNthCalledWith(1, "owner-1", {
       search: undefined,
       searchFields: ["company", "role"],
-      fields: ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+      fields: ["id", "company", "role", "status", "currentStage", "nextAction", "rating", "updatedAt"],
       limit: 50,
       cursor: undefined,
     }, { demoVisibility: "exclude" });
@@ -117,11 +118,12 @@ describe("MCP application list", () => {
       role: "Engineer 0",
       status: "applied",
       currentStage: "screen",
+      nextAction: "Wait for recruiter feedback",
       rating: 4,
       updatedAt: "2026-08-01T00:00:00.000Z",
     }]);
     expect(mocks.listApplicationsFiltered).toHaveBeenCalledWith("owner-1", expect.objectContaining({
-      fields: ["id", "company", "role", "status", "currentStage", "rating", "updatedAt"],
+      fields: ["id", "company", "role", "status", "currentStage", "nextAction", "rating", "updatedAt"],
     }), { demoVisibility: "exclude" });
   });
 

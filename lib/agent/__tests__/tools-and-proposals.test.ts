@@ -61,6 +61,7 @@ function application(overrides: Partial<ApplicationRecord> = {}): ApplicationRec
     jobLiveness: null,
     jobSummary: null,
     currentStage: null,
+    nextAction: null,
     createdAt: new Date("2026-07-01T00:00:00Z"),
     updatedAt: new Date("2026-07-10T00:00:00Z"),
     ...overrides,
@@ -99,7 +100,7 @@ describe("tenant-scoped Nexus agent tools", () => {
   it("searches only the user's applications and minimizes returned content", async () => {
     const db = {
       listApplications: vi.fn().mockResolvedValue([
-        application(),
+        application({ nextAction: "Wait for recruiter feedback" }),
         application({ id: "2", company: "Beta", role: "Designer" }),
       ]),
     } as unknown as DatabaseAdapter;
@@ -108,6 +109,7 @@ describe("tenant-scoped Nexus agent tools", () => {
 
     expect(db.listApplications).toHaveBeenCalledWith("user-a", { demoVisibility: "exclude" });
     expect(results).toHaveLength(1);
+    expect(results[0].nextAction).toBe("Wait for recruiter feedback");
     expect(results[0]).not.toHaveProperty("jobDescription");
   });
 
@@ -116,11 +118,13 @@ describe("tenant-scoped Nexus agent tools", () => {
       notes: "n".repeat(3_000),
       jobSummary: "s".repeat(3_000),
       jobDescription: "d".repeat(5_000),
+      nextAction: "Do not follow up before the recruiter replies",
     })) } as unknown as DatabaseAdapter;
     const result = await getApplicationForAgent(db, "user-a", "1");
     expect(db.getApplication).toHaveBeenCalledWith("1", "user-a", { demoVisibility: "exclude" });
     expect(result).not.toHaveProperty("notes");
     expect(result).not.toHaveProperty("jobSummary");
+    expect(result?.nextAction).toBe("Do not follow up before the recruiter replies");
     expect(result?.untrustedExternalContext).toMatchObject({
       label: expect.stringContaining("UNTRUSTED"),
     });

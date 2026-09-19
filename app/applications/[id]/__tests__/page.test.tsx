@@ -19,8 +19,11 @@ const ownerSession = {
   user: { id: "owner-1", email: "owner@example.com", isAdmin: true },
 };
 const application = { id: "106", company: "Hygraph", role: "Senior Fullstack Engineer" };
-function props(id = "106") {
-  return { params: Promise.resolve({ id }) };
+function props(id = "106", tab?: string) {
+  return {
+    params: Promise.resolve({ id }),
+    searchParams: Promise.resolve(tab ? { tab } : {}),
+  };
 }
 
 describe("/applications/[id]", () => {
@@ -42,9 +45,25 @@ describe("/applications/[id]", () => {
     expect(mocks.getApplication).toHaveBeenCalledWith("106", "owner-1");
   });
 
+  it("preserves a validated tab through the canonical redirect", async () => {
+    await expect(ApplicationShortRoute(props("106", "materials")))
+      .rejects.toThrow(
+        "REDIRECT:/applications/106/hygraph-senior-fullstack-engineer?tab=materials",
+      );
+  });
+
   it("returns 404 without querying for a malformed ID", async () => {
     await expect(ApplicationShortRoute(props("../secret"))).rejects.toThrow("NOT_FOUND");
     expect(mocks.getApplication).not.toHaveBeenCalled();
+  });
+
+  it("preserves an allowed assistant tab through the canonical redirect", async () => {
+    await expect(ApplicationShortRoute({ ...props(), searchParams: Promise.resolve({ tab: "materials" }) })).rejects.toThrow("REDIRECT:/applications/106/hygraph-senior-fullstack-engineer?tab=materials");
+  });
+
+  it("drops unknown tab values", async () => {
+    await expect(ApplicationShortRoute({ ...props(), searchParams: Promise.resolve({ tab: "//untrusted.test" }) })).rejects.toThrow("REDIRECT:/applications/106/hygraph-senior-fullstack-engineer");
+    expect(mocks.redirect).toHaveBeenCalledWith("/applications/106/hygraph-senior-fullstack-engineer");
   });
 
   it("does not distinguish unknown and foreign IDs", async () => {

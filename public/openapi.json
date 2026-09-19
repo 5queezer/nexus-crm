@@ -93,6 +93,7 @@
           "jobLiveness": { "type": ["string", "null"] },
           "jobSummary": { "type": ["string", "null"] },
           "currentStage": { "type": ["string", "null"] },
+          "nextAction": { "type": ["string", "null"], "maxLength": 2000 },
           "createdAt":      { "type": "string",               "format": "date-time" },
           "updatedAt":      { "type": "string",               "format": "date-time" },
           "contacts":       {

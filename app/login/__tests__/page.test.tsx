@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   callbackURL: "/",
   social: vi.fn(),
+  email: vi.fn(),
+  localDevelopmentEnabled: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,7 +20,7 @@ vi.mock("next-intl", () => ({
   }),
 }));
 vi.mock("@/lib/auth-client", () => ({
-  authClient: { signIn: { social: mocks.social } },
+  authClient: { signIn: { social: mocks.social, email: mocks.email } },
 }));
 vi.mock("@/components/language-switcher", () => ({ LanguageSwitcher: () => null }));
 vi.mock("@/components/theme-switcher", () => ({ ThemeSwitcher: () => null }));
@@ -32,13 +34,19 @@ describe("login callback forwarding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.social.mockResolvedValue(undefined);
+    mocks.email.mockResolvedValue({ data: {}, error: null });
+    mocks.localDevelopmentEnabled = false;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ enabled: mocks.localDevelopmentEnabled }),
+    })));
   });
 
   it("forwards an internal application path through the Google login flow", async () => {
     mocks.callbackURL = "/applications/106/hygraph-senior-fullstack-engineer";
     render(<LoginPage />);
 
-    await userEvent.click(screen.getByRole("button", { name: /login\.button/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /login\.button/ }));
 
     expect(mocks.social).toHaveBeenCalledWith({
       provider: "google",
@@ -50,7 +58,7 @@ describe("login callback forwarding", () => {
     mocks.callbackURL = new URL("/api/mcp/authorize", window.location.origin).toString();
     render(<LoginPage />);
 
-    await userEvent.click(screen.getByRole("button", { name: /login\.button/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /login\.button/ }));
 
     expect(mocks.social).toHaveBeenCalledWith({
       provider: "google",
@@ -62,11 +70,41 @@ describe("login callback forwarding", () => {
     mocks.callbackURL = "https://evil.example/steal";
     render(<LoginPage />);
 
-    await userEvent.click(screen.getByRole("button", { name: /login\.button/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /login\.button/ }));
 
     expect(mocks.social).toHaveBeenCalledWith({
       provider: "google",
       callbackURL: "/",
     });
+  });
+
+  it("uses Better Auth email sign-in with a safe callback in local development", async () => {
+    mocks.localDevelopmentEnabled = true;
+    mocks.callbackURL = "https://evil.example/steal";
+    render(<LoginPage />);
+
+    await screen.findByRole("textbox", { name: /login\.email_label/ });
+    await userEvent.type(screen.getByRole("textbox", { name: /login\.email_label/ }), "dev@example.test");
+    await userEvent.type(screen.getByLabelText(/login\.password_label/), "local-password");
+    await userEvent.click(screen.getByRole("button", { name: /login\.email_button/ }));
+
+    expect(mocks.email).toHaveBeenCalledWith({
+      email: "dev@example.test",
+      password: "local-password",
+      callbackURL: `${window.location.origin}/`,
+    });
+  });
+
+  it("shows a generic error when local credential sign-in is rejected", async () => {
+    mocks.localDevelopmentEnabled = true;
+    mocks.email.mockResolvedValue({ data: null, error: { message: "Invalid password" } });
+    render(<LoginPage />);
+
+    await userEvent.type(await screen.findByRole("textbox", { name: /login\.email_label/ }), "dev@example.test");
+    await userEvent.type(screen.getByLabelText(/login\.password_label/), "wrong-password");
+    await userEvent.click(screen.getByRole("button", { name: /login\.email_button/ }));
+
+    expect(screen.getByText("login.error")).not.toBeNull();
+    expect(screen.queryByText("Invalid password")).toBeNull();
   });
 });

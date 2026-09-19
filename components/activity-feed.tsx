@@ -3,10 +3,12 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { AppHeader } from "./app-header";
-import { APPLICATION_EVENT_TYPES, type ApplicationEventType } from "@/lib/applications/events";
-import { formatEventDateTime } from "@/lib/applications/event-format";
+import { ScannedEmails } from "./scanned-emails";
+import { BulkTaskHistory } from "./bulk-task-history";
+import { APPLICATION_EVENT_TYPES } from "@/lib/applications/events";
+import { formatEventDateTime, hasEventLabel } from "@/lib/applications/event-format";
 
 interface ActivityEvent {
   id: string;
@@ -45,6 +47,14 @@ const EMPTY_FILTERS = {
 };
 
 type Filters = typeof EMPTY_FILTERS;
+
+function subscribeToHash(callback: () => void) {
+  window.addEventListener("hashchange", callback);
+  return () => window.removeEventListener("hashchange", callback);
+}
+
+function getHash() { return window.location.hash; }
+function getServerHash() { return ""; }
 
 async function fetchActivity(filters: Filters, cursor: string): Promise<ActivityPage> {
   const params = new URLSearchParams({ limit: "50" });
@@ -87,6 +97,9 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
   const locale = useLocale();
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const hash = useSyncExternalStore(subscribeToHash, getHash, getServerHash);
+  const [selectedView, setSelectedView] = useState<"history" | "email" | null>(null);
+  const view = selectedView ?? (hash === "#email-review" ? "email" : "history");
   const activity = useInfiniteQuery({
     queryKey: ["application-activity", filters],
     initialPageParam: "",
@@ -104,6 +117,14 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{t("title")}</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t("description")}</p>
         </div>
+
+        <div className="mb-6 flex gap-1 border-b border-slate-200 dark:border-white/10" role="tablist" aria-label={t("views")}>
+          <button type="button" role="tab" aria-selected={view === "history"} aria-controls="activity-history" onClick={() => setSelectedView("history")} className={`min-h-11 border-b-2 px-3 text-sm font-medium ${view === "history" ? "border-indigo-500 text-indigo-600 dark:text-indigo-300" : "border-transparent text-slate-500"}`}>{t("history")}</button>
+          <button type="button" role="tab" aria-selected={view === "email"} aria-controls="activity-email-review" onClick={() => setSelectedView("email")} className={`min-h-11 border-b-2 px-3 text-sm font-medium ${view === "email" ? "border-indigo-500 text-indigo-600 dark:text-indigo-300" : "border-transparent text-slate-500"}`}>{t("email_review")}</button>
+        </div>
+
+        {view === "email" ? <div id="activity-email-review" role="tabpanel" aria-label={t("email_review")}><ScannedEmails /></div> : <div id="activity-history" role="tabpanel" aria-label={t("history")}>
+        <BulkTaskHistory />
 
         <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/8 dark:bg-[#111214]">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -142,7 +163,7 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
                 <span className="absolute left-0 top-6 h-2.5 w-2.5 rounded-full bg-[#5e6ad2]" />
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{APPLICATION_EVENT_TYPES.includes(event.type as ApplicationEventType) ? te(event.type as ApplicationEventType) : event.type}</h2>
+                    <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{hasEventLabel(event.type) ? te(event.type) : event.type}</h2>
                     <p className="mt-0.5 text-xs text-slate-500">
                       {event.application ? <Link className="font-medium text-[#5e6ad2] hover:underline" href={`/applications/${event.application.id}`}>{event.application.company} — {event.application.role}</Link> : t("application_link", { id: event.applicationId })}
                       {(event.source || event.actor) && <> · {[event.source, event.actor].filter(Boolean).join(" · ")}</>}
@@ -163,6 +184,7 @@ export function ActivityFeed({ user }: ActivityFeedProps) {
             </div>
           )}
         </section>
+        </div>}
       </main>
     </div>
   );

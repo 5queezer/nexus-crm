@@ -2,6 +2,20 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSessionAuth } from "@/lib/session";
 
+const SENSITIVE_ARGUMENT_KEY =
+  /(?:authorization|api[_-]?key|token|secret|password|private[_-]?key|credential)/i;
+
+function sanitizeArguments(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeArguments);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(
+    ([key, nested]) => [
+      key,
+      SENSITIVE_ARGUMENT_KEY.test(key) ? "[REDACTED]" : sanitizeArguments(nested),
+    ],
+  ));
+}
+
 export async function GET(request: Request) {
   const session = await requireSessionAuth({ allowDevBypass: false });
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -28,7 +42,7 @@ export async function GET(request: Request) {
               typeof reviewed.connectorVersion === "string" ? reviewed.connectorVersion : undefined,
             arguments:
               reviewed.arguments && typeof reviewed.arguments === "object" && !Array.isArray(reviewed.arguments)
-                ? reviewed.arguments
+                ? sanitizeArguments(reviewed.arguments)
                 : undefined,
           }
         : null,

@@ -12,6 +12,15 @@ function optionalString(value: unknown, max: number): string | null | undefined 
   return String(value).trim().slice(0, max) || null;
 }
 
+function optionalNextAction(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  if (typeof value !== "string") throw new Error("nextAction_invalid");
+  const normalized = value.trim();
+  if (normalized.length > 2_000) throw new Error("nextAction_too_long");
+  return normalized || null;
+}
+
 function optionalEnum(
   value: unknown,
   allowed: Set<string>,
@@ -117,6 +126,7 @@ export function parseStructuredApplicationMetadata(
     jobLiveness: optionalEnum(input.jobLiveness, JOB_LIVENESS, "jobLiveness"),
     jobSummary: optionalString(input.jobSummary, 10_000),
     currentStage: optionalString(input.currentStage, 255),
+    nextAction: optionalNextAction(input.nextAction),
   };
 
   const rawJobUrl = input.jobUrl !== undefined ? input.jobUrl : input.canonicalJobUrl;

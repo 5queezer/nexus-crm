@@ -6,6 +6,7 @@ export interface OpportunityFilters {
   source: string;
   remoteOnly: boolean;
   highPriorityOnly: boolean;
+  workMode?: string;
 }
 
 export const EMPTY_OPPORTUNITY_FILTERS: OpportunityFilters = {
@@ -22,7 +23,8 @@ export function hasOpportunityFilters(filters: OpportunityFilters): boolean {
     filters.status ||
     filters.source ||
     filters.remoteOnly ||
-    filters.highPriorityOnly,
+    filters.highPriorityOnly ||
+    filters.workMode,
   );
 }
 
@@ -51,6 +53,7 @@ export function opportunityMatchesFilters(
     (!filters.status || application.status === filters.status) &&
     (!filters.source || getSourceCategory(application.source) === filters.source) &&
     (!filters.remoteOnly || application.remote) &&
+    (!filters.workMode || (application.workMode || (application.remote ? "remote" : "")) === filters.workMode) &&
     (!filters.highPriorityOnly ||
       (application.triageQuality != null && application.triageQuality >= 4))
   );
@@ -71,5 +74,6 @@ export function countOpportunityFilters(filters: OpportunityFilters): number {
     filters.source,
     filters.remoteOnly,
     filters.highPriorityOnly,
+    filters.workMode,
   ].filter(Boolean).length;
 }

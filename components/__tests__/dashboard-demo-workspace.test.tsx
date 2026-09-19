@@ -65,6 +65,7 @@ function renderDashboard(
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/");
   const values = new Map<string, string>([["onboarding-complete", "true"]]);
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => values.get(key) ?? null,
@@ -127,9 +128,10 @@ describe("Dashboard demo workspace ownership", () => {
     renderDashboard();
 
     const banner = await screen.findByRole("status", { name: "dashboard.demo_banner_title" });
+    await user.click(screen.getByRole("button", { name: /workspace\.list/ }));
     const totalMetric = screen.getByText("stats.total").parentElement;
     expect(totalMetric?.textContent).toContain("0");
-    expect(screen.getByText("Demo Company")).toBeTruthy();
+    expect(screen.getAllByText("Demo Company").length).toBeGreaterThan(0);
 
     await user.click(within(banner).getByRole("button", { name: "dashboard.remove_demo" }));
 

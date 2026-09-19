@@ -86,6 +86,20 @@ export function CoreFieldsSection({ form, onChange, lifecycleDisabled = false }:
           className="nexus-input disabled:cursor-not-allowed disabled:opacity-60"
         />
       </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          {t("next_action")}
+        </label>
+        <textarea
+          name="nextAction"
+          value={form.nextAction}
+          onChange={onChange}
+          maxLength={2000}
+          rows={3}
+          className="nexus-input resize-y"
+          placeholder={t("next_action_placeholder")}
+        />
+      </div>
       {lifecycleDisabled && <p className="text-xs text-slate-500 dark:text-slate-400">{t("lifecycle_timeline_help")}</p>}
     </>
   );

@@ -228,6 +228,12 @@ function renderDashboard(initialApplications: Application[]) {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (String(input) === "/api/agent/bulk/previews" && init.method === "POST") {
+        return new Response(JSON.stringify({ command: { id: "command-1" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       const parts = String(input).split("/");
       const isEventCommand = init.method === "POST" && parts.at(-1) === "events";
       const id = (isEventCommand ? parts.at(-2) : parts.at(-1)) ?? "";
@@ -265,6 +271,7 @@ function renderDashboard(initialApplications: Application[]) {
 
 describe("Dashboard dataset-scoped selection", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     localStorage.clear();
     localStorage.setItem("onboarding-complete", "true");
     vi.stubGlobal(
@@ -352,13 +359,6 @@ describe("Dashboard dataset-scoped selection", () => {
         JSON.parse(String(init.body)).type === "offer_received",
     },
     {
-      action: "bulk-archive",
-      isTargetCall: (init?: RequestInit) =>
-        init?.method === "PATCH" &&
-        Boolean(init.body) &&
-        Boolean(JSON.parse(String(init.body)).archivedAt),
-    },
-    {
       action: "bulk-delete",
       isTargetCall: (init?: RequestInit) => init?.method === "DELETE",
     },
@@ -397,6 +397,39 @@ describe("Dashboard dataset-scoped selection", () => {
       });
     },
   );
+
+  it("previews an archive for every scoped ID without patching records", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderDashboard([activeInterview, activeApplied]);
+
+    await user.click(
+      await screen.findByRole("button", { name: "select-active-interview" }),
+    );
+    await user.click(screen.getByRole("button", { name: "select-active-applied" }));
+    await user.click(screen.getByRole("button", { name: "filter-interview" }));
+    expect(await screen.findByText("bulk-hidden-1")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "bulk-archive" }));
+
+    await waitFor(() => {
+      const preview = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input) === "/api/agent/bulk/previews" && init?.method === "POST",
+      );
+      expect(preview).toBeDefined();
+      const body = JSON.parse(String(preview?.[1]?.body));
+      expect(body).toMatchObject({
+        actionType: "archive",
+        scope: {
+          mode: "selected",
+          applicationIds: ["active-interview", "active-applied"],
+        },
+      });
+    });
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+  });
 
   it("immediately removes migrated, deleted, and externally disappeared records from actionable selection", async () => {
     const user = userEvent.setup();

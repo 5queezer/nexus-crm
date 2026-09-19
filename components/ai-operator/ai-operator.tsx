@@ -9,6 +9,7 @@ import {
 	useState,
 } from "react";
 import { useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	ArrowRight,
@@ -31,6 +32,23 @@ import {
 	XCircle,
 } from "lucide-react";
 import { OperatorSettings } from "./operator-settings";
+import { readAgentEventStream } from "./event-stream";
+import {
+	ASSISTANT_CAPABILITY_EVENT,
+	ASSISTANT_OPEN_EVENT,
+	ASSISTANT_TASK_STATE_EVENT,
+	ASSISTANT_TASK_STATE_REQUEST_EVENT,
+	BULK_REVIEW_EVENT,
+	useAssistantContext,
+} from "./context";
+import {
+	createEmptyRunSnapshot,
+	reduceAgentRunEvents,
+	type AgentRunEvent,
+	type AgentRunSnapshot,
+} from "@/lib/agent/protocol";
+import { frontendCapabilityCommandSchema } from "@/lib/assistant/frontend-capabilities";
+import type { AssistantContext } from "@/lib/assistant/context";
 import {
 	ActionProposal,
 	AgentActivity,
@@ -56,6 +74,8 @@ export function AiOperator({
 } = {}) {
 	const t = useTranslations("ai_operator");
 	const queryClient = useQueryClient();
+	const router = useRouter();
+	const pageContext = useAssistantContext();
 	const [open, setOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -71,15 +91,61 @@ export function AiOperator({
 	const [error, setError] = useState("");
 	const [actingProposal, setActingProposal] = useState<string | null>(null);
 	const [compactLayout, setCompactLayout] = useState(true);
+	const [runSnapshot, setRunSnapshot] = useState<AgentRunSnapshot | null>(null);
+	const [bulkReviewId, setBulkReviewId] = useState<string | null>(null);
 	const endRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const launcherRef = useRef<HTMLButtonElement>(null);
 	const dialogRef = useRef<HTMLDivElement>(null);
 	const activeThreadRef = useRef<AgentThread | null>(null);
+	const runSnapshotRef = useRef<AgentRunSnapshot | null>(null);
 
 	useEffect(() => {
 		activeThreadRef.current = activeThread;
 	}, [activeThread]);
+
+	useEffect(() => {
+		runSnapshotRef.current = runSnapshot;
+	}, [runSnapshot]);
+
+	useEffect(() => {
+		const openAssistant = () => setOpen(true);
+		const openBulkReview = (event: Event) => {
+			const detail = (event as CustomEvent<unknown>).detail;
+			const commandId =
+				detail && typeof detail === "object"
+					? (detail as { commandId?: unknown }).commandId
+					: null;
+			if (typeof commandId !== "string" || !commandId || commandId.length > 100)
+				return;
+			setBulkReviewId(commandId);
+			router.push(`/tasks/${encodeURIComponent(commandId)}`);
+		};
+		window.addEventListener(ASSISTANT_OPEN_EVENT, openAssistant);
+		window.addEventListener(BULK_REVIEW_EVENT, openBulkReview);
+		return () => {
+			window.removeEventListener(ASSISTANT_OPEN_EVENT, openAssistant);
+			window.removeEventListener(BULK_REVIEW_EVENT, openBulkReview);
+		};
+	}, [router]);
+
+	const taskCount =
+		new Set(pageContext.taskIds).size +
+		proposals.filter((proposal) => proposal.status === "pending").length +
+		(runSnapshot?.status === "running" ? 1 : 0);
+
+	useEffect(() => {
+		const announce = () =>
+			window.dispatchEvent(
+				new CustomEvent(ASSISTANT_TASK_STATE_EVENT, {
+					detail: { count: taskCount },
+				}),
+			);
+		announce();
+		window.addEventListener(ASSISTANT_TASK_STATE_REQUEST_EVENT, announce);
+		return () =>
+			window.removeEventListener(ASSISTANT_TASK_STATE_REQUEST_EVENT, announce);
+	}, [taskCount]);
 
 	useEffect(() => {
 		if (!window.matchMedia) return;
@@ -101,6 +167,60 @@ export function AiOperator({
 		(item) => item.provider === provider,
 	);
 	const currentProvider = providers.find((item) => item.id === provider);
+	const runBusy = streaming || runSnapshot?.status === "running";
+
+	const handleStructuredEvent = useCallback(
+		(event: AgentRunEvent, reconnecting = false) => {
+			if (event.type === "CUSTOM" && event.name === "nexus.frontend_tool") {
+				if (reconnecting) return;
+				const command = frontendCapabilityCommandSchema.safeParse(event.value);
+				if (!command.success) return;
+				if (
+					(command.data.name === "navigate" ||
+						command.data.name === "open_record") &&
+					pageContext.dirtyEditorIds.length > 0
+				) {
+					setError("Save or discard the current edits before navigating.");
+				} else if (command.data.name === "navigate") {
+					const paths = {
+						opportunities: "/",
+						activity: "/activity",
+						documents: "/documents",
+						analytics: "/analytics",
+						settings: "/settings",
+					} as const;
+					router.push(paths[command.data.arguments.page]);
+				} else if (command.data.name === "open_record") {
+					const query = command.data.arguments.tab
+						? `?tab=${encodeURIComponent(command.data.arguments.tab)}`
+						: "";
+					router.push(
+						`/applications/${encodeURIComponent(command.data.arguments.applicationId)}${query}`,
+					);
+				} else if (command.data.name === "open_review") {
+					setBulkReviewId(command.data.arguments.commandId);
+					router.push(
+						`/tasks/${encodeURIComponent(command.data.arguments.commandId)}`,
+					);
+				} else {
+					window.dispatchEvent(
+						new CustomEvent(ASSISTANT_CAPABILITY_EVENT, {
+							detail: command.data,
+						}),
+					);
+				}
+			}
+			if (event.type === "CUSTOM" && event.name === "nexus.bulk_command") {
+				const value = event.value as { commandId?: unknown } | null;
+				if (typeof value?.commandId !== "string") return;
+				setBulkReviewId(value.commandId);
+				if (!reconnecting) {
+					router.push(`/tasks/${encodeURIComponent(value.commandId)}`);
+				}
+			}
+		},
+		[pageContext.dirtyEditorIds, router],
+	);
 
 	const loadInitial = useCallback(async () => {
 		setLoading(true);
@@ -131,9 +251,86 @@ export function AiOperator({
 	}, [t]);
 
 	useEffect(() => {
-		if (!open) return;
 		void loadInitial();
-	}, [open, loadInitial]);
+	}, [loadInitial]);
+
+	useEffect(() => {
+		const running = [...(activeThread?.activities ?? [])]
+			.reverse()
+			.find(
+				(activity) => activity.type === "run" && activity.status === "running",
+			);
+		if (!running || streaming) return;
+		let cancelled = false;
+		let timer: number | undefined;
+		const poll = async () => {
+			try {
+				const result = await apiJson<{ snapshot: AgentRunSnapshot }>(
+					`/api/agent/runs/${encodeURIComponent(running.runId)}`,
+				);
+				if (cancelled) return;
+				const snapshot = result.snapshot;
+				const previousSequence =
+					runSnapshotRef.current?.runId === snapshot.runId
+						? runSnapshotRef.current.lastSequence
+						: 0;
+				for (const event of snapshot.events) {
+					if (event.sequence > previousSequence) {
+						handleStructuredEvent(event, true);
+					}
+				}
+				const startedAt = snapshot.events[0]?.timestamp ?? Date.now();
+				if (
+					snapshot.status === "running" &&
+					Date.now() - startedAt > 90_000
+				) {
+					setRunSnapshot({
+						...snapshot,
+						status: "failed",
+						error: {
+							message: "The run was interrupted before a terminal event was recorded.",
+							code: "STALE_RUN",
+						},
+					});
+					return;
+				}
+				setRunSnapshot(snapshot);
+				if (snapshot.status === "running") {
+					timer = window.setTimeout(() => void poll(), 1_500);
+				} else if (activeThread?.id) {
+					const [threadResult, proposalResult] = await Promise.allSettled([
+						apiJson<{ thread: AgentThread }>(
+							`/api/agent/threads/${activeThread.id}`,
+						),
+						apiJson<{ proposals: ActionProposal[] }>(
+							`/api/agent/proposals?threadId=${encodeURIComponent(activeThread.id)}`,
+						),
+					]);
+					if (!cancelled && threadResult.status === "fulfilled") {
+						setActiveThread(threadResult.value.thread);
+						setThreads((current) => [
+							threadResult.value.thread,
+							...current.filter((item) => item.id !== activeThread.id),
+						]);
+					}
+					if (!cancelled && proposalResult.status === "fulfilled") {
+						setProposals(proposalResult.value.proposals);
+					}
+				}
+			} catch (reason) {
+				if (!cancelled) {
+					setError(
+						reason instanceof Error ? reason.message : "Could not restore the run",
+					);
+				}
+			}
+		};
+		void poll();
+		return () => {
+			cancelled = true;
+			if (timer !== undefined) window.clearTimeout(timer);
+		};
+	}, [activeThread?.activities, activeThread?.id, handleStructuredEvent, streaming]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -237,7 +434,7 @@ export function AiOperator({
 	}
 
 	async function selectThread(id: string) {
-		if (streaming) return;
+		if (runBusy) return;
 		setLoading(true);
 		setError("");
 		try {
@@ -254,7 +451,7 @@ export function AiOperator({
 	}
 
 	async function deleteThread(id: string) {
-		if (streaming) return;
+		if (runBusy) return;
 		try {
 			await apiJson<void>(`/api/agent/threads/${id}`, { method: "DELETE" });
 			setThreads((current) => current.filter((item) => item.id !== id));
@@ -269,7 +466,7 @@ export function AiOperator({
 
 	async function sendMessage(text: string) {
 		const content = text.trim();
-		if (!content || streaming) return;
+		if (!content || runBusy) return;
 		if (!currentCredential) {
 			setSettingsOpen(true);
 			return;
@@ -309,7 +506,12 @@ export function AiOperator({
 			const response = await fetch("/api/agent/chat", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ threadId, provider, message: content }),
+				body: JSON.stringify({
+					threadId,
+					provider,
+					message: content,
+					context: pageContext,
+				}),
 			});
 			if (!response.ok) {
 				const body = (await response.json().catch(() => null)) as {
@@ -318,26 +520,39 @@ export function AiOperator({
 				throw new Error(body?.error || t("run_failed"));
 			}
 			if (!response.body) throw new Error(t("run_failed"));
-			const reader = response.body.getReader();
-			const decoder = new TextDecoder();
-			let assistantText = "";
-			while (true) {
-				const { value, done } = await reader.read();
-				if (done) break;
-				assistantText += decoder.decode(value, { stream: true });
+			const runId = response.headers.get("x-agent-run-id");
+			if (!runId) throw new Error(t("run_failed"));
+			let currentRun = createEmptyRunSnapshot(runId, threadId);
+			for await (const event of readAgentEventStream(response.body)) {
+				currentRun = reduceAgentRunEvents(currentRun, [event]);
+				setRunSnapshot(currentRun);
+				handleStructuredEvent(event);
 				setActiveThread((current) =>
 					current?.id === threadId
 						? {
 								...current,
 								messages: (current.messages ?? []).map((item) =>
 									item.id === assistantMessage.id
-										? { ...item, content: assistantText }
+										? { ...item, content: currentRun.text }
 										: item,
 								),
 							}
 						: current,
 				);
 			}
+			if (currentRun.pendingEvents.length > 0) {
+				const replay = await fetch(
+					`/api/agent/runs/${encodeURIComponent(runId)}/events?after=${currentRun.lastSequence}`,
+				);
+				if (replay.ok && replay.body) {
+					for await (const event of readAgentEventStream(replay.body)) {
+						currentRun = reduceAgentRunEvents(currentRun, [event]);
+						handleStructuredEvent(event);
+					}
+					setRunSnapshot(currentRun);
+				}
+			}
+			if (currentRun.error) throw new Error(currentRun.error.message);
 			const refreshed = await apiJson<{ thread: AgentThread }>(
 				`/api/agent/threads/${threadId}`,
 			);
@@ -474,7 +689,7 @@ export function AiOperator({
 							<div className="px-3">
 								<button
 									onClick={() => void createThread()}
-									disabled={streaming}
+										disabled={runBusy}
 									className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-xs font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40 dark:bg-white dark:text-slate-950"
 								>
 									<Plus className="h-3.5 w-3.5" />
@@ -600,7 +815,7 @@ export function AiOperator({
 									</div>
 								) : !credentials.length ? (
 									<SetupEmpty onSetup={() => setSettingsOpen(true)} />
-								) : !activeThread?.messages?.length ? (
+								) : !activeThread?.messages?.length && !bulkReviewId ? (
 									<Welcome
 										providerLabel={currentProvider?.label}
 										model={currentCredential?.defaultModel}
@@ -608,7 +823,8 @@ export function AiOperator({
 									/>
 								) : (
 									<div className="mx-auto max-w-2xl space-y-5">
-										{activeThread.messages
+										<AssistantContextSummary context={pageContext} />
+										{(activeThread?.messages ?? [])
 											.filter(
 												(item) =>
 													item.role === "user" || item.role === "assistant",
@@ -624,9 +840,9 @@ export function AiOperator({
 													}
 												/>
 											))}
-										{(activeThread.activities?.length ?? 0) > 0 && (
+										{(activeThread?.activities?.length ?? 0) > 0 && (
 											<ActivityTimeline
-												activities={activeThread.activities ?? []}
+												activities={activeThread?.activities ?? []}
 											/>
 										)}
 										{proposals.map((proposal) => (
@@ -642,6 +858,16 @@ export function AiOperator({
 												}
 											/>
 										))}
+						{bulkReviewId && (
+							<section className="ml-10 rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 text-xs dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]">
+								<p className="font-semibold text-slate-900 dark:text-white">Bulk task ready for review</p>
+								<p className="mt-1 truncate text-slate-500">{bulkReviewId}</p>
+								<button type="button" onClick={() => router.push(`/tasks/${encodeURIComponent(bulkReviewId)}`)} className="mt-2 rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white">Open review</button>
+							</section>
+						)}
+										{runSnapshot && (
+											<RunStateCard snapshot={runSnapshot} />
+										)}
 										<div ref={endRef} />
 									</div>
 								)}
@@ -669,7 +895,7 @@ export function AiOperator({
 													if (message.trim()) void sendMessage(message);
 												}
 											}}
-											disabled={streaming || !credentials.length}
+										disabled={runBusy || !credentials.length}
 											rows={1}
 											placeholder={
 												credentials.length
@@ -682,11 +908,11 @@ export function AiOperator({
 											aria-label={t("send_message")}
 											type="submit"
 											disabled={
-												!message.trim() || streaming || !credentials.length
+											!message.trim() || runBusy || !credentials.length
 											}
 											className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-indigo-500 dark:hover:bg-indigo-400"
 										>
-											{streaming ? (
+										{runBusy ? (
 												<Loader2 className="h-4 w-4 animate-spin" />
 											) : (
 												<Send className="h-3.5 w-3.5" />
@@ -913,6 +1139,69 @@ function ActivityTimeline({ activities }: { activities: AgentActivity[] }) {
 					</div>
 				);
 			})}
+		</section>
+	);
+}
+
+function AssistantContextSummary({ context }: { context: AssistantContext }) {
+	const filterCount = Object.values(context.filters).filter((value) =>
+		Array.isArray(value) ? value.length > 0 : value !== undefined && value !== "",
+	).length;
+	return (
+		<section
+			aria-label="Current assistant context"
+			className="ml-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-[11px] text-slate-500 dark:border-white/8 dark:bg-white/[0.025]"
+		>
+			<span className="font-semibold text-slate-700 dark:text-slate-200">Context</span>
+			<span>{context.route}</span>
+			{context.activeRecordId && <span>Record {context.activeRecordId}</span>}
+			<span>{context.selectedIds.length} selected</span>
+			<span>{context.visibleCount} visible</span>
+			{filterCount > 0 && <span>{filterCount} filters</span>}
+			{context.dirtyEditorIds.length > 0 && (
+				<span className="font-medium text-amber-700 dark:text-amber-300">
+					Unsaved edits
+				</span>
+			)}
+		</section>
+	);
+}
+
+function RunStateCard({ snapshot }: { snapshot: AgentRunSnapshot }) {
+	const tools = Object.values(snapshot.tools);
+	return (
+		<section
+			aria-label="Current assistant task"
+			className="ml-10 rounded-xl border border-slate-200 bg-white/70 p-3 text-xs dark:border-white/8 dark:bg-white/[0.025]"
+		>
+			<div className="flex items-center justify-between gap-2">
+				<span className="font-semibold text-slate-800 dark:text-slate-200">
+					Task {snapshot.status}
+				</span>
+				<span className="text-[10px] text-slate-500">
+					Event {snapshot.lastSequence}
+				</span>
+			</div>
+			{tools.length > 0 && (
+				<ul className="mt-2 space-y-1 text-slate-500">
+					{tools.map((tool) => (
+						<li key={tool.id} className="flex justify-between gap-2">
+							<span>{tool.name.replaceAll("_", " ")}</span>
+							<span>{tool.status}</span>
+						</li>
+					))}
+				</ul>
+			)}
+			{snapshot.text && (
+				<p className="mt-2 whitespace-pre-wrap leading-5 text-slate-700 dark:text-slate-300">
+					{snapshot.text}
+				</p>
+			)}
+			{snapshot.pendingSequences.length > 0 && (
+				<p className="mt-2 text-amber-700 dark:text-amber-300">
+					Reconnecting to recover missing events…
+				</p>
+			)}
 		</section>
 	);
 }

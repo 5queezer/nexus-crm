@@ -256,8 +256,91 @@ export async function createAgentRun(input: {
   threadId: string;
   provider: string;
   model: string;
+	message: string;
+	title?: string;
 }) {
-  return prisma.agentRun.create({ data: input });
+	const content = normalizeMessageText(input.message, 12_000);
+	if (!content) throw new Error("Message content is required");
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		try {
+			return await prisma.$transaction(
+				async (transaction) => {
+			const thread = await transaction.agentThread.findFirst({
+				where: { id: input.threadId, userId: input.userId },
+				select: { id: true },
+			});
+			if (!thread) throw new Error("Thread not found");
+			const active = await transaction.agentRun.findFirst({
+				where: {
+					userId: input.userId,
+					threadId: input.threadId,
+					status: "running",
+				},
+				select: { id: true },
+			});
+			if (active) throw new AgentRunConflictError(active.id);
+			const run = await transaction.agentRun.create({
+				data: {
+					userId: input.userId,
+					threadId: input.threadId,
+					provider: input.provider,
+					model: input.model,
+				},
+			});
+			await transaction.agentMessage.create({
+				data: {
+					userId: input.userId,
+					threadId: input.threadId,
+					runId: run.id,
+					role: "user",
+					content,
+				},
+			});
+			await transaction.agentThread.update({
+				where: { id: input.threadId },
+				data: { updatedAt: new Date() },
+			});
+			if (input.title) {
+				await transaction.agentThread.updateMany({
+					where: {
+						id: input.threadId,
+						userId: input.userId,
+						title: "New conversation",
+					},
+					data: { title: normalizeVisibleText(input.title, 72) },
+				});
+			}
+					return run;
+				},
+				{ isolationLevel: "Serializable" },
+			);
+		} catch (error) {
+			const retryable =
+				error &&
+				typeof error === "object" &&
+				"code" in error &&
+				error.code === "P2034";
+			if (!retryable) throw error;
+			if (attempt < 2) continue;
+			const active = await prisma.agentRun.findFirst({
+				where: {
+					userId: input.userId,
+					threadId: input.threadId,
+					status: "running",
+				},
+				select: { id: true },
+			});
+			throw new AgentRunConflictError(active?.id ?? "concurrent-run");
+		}
+	}
+	throw new AgentRunConflictError("concurrent-run");
+}
+
+export class AgentRunConflictError extends Error {
+	constructor(readonly runId: string) {
+		super("An assistant run is already active for this thread");
+		this.name = "AgentRunConflictError";
+	}
 }
 
 export async function completeAgentRun(

@@ -17,11 +17,14 @@ export function ResumeSection({
   resumeId,
   variant = "collapsible",
   onApplicationUpdated,
+  onResumeLinked,
 }: {
   applicationId: string;
   resumeId: string | null;
   variant?: "collapsible" | "open";
   onApplicationUpdated?: (updatedAt: string) => void;
+  /** The application now points at this resume; the host holds that id. */
+  onResumeLinked?: (resumeId: string) => void;
 }) {
   const t = useTranslations("modal");
   const queryClient = useQueryClient();
@@ -71,6 +74,7 @@ export function ResumeSection({
       // Creating the resume link advanced the application's updatedAt; let
       // the host refresh its optimistic-concurrency baseline.
       if (resume.updatedAt) onApplicationUpdated?.(resume.updatedAt);
+      onResumeLinked?.(resume.resumeId);
     } catch {
       setError(t("resume_error"));
     } finally {

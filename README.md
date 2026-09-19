@@ -30,7 +30,21 @@ The AI operator is authenticated; the public repository, architecture notes, thr
 
 ## Local setup
 
-### Prerequisites
+### Isolated local profile
+
+With Node.js 22+, npm and a running local Docker daemon:
+
+```bash
+npm ci
+npm run dev:setup
+npm run dev:local
+```
+
+Open [http://localhost:3001/login](http://localhost:3001/login). Setup creates admin and regular users with random passwords saved in the ignored `.env.local`. They use normal authenticated sessions and editable fictional data. The startup command runs both the web app and bulk worker. Google credentials are not required for this profile.
+
+See [local development](docs/local-development.md) for account details, port overrides, repeat setup, production guards and shutdown. Use the manual setup below when configuring your own database and Google OAuth.
+
+### Manual setup prerequisites
 
 - Node.js 22+
 - npm
@@ -115,7 +129,8 @@ The screenshots use synthetic demonstration data. No provider credential, connec
 | `DATABASE_URL` | Yes | PostgreSQL connection used by Prisma and authentication |
 | `BETTER_AUTH_SECRET` | Yes | Better Auth server secret |
 | `BETTER_AUTH_URL` | Yes | Public application origin |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | For Google sign-in | Google OAuth client |
+| `LOCAL_DEV_AUTH` | No | Explicit local-profile email/password opt-in; disabled in production |
 | `ALLOWED_EMAIL` | Yes | Comma-separated sign-in allowlist |
 | `AGENT_SECRET_ENCRYPTION_KEY` | For AI operator secrets | 32-byte master key encoded as 64 hex characters |
 | `DB_PROVIDER` | No | Application data adapter; defaults to `prisma` |

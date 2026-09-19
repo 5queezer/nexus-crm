@@ -34,6 +34,7 @@ describe("Dashboard data states", () => {
   let root: Root;
 
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     localStorage.clear();
     vi.stubGlobal(
       "matchMedia",
@@ -131,7 +132,11 @@ describe("Dashboard data states", () => {
     };
   }
 
-  async function renderDashboardWith(applications: Application[]) {
+  async function renderDashboardWith(
+    applications: Application[],
+    view: "focus" | "table" = "table",
+  ) {
+    window.history.replaceState(null, "", `/?view=${view}`);
     localStorage.setItem("onboarding-complete", "true");
     vi.stubGlobal(
       "fetch",
@@ -155,6 +160,18 @@ describe("Dashboard data states", () => {
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   }
+
+  it("keeps the overdue summary and metrics out of the default Focus view", async () => {
+    await renderDashboardWith(
+      [overdueApplication("overdue-1", "Nexus")],
+      "focus",
+    );
+
+    expect(
+      container.querySelector('button[aria-label="dismiss_all_overdue"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("total");
+  });
 
   it("gives dismiss-all an accessible 48px target", async () => {
     await renderDashboardWith([overdueApplication("overdue-1", "Nexus")]);

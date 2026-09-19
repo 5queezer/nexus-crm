@@ -24,7 +24,6 @@ interface MobileNavigationSheetProps {
 
 export function MobileNavigationSheet({
   open,
-  isAdmin,
   onClose,
   onNavigate = onClose,
 }: MobileNavigationSheetProps) {
@@ -38,9 +37,7 @@ export function MobileNavigationSheet({
     { href: "/documents", label: tn("documents"), icon: FolderOpen },
     { href: "/analytics", label: tn("analytics"), icon: BarChart3 },
     { href: "/resume-review", label: tn("resume_ai"), icon: Bot },
-    ...(isAdmin
-      ? [{ href: "/settings", label: tn("settings"), icon: Settings }]
-      : []),
+    { href: "/settings", label: tn("settings"), icon: Settings },
   ];
 
   useEffect(() => {

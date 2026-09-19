@@ -33,6 +33,8 @@ export function ScannedEmails() {
   );
   const [expanded, setExpanded] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [actionResult, setActionResult] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["scanned-emails", filter],
@@ -56,13 +58,21 @@ export function ScannedEmails() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids, action }),
       });
-      if (!resp.ok) throw new Error("Action failed");
-      return resp.json();
+      if (!resp.ok) throw new Error(t("action_failed"));
+      return resp.json() as Promise<{ success: boolean; imported?: number }>;
     },
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
       setSelected(new Set());
+      setActionError(null);
+      setActionResult(variables.action === "import"
+        ? t("import_result", { count: result.imported ?? variables.ids.length })
+        : t("dismiss_result", { count: variables.ids.length }));
       queryClient.invalidateQueries({ queryKey: ["scanned-emails"] });
       queryClient.invalidateQueries({ queryKey: ["applications"] });
+    },
+    onError: (error) => {
+      setActionResult(null);
+      setActionError(error instanceof Error ? error.message : t("action_failed"));
     },
   });
 
@@ -153,6 +163,9 @@ export function ScannedEmails() {
               </button>
             ))}
           </div>
+
+          {actionResult && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300">{actionResult}</p>}
+          {actionError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{actionError}</p>}
 
           {isLoading ? (
             <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 py-4">

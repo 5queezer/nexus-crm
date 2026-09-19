@@ -28,6 +28,7 @@ const fake = vi.hoisted(() => {
       jobUrl: null,
       canonicalJobUrl: null,
       currentStage: "screen",
+      nextAction: null,
       eventVersion: 0,
       isDemo: false,
       demoWorkspaceId: null,
@@ -158,7 +159,11 @@ const command = {
   idempotencyKey: "stage-change-1",
   source: "test",
   actor: "owner@example.com",
-  metadata: { toStage: "technical", toStatus: "interview" },
+  metadata: {
+    toStage: "technical",
+    toStatus: "interview",
+    nextAction: "Prepare technical exercise",
+  },
   contactId: null,
   outcome: null,
 };
@@ -200,11 +205,30 @@ describe("PrismaAdapter — atomic application events", () => {
   it("updates the projection and creates one immutable event", async () => {
     const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", command);
     expect(result.replayed).toBe(false);
-    expect(result.application).toMatchObject({ status: "interview", currentStage: "technical" });
+    expect(result.application).toMatchObject({
+      status: "interview",
+      currentStage: "technical",
+      nextAction: "Prepare technical exercise",
+    });
     expect(result.event.metadata).toMatchObject({ fromStage: "screen", toStage: "technical" });
     expect(result.event.metadata).not.toHaveProperty("requestHash");
     expect(fake.events()).toHaveLength(1);
     expect(fake.events()[0].requestHash).toEqual(expect.any(String));
+  });
+
+  it.each(["interview", "offer", "rejected"])("records outbound contact without regressing persisted %s status", async (status) => {
+    const followUpAt = new Date("2026-07-28T10:00:00Z");
+    fake.setApplication({ status, currentStage: "existing-stage", followUpAt });
+    const result = await new PrismaAdapter().recordApplicationEvent("1", "owner-1", {
+      ...command,
+      type: "outbound_contact_recorded",
+      idempotencyKey: `${status}-outbound-1`,
+      metadata: { channel: "email" },
+    });
+    expect(result.application).toMatchObject({ status, currentStage: "existing-stage", followUpAt, lastContact: command.occurredAt });
+    expect(fake.app().status).toBe(status);
+    expect(fake.events()).toHaveLength(1);
+    expect(fake.events()[0].type).toBe("outbound_contact_recorded");
   });
 
   it("propagates demo ownership markers to ordinary event writes", async () => {

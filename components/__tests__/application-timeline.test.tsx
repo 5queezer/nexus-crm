@@ -4,20 +4,45 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import messages from "../../messages/en.json";
 import { ApplicationTimeline } from "../application-timeline";
 
+// The page owns the record form's visibility, so the harness stands in for it.
+function TimelineHost({
+  disabled,
+  onProjectionUpdated,
+  onContactSelect,
+}: {
+  disabled: boolean;
+  onProjectionUpdated: (updatedAt: string) => void;
+  onContactSelect: (contactId: string) => void;
+}) {
+  const [recordOpen, setRecordOpen] = useState(false);
+  return (
+    <ApplicationTimeline
+      applicationId="42"
+      expectedUpdatedAt="2026-07-24T08:00:00.000Z"
+      disabled={disabled}
+      recordOpen={recordOpen}
+      onRecordOpenChange={setRecordOpen}
+      onContactSelect={onContactSelect}
+      onProjectionUpdated={onProjectionUpdated}
+    />
+  );
+}
+
 function renderTimeline(onProjectionUpdated = vi.fn(), disabled = false) {
+  const onContactSelect = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = (isDisabled: boolean) => (
     <NextIntlClientProvider locale="en" messages={messages}>
       <QueryClientProvider client={queryClient}>
-        <ApplicationTimeline
-          applicationId="42"
-          expectedUpdatedAt="2026-07-24T08:00:00.000Z"
+        <TimelineHost
           disabled={isDisabled}
           onProjectionUpdated={onProjectionUpdated}
+          onContactSelect={onContactSelect}
         />
       </QueryClientProvider>
     </NextIntlClientProvider>
@@ -25,6 +50,7 @@ function renderTimeline(onProjectionUpdated = vi.fn(), disabled = false) {
   const result = render(view(disabled));
   return {
     onProjectionUpdated,
+    onContactSelect,
     rerenderWithDisabled: (isDisabled: boolean) => result.rerender(view(isDisabled)),
   };
 }
@@ -32,6 +58,21 @@ function renderTimeline(onProjectionUpdated = vi.fn(), disabled = false) {
 describe("ApplicationTimeline", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["bulk_change_undone", "Bulk changes undone"],
+    ["application_archived", "Opportunity archived"],
+    ["application_restored", "Opportunity restored"],
+  ])("labels the system event %s without exposing a raw event identifier", async (type, title) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      items: [{ id: "audit-event", applicationId: "42", type, occurredAt: "2026-09-19T08:31:00.000Z", createdAt: "2026-09-19T08:31:00.000Z", source: "agent_bulk", actor: "user", contactId: null, outcome: null, metadata: { taskId: "task-17" } }],
+      nextCursor: null,
+    }), { status: 200 }));
+    renderTimeline();
+    expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
+    expect(screen.queryByText(/Unknown event/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open related task" }).getAttribute("href")).toBe("/tasks/task-17");
   });
 
   it("renders immutable history without leaking internal request hashes", async () => {
@@ -52,6 +93,36 @@ describe("ApplicationTimeline", () => {
     expect(await screen.findByText("Stage changed")).toBeTruthy();
     expect(screen.getByText("Previous stage: screen")).toBeTruthy();
     expect(screen.queryByText(/secret/)).toBeNull();
+  });
+
+  it("discloses audit timestamps and links related tasks without exposing internal metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      items: [{
+        id: "event-task",
+        applicationId: "42",
+        type: "stage_changed",
+        occurredAt: "2026-07-23T09:00:00.000Z",
+        createdAt: "2026-07-24T09:05:00.000Z",
+        source: "agent",
+        actor: "owner@example.com",
+        contactId: null,
+        outcome: null,
+        metadata: { taskId: "task-17", requestHash: "must-not-render" },
+      }],
+      nextCursor: null,
+    }), { status: 200 }));
+
+    const user = userEvent.setup();
+    renderTimeline();
+    await screen.findByText("Stage changed");
+
+    expect(screen.getByText("agent · owner@example.com")).toBeTruthy();
+    expect(screen.getByText("Jul 23, 2026, 09:00 AM UTC")).toBeTruthy();
+    await user.click(screen.getByText("Event details"));
+    expect(screen.getByText(/Recorded Jul 24, 2026/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open related task" }).getAttribute("href"))
+      .toBe("/tasks/task-17");
+    expect(screen.queryByText(/must-not-render|task-17/)).toBeNull();
   });
 
   it("uses safe fallbacks, an explicit metadata allowlist, and exact entity targets", async () => {
@@ -76,11 +147,15 @@ describe("ApplicationTimeline", () => {
       nextCursor: null,
     }), { status: 200 }));
 
-    renderTimeline();
+    const { onContactSelect } = renderTimeline();
+    const user = userEvent.setup();
     expect(await screen.findByText("Unknown event (future_private_event)")).toBeTruthy();
     expect(screen.getByText("Timeline note: Visible note")).toBeTruthy();
     expect(screen.queryByText(/must-not-render/)).toBeNull();
-    expect(screen.getByRole("link", { name: "Contact contact-1" }).getAttribute("href")).toBe("#contact-contact-1");
+    // The contact lives in another tab, so the page resolves it rather than a
+    // fragment link — it still has to receive the exact id, never a fragment.
+    await user.click(screen.getByRole("button", { name: "Contact contact-1" }));
+    expect(onContactSelect).toHaveBeenCalledWith("contact-1");
     expect(screen.getByRole("link", { name: "Document document-1" }).getAttribute("href")).toBe("/documents#document-document-1");
     expect(screen.queryByRole("link", { name: "Submission submission-1" })).toBeNull();
     expect(screen.getByText("Submission submission-1")).toBeTruthy();
@@ -108,6 +183,37 @@ describe("ApplicationTimeline", () => {
     expect(String(fetchMock.mock.calls[2][0])).toContain("order=oldest");
   });
 
+  it("shows a promoted outcome once, not again inside the details", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      items: [{
+        id: "event-outcome",
+        applicationId: "42",
+        type: "feedback_received",
+        occurredAt: "2026-07-24T09:00:00.000Z",
+        createdAt: "2026-07-24T09:05:00.000Z",
+        source: "mcp",
+        actor: null,
+        contactId: null,
+        outcome: null,
+        metadata: { outcome: "Awaiting client feedback", nextAction: "Wait for Connect Group" },
+      }],
+      nextCursor: null,
+    }), { status: 200 }));
+
+    const user = userEvent.setup();
+    renderTimeline();
+    await screen.findByText("Feedback received");
+
+    // Promoted into the event body, so the details must not repeat it. The
+    // duplicate would render label-prefixed, so match the value loosely.
+    expect(screen.getAllByText(/Awaiting client feedback/)).toHaveLength(1);
+    await user.click(screen.getByText("Event details"));
+    expect(screen.getAllByText(/Awaiting client feedback/)).toHaveLength(1);
+    expect(screen.queryByText(/Outcome: Awaiting client feedback/)).toBeNull();
+    // Other metadata still shows up down there.
+    expect(screen.getByText("Next action: Wait for Connect Group")).toBeTruthy();
+  });
+
   it("records a typed event with an optimistic precondition", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }))
@@ -117,7 +223,7 @@ describe("ApplicationTimeline", () => {
     const user = userEvent.setup();
 
     await screen.findByText(/No timeline events yet/);
-    await user.click(screen.getByRole("button", { name: "Record activity" }));
+    await user.click(screen.getByRole("button", { name: "Add a note…" }));
     await user.type(screen.getByLabelText("New stage"), "technical_interview");
     fireEvent.submit(screen.getByRole("button", { name: "Record event" }).closest("form")!);
 
@@ -133,6 +239,38 @@ describe("ApplicationTimeline", () => {
     expect(onProjectionUpdated).toHaveBeenCalledWith("2026-07-24T09:01:00.000Z");
   });
 
+  it("records explicit human-response evidence without inferring it from status", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ application: { updatedAt: "2026-07-24T09:01:00.000Z" } }), { status: 201 }))
+      .mockResolvedValue(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }));
+    const user = userEvent.setup();
+    renderTimeline();
+
+    await screen.findByText(/No timeline events yet/);
+    await user.click(screen.getByRole("button", { name: "Add a note…" }));
+    await user.selectOptions(screen.getByLabelText("Activity"), "reply_received");
+    await user.selectOptions(screen.getByLabelText("Response kind"), "human");
+    const exactDate = screen.getByRole("checkbox", { name: "Exact reply date is known" });
+    expect((exactDate as HTMLInputElement).checked).toBe(true);
+    await user.click(exactDate);
+    await user.type(screen.getByLabelText("Channel"), "email");
+    await user.type(screen.getByLabelText("Outcome"), "Asked to schedule an interview");
+    fireEvent.submit(screen.getByRole("button", { name: "Record event" }).closest("form")!);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const [, request] = fetchMock.mock.calls[1];
+    const body = JSON.parse(String((request as RequestInit).body));
+    expect(body.type).toBe("reply_received");
+    expect(body.metadata).toEqual({
+      responseKind: "human",
+      replyDateKnown: false,
+      channel: "email",
+      outcome: "Asked to schedule an interview",
+    });
+    expect(body).not.toHaveProperty("status");
+  });
+
   it("does not submit an open event editor after parent edits become dirty", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }),
@@ -140,7 +278,7 @@ describe("ApplicationTimeline", () => {
     const user = userEvent.setup();
     const { rerenderWithDisabled } = renderTimeline();
     await screen.findByText(/No timeline events yet/);
-    await user.click(screen.getByRole("button", { name: "Record activity" }));
+    await user.click(screen.getByRole("button", { name: "Add a note…" }));
     await user.type(screen.getByLabelText("New stage"), "technical_interview");
 
     rerenderWithDisabled(true);

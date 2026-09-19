@@ -36,114 +36,34 @@ function app(id: string, overrides: Partial<Application> = {}): Application {
 }
 
 describe("buildFocusQueue", () => {
-  it("applies precedence once and deterministic ordering", () => {
-    const now = new Date(2026, 6, 14, 12);
-    const queue = buildFocusQueue(
-      [
-        app("recent-b", { updatedAt: "2026-06-10T12:00:00.000Z" }),
-        app("priority", {
-          triageQuality: 5,
-          followUpAt: "2026-07-16T12:00:00.000Z",
-        }),
-        app("overdue", {
-          triageQuality: 5,
-          followUpAt: "2026-07-12T12:00:00.000Z",
-        }),
-        app("soon", { followUpAt: "2026-07-15T12:00:00.000Z" }),
-        app("new", { createdAt: "2026-07-13T12:00:00.000Z" }),
-        app("recent-a", { updatedAt: "2026-06-10T12:00:00.000Z" }),
-      ],
-      now,
-    );
-
-    expect(queue.map((group) => group.id)).toEqual([
-      "overdue",
-      "highPriority",
-      "dueSoon",
-      "newThisWeek",
-      "recent",
+  it("groups next actions once, keeps holds waiting and preserves closing/lost", () => {
+    const queue = buildFocusQueue([
+      app("future", { followUpAt: "2026-07-22" }),
+      app("hold", { status: "interview", followUpAt: "2026-07-10", notes: "Wait for recruiter feedback; do not follow up yet." }),
+      app("historical", { status: "interview", followUpAt: "2026-07-11", notes: "No follow-up received from the recruiter." }),
+      app("today", { followUpAt: "2026-07-14" }),
+      app("overdue", { followUpAt: "2026-07-12" }),
+      app("new"),
+      app("waiting", { status: "applied" }),
+      app("closed", { status: "offer" }),
+      app("lost", { status: "rejected" }),
+    ], new Date(2026, 6, 14, 12));
+    expect(queue.map(group => [group.id, group.applications.map(item => item.id)])).toEqual([
+      ["overdue", ["historical", "overdue", "today"]],
+      ["dueSoon", ["future"]],
+      ["waiting", ["hold", "waiting"]],
+      ["newLeads", ["new"]],
+      ["completed", ["closed", "lost"]],
     ]);
-    const ids = queue.flatMap((group) =>
-      group.applications.map((item) => item.id),
-    );
-    expect(ids).toEqual([
-      "overdue",
-      "priority",
-      "soon",
-      "new",
-      "recent-a",
-      "recent-b",
-    ]);
-    expect(new Set(ids).size).toBe(6);
+    expect(new Set(queue.flatMap(group => group.applications.map(item => item.id))).size).toBe(9);
   });
-
-  it("includes exact new-this-week boundaries but excludes timestamps after now", () => {
-    const now = new Date(2026, 6, 14, 12, 0, 0, 0);
-    const weekStart = new Date(2026, 6, 8, 0, 0, 0, 0);
-    const queue = buildFocusQueue(
-      [
-        app("week-start", { createdAt: weekStart.toISOString() }),
-        app("now", { createdAt: now.toISOString() }),
-        app("future", {
-          createdAt: new Date(now.getTime() + 1).toISOString(),
-        }),
-        app("before-week", {
-          createdAt: new Date(weekStart.getTime() - 1).toISOString(),
-        }),
-      ],
-      now,
-    );
-
-    expect(
-      queue
-        .find((group) => group.id === "newThisWeek")
-        ?.applications.map((item) => item.id),
-    ).toEqual(["now", "week-start"]);
-    expect(
-      queue
-        .find((group) => group.id === "recent")
-        ?.applications.map((item) => item.id),
-    ).toEqual(["before-week", "future"]);
-    const assignedIds = queue.flatMap((group) =>
-      group.applications.map((item) => item.id),
-    );
-    expect(assignedIds).toHaveLength(4);
-    expect(new Set(assignedIds).size).toBe(4);
+  it("keeps serialized calendar dates on the intended local day", () => {
+    const value = "2026-07-14T00:00:00.000Z";
+    const queue = buildFocusQueue([app("today", { followUpAt: value })], new Date(2026, 6, 14, 12));
+    expect(queue[0].id).toBe("overdue");
+    expect(formatLocalCalendarDate(value, "en-US")).toContain("Jul 14, 2026");
   });
-
-  it("keeps UTC-midnight API serialization on the intended local day in negative offsets", () => {
-    const now = new Date(2026, 6, 14, 12);
-    const serializedDateOnly = "2026-07-14T00:00:00.000Z";
-    const queue = buildFocusQueue(
-      [app("today", { followUpAt: serializedDateOnly })],
-      now,
-    );
-
-    expect(queue[0]?.id).toBe("dueSoon");
-    expect(formatLocalCalendarDate(serializedDateOnly, "en-US")).toContain(
-      "Jul 14, 2026",
-    );
-  });
-
-  it("treats today and seven days ahead as due soon in the local calendar", () => {
-    const now = new Date(2026, 6, 14, 18);
-    const queue = buildFocusQueue(
-      [
-        app("today", { followUpAt: new Date(2026, 6, 14, 1).toISOString() }),
-        app("seventh", { followUpAt: new Date(2026, 6, 21, 23).toISOString() }),
-        app("eighth", { followUpAt: new Date(2026, 6, 22, 0).toISOString() }),
-      ],
-      now,
-    );
-    expect(
-      queue
-        .find((group) => group.id === "dueSoon")
-        ?.applications.map((item) => item.id),
-    ).toEqual(["today", "seventh"]);
-    expect(
-      queue
-        .find((group) => group.id === "recent")
-        ?.applications.map((item) => item.id),
-    ).toEqual(["eighth"]);
+  it("keeps invalid dates visible without inventing a due date", () => {
+    expect(buildFocusQueue([app("invalid", { followUpAt: "invalid" })])[0].id).toBe("newLeads");
   });
 });

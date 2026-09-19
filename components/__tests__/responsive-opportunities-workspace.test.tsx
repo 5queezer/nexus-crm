@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { resolveOpportunityView } from "@/lib/applications/workspace-view";
 
 describe("responsive opportunities view resolution", () => {
-  it("defaults untouched compact sessions to Focus and expanded sessions to Table", () => {
+  it("defaults untouched compact and expanded sessions to Focus", () => {
     expect(resolveOpportunityView(null, true, false)).toBe("focus");
-    expect(resolveOpportunityView(null, false, false)).toBe("table");
+    expect(resolveOpportunityView(null, false, false)).toBe("focus");
   });
 
   it("preserves explicit selection across resize", () => {

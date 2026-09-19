@@ -78,7 +78,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
     <div
       onClick={() => onEdit(app)}
       className={`
-        group cursor-pointer rounded-2xl border bg-white/85 p-3 shadow-sm backdrop-blur transition-all dark:bg-white/[0.035]
+        group min-w-0 cursor-pointer rounded-2xl border bg-white/85 p-3 shadow-sm backdrop-blur transition-all dark:bg-white/[0.035]
         ${
           isDragging
             ? "rotate-1 scale-105 border-indigo-400 shadow-xl opacity-95 dark:border-[#7170ff]"
@@ -87,10 +87,10 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
       `}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1">
             <span
-              className="truncate text-sm font-semibold text-slate-950 transition group-hover:text-indigo-700 dark:text-[#f7f8f8] dark:group-hover:text-[#828fff]"
+              className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-950 transition group-hover:text-indigo-700 dark:text-[#f7f8f8] dark:group-hover:text-[#828fff]"
               title={app.company}
             >
               {app.company}
@@ -137,17 +137,19 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
             </Link>
           </div>
           <div
-            className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400"
+            className="mt-0.5 line-clamp-2 wrap-anywhere text-xs text-slate-500 dark:text-slate-400"
             title={app.role}
           >
             {app.role}
           </div>
         </div>
-        <span
-          className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[app.status]}`}
-        >
-          {ts(app.status)}
-        </span>
+        {isDragging && (
+          <span
+            className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[app.status]}`}
+          >
+            {ts(app.status)}
+          </span>
+        )}
       </div>
 
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
@@ -187,7 +189,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
 
       {app.notes && (
         <div
-          className="mt-2 max-h-10 overflow-hidden text-xs text-gray-500 dark:text-gray-400"
+          className="mt-2 max-h-10 overflow-hidden wrap-anywhere text-xs text-gray-500 dark:text-gray-400"
           title={app.notes}
         >
           {app.notes}
@@ -242,14 +244,14 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({ id: status });
 
   return (
-    <div className="flex w-full flex-col rounded-2xl border border-slate-200/80 bg-white/55 p-3 shadow-sm backdrop-blur dark:border-white/8 dark:bg-white/2.5">
+    <section aria-label={ts(status)} className="flex min-w-0 flex-col">
       <div className="mb-3 flex items-center justify-between gap-2">
         <span
           className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}
         >
           {ts(status)}
         </span>
-        <span className="nexus-chip">{apps.length}</span>
+        <span className="text-xs tabular-nums text-slate-400 dark:text-slate-500">{apps.length}</span>
       </div>
 
       <div
@@ -261,7 +263,7 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
         `}
       >
         {apps.length === 0 && !isOver ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-8 text-center text-xs italic text-slate-400 dark:border-white/8 dark:bg-white/2 dark:text-slate-500">
+          <div className="px-3 py-8 text-center text-xs text-slate-400 dark:text-slate-500">
             {tk("empty")}
           </div>
         ) : (
@@ -270,7 +272,7 @@ function KanbanColumn({ status, apps, onEdit, isOver }: KanbanColumnProps) {
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -379,7 +381,7 @@ export function KanbanView({
         ) : (
           mobileStatuses.map((status) => (
             <section key={status} className="space-y-2">
-              <div className="sticky top-16 z-5 -mx-1 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-gray-700 dark:bg-gray-800/95">
+              <div className="sticky top-16 z-5 bg-white/95 py-2 backdrop-blur dark:bg-[#151618]/95">
                 <div className="flex items-center gap-2">
                   <span
                     className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${STATUS_COLORS[status]}`}
@@ -438,29 +440,23 @@ export function KanbanView({
         )}
       </div>
 
-      <div className="hidden lg:block">
+      <div className="@container hidden lg:block">
         <DndContext
           sensors={sensors}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <div className="-mx-1 overflow-x-auto px-1 pb-4">
-            <div className="flex flex-nowrap gap-4">
-              {STATUS_ORDER.map((status) => (
-                <div
-                  key={status}
-                  className="flex min-w-[240px] flex-1 flex-col"
-                >
-                  <KanbanColumn
-                    status={status}
-                    apps={grouped[status]}
-                    onEdit={onEdit}
-                    isOver={overColumnId === (status as UniqueIdentifier)}
-                  />
-                </div>
-              ))}
-            </div>
+          <div data-kanban-board className="grid min-w-0 grid-cols-3 items-start gap-x-4 gap-y-8 pb-4 @min-[1000px]:grid-cols-5">
+            {STATUS_ORDER.map((status) => (
+              <KanbanColumn
+                key={status}
+                status={status}
+                apps={grouped[status]}
+                onEdit={onEdit}
+                isOver={overColumnId === (status as UniqueIdentifier)}
+              />
+            ))}
           </div>
 
           <DragOverlay dropAnimation={null}>

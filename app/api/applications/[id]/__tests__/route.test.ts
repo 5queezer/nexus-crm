@@ -55,6 +55,19 @@ describe("PATCH /api/applications/:id event-first boundaries", () => {
     expect(mocks.updateApplication).toHaveBeenCalledWith("1", "owner-1", expect.not.objectContaining({ notes: expect.anything() }));
   });
 
+  it("accepts a bounded next action as editable current-state context", async () => {
+    const response = await PATCH(
+      request({ nextAction: "Wait for recruiter feedback" }),
+      context,
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.updateApplication).toHaveBeenCalledWith(
+      "1",
+      "owner-1",
+      expect.objectContaining({ nextAction: "Wait for recruiter feedback" }),
+    );
+  });
+
   it("rejects non-string summaries instead of coercing them", async () => {
     const response = await PATCH(request({ notes: { text: "not a summary" } }), context);
     expect(response.status).toBe(400);

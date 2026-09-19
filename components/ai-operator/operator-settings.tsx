@@ -29,7 +29,9 @@ type SettingsProps = {
 	credentials: Credential[];
 	onCredentialUpsert: (credential: Credential) => void;
 	onCredentialRemove: (provider: Credential["provider"]) => void;
-	onClose: () => void;
+	onClose?: () => void;
+	embedded?: boolean;
+	initialTab?: "models" | "connectors";
 };
 
 type ConnectorForm = {
@@ -69,9 +71,11 @@ export function OperatorSettings({
 	onCredentialUpsert,
 	onCredentialRemove,
 	onClose,
+	embedded = false,
+	initialTab = "models",
 }: SettingsProps) {
 	const t = useTranslations("ai_operator");
-	const [tab, setTab] = useState<"models" | "connectors">("models");
+	const [tab, setTab] = useState<"models" | "connectors">(initialTab);
 	const [connectors, setConnectors] = useState<Connector[]>([]);
 	const [connectorForm, setConnectorForm] =
 		useState<ConnectorForm>(EMPTY_CONNECTOR);
@@ -201,8 +205,8 @@ export function OperatorSettings({
 	}
 
 	return (
-		<div className="absolute inset-0 z-20 flex flex-col bg-white dark:bg-[#0f1011]">
-			<div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-5 dark:border-white/8">
+		<div className={embedded ? "bg-transparent" : "absolute inset-0 z-20 flex flex-col bg-white dark:bg-[#0f1011]"}>
+			{!embedded && <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-5 dark:border-white/8">
 				<div className="flex items-center gap-3">
 					<span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-sm font-semibold text-slate-900 dark:bg-indigo-500/10 dark:text-indigo-300">
 						<Settings2 className="h-4 w-4" />
@@ -223,9 +227,9 @@ export function OperatorSettings({
 				>
 					<X className="h-4 w-4" />
 				</button>
-			</div>
+			</div>}
 
-			<div className="flex shrink-0 gap-1 border-b border-slate-200 px-5 pt-3 dark:border-white/8">
+			{!embedded && <div className="flex shrink-0 gap-1 border-b border-slate-200 px-5 pt-3 dark:border-white/8">
 				{(["models", "connectors"] as const).map((item) => (
 					<button
 						key={item}
@@ -243,9 +247,9 @@ export function OperatorSettings({
 						{t(item === "models" ? "models_tab" : "connectors_tab")}
 					</button>
 				))}
-			</div>
+			</div>}
 
-			<div className="flex-1 overflow-y-auto p-5">
+			<div className={embedded ? "py-1" : "flex-1 overflow-y-auto p-5"}>
 				{error && (
 					<div
 						role="alert"

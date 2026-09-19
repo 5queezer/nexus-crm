@@ -302,7 +302,7 @@ const STRUCTURED_APPLICATION_FIELDS = [
   "officeDaysMin", "travelPercent", "visaSponsorship", "rightToWorkRequired",
   "timezoneOverlap", "salaryCurrency", "salaryPeriod", "salaryType", "atsName",
   "requisitionId", "jobCapturedAt", "jobVerifiedAt", "jobPostedAt", "jobClosedAt",
-  "jobContentHash", "jobLiveness", "jobSummary", "currentStage",
+  "jobContentHash", "jobLiveness", "jobSummary", "currentStage", "nextAction",
 ] as const;
 
 function structuredApplicationData(data: Record<string, unknown>): Record<string, unknown> {

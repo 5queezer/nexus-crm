@@ -4,6 +4,11 @@ prisma/dev.db
 prisma/dev.db-journal
 .env
 .env.production
+.env.local
+.env.*.local
+.dev-local/
 *.log
 uploads/
 .worktrees/
+.playwright-cli/
+output/playwright/

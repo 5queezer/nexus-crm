@@ -3,7 +3,10 @@ import type { DatabaseAdapter } from "@/lib/db/adapter";
 import {
   AGENT_LIMITS,
   buildAgentTools,
+	buildBulkAgentTools,
   buildBoundedHistory,
+	buildDomainReadTools,
+	buildFrontendAgentTools,
   buildMcpProposalAuditInput,
 } from "../runtime";
 import { AGENT_SYSTEM_PROMPT } from "../system-prompt";
@@ -37,6 +40,45 @@ describe("agent runtime policy", () => {
     ]);
     expect(Object.keys(tools).some((name) => name === "update_application")).toBe(false);
   });
+
+	it("exposes only bounded typed frontend capabilities", () => {
+		const tools = buildFrontendAgentTools({ userId: "user-a", runId: "run-1" });
+		expect(Object.keys(tools).sort()).toEqual([
+			"highlight_opportunity_field",
+			"navigate_to_page",
+			"open_bulk_review",
+			"open_opportunity",
+			"select_opportunities",
+			"set_opportunity_filters",
+		]);
+		expect(Object.keys(tools)).not.toContain("execute_javascript");
+	});
+
+	it("exposes bulk changes only as frozen review previews", () => {
+		const tools = buildBulkAgentTools({
+			userId: "user-a",
+			threadId: "thread-1",
+			runId: "run-1",
+		});
+		expect(Object.keys(tools)).toEqual(["preview_bulk_change"]);
+		expect(Object.keys(tools)).not.toContain("execute_bulk_change");
+	});
+
+	it("registers bounded owner-scoped document, email, and analytics reads", () => {
+		const tools = buildDomainReadTools({ userId: "user-a", runId: "run-1" });
+		expect(Object.keys(tools).sort()).toEqual([
+			"get_analytics_summary",
+			"list_documents",
+			"list_email_review",
+		]);
+	});
+
+	it("exposes the user's calendar timezone to analytics reads", () => {
+		const tools = buildDomainReadTools({ userId: "user-a", runId: "run-1" });
+		const schema = tools.get_analytics_summary.inputSchema as import("zod").ZodType;
+		expect(schema.parse({ start: "2026-09-19", end: "2026-09-19", timeZone: "America/Los_Angeles" }))
+			.toMatchObject({ timeZone: "America/Los_Angeles" });
+	});
 
   it("bounds steps, total runtime, and tool runtime", () => {
     expect(AGENT_LIMITS.maxSteps).toBeLessThanOrEqual(8);

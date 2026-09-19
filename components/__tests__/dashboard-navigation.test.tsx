@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Application } from "@/types";
+import type { OpportunityFilters } from "@/lib/applications/opportunity-filters";
 import { Dashboard } from "../dashboard";
 
 const { pushMock, captured } = vi.hoisted(() => ({
@@ -65,7 +66,9 @@ vi.mock("../onboarding-wizard", () => ({ OnboardingWizard: () => null }));
 vi.mock("../action-menu", () => ({ ActionMenu: () => null }));
 vi.mock("../workspace-toolbar", () => ({ WorkspaceToolbar: () => null }));
 vi.mock("../opportunity-filter-controls", () => ({
-  OpportunityFilterControls: () => null,
+  OpportunityFilterControls: ({ filters, onChange }: { filters: OpportunityFilters; onChange: (filters: OpportunityFilters) => void }) => (
+    <input aria-label="Search opportunities" value={filters.search} onChange={event => onChange({ ...filters, search: event.target.value })} />
+  ),
 }));
 vi.mock("../ai-operator/ai-operator", () => ({ AiOperator: () => null }));
 
@@ -99,6 +102,7 @@ const application: Application = {
 };
 
 async function renderDashboard() {
+  window.history.replaceState(null, "", "/?view=table");
   const user = userEvent.setup();
   render(
     <QueryClientProvider
@@ -125,7 +129,11 @@ async function renderDashboard() {
 
 describe("Dashboard detail navigation", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     pushMock.mockClear();
+    captured.table = {};
+    captured.palette = {};
+    captured.modal = {};
     const values = new Map<string, string>();
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => values.get(key) ?? null,
@@ -164,6 +172,19 @@ describe("Dashboard detail navigation", () => {
     act(() => captured.table.onEdit?.(application));
 
     expect(pushMock).toHaveBeenCalledWith("/applications/application-1/acme-engineer");
+  });
+
+  it("replaces live search changes instead of adding a history entry per character", async () => {
+    const user = await renderDashboard();
+    const push = vi.spyOn(window.history, "pushState");
+    const replace = vi.spyOn(window.history, "replaceState");
+
+    await user.type(await screen.findByRole("textbox", { name: "Search opportunities" }), "Acme");
+
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledTimes(4);
+    expect(new URLSearchParams(window.location.search).get("search")).toBe("Acme");
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("table");
   });
 
   it("pushes the detail route when the command palette selects an application", async () => {
