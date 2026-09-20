@@ -379,6 +379,12 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
       rating: z.number().min(1).max(5).nullable().optional().describe("Rating 1-5"),
       jobUrl: z.string().nullable().optional().describe("URL to job listing or opportunity page"),
       resumeId: z.string().nullable().optional().describe("Reactive Resume resume ID"),
+      archivedAt: z
+        .string()
+        .datetime()
+        .nullable()
+        .optional()
+        .describe("Archive timestamp (ISO 8601); null restores workspace visibility"),
       expectedUpdatedAt: z.string().datetime().optional().describe("Optimistic concurrency timestamp"),
       dryRun: z.boolean().default(false).describe("Validate and preview without writing"),
       ...structuredApplicationToolFields,
@@ -414,6 +420,13 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         if (data.rating !== undefined) update.rating = data.rating;
         if (data.jobUrl !== undefined) update.jobUrl = data.jobUrl?.slice(0, 2000) ?? null;
         if (data.resumeId !== undefined) update.resumeId = data.resumeId ?? null;
+        if (data.archivedAt !== undefined) {
+          const archivedAt = data.archivedAt === null ? null : new Date(data.archivedAt);
+          if (archivedAt !== null && Number.isNaN(archivedAt.getTime())) {
+            throw new Error("invalid_archived_at");
+          }
+          update.archivedAt = archivedAt;
+        }
         Object.assign(
           update,
           parseStructuredApplicationMetadata(data as unknown as Record<string, unknown>),

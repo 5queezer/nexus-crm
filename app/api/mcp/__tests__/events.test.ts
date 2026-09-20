@@ -148,6 +148,160 @@ describe("MCP application event contracts", () => {
     expect(text(result)).toMatchObject({ error: { code: "lifecycle_event_required", fields: ["status"] } });
   });
 
+  it("exposes archivedAt as an optional nullable ISO datetime in update_application", async () => {
+    const tools = await client.listTools();
+    const tool = tools.tools.find(({ name }) => name === "update_application");
+    const properties = (tool?.inputSchema as { properties?: Record<string, unknown> }).properties;
+
+    expect(properties).toHaveProperty("archivedAt");
+    expect(properties?.archivedAt).toMatchObject({
+      anyOf: [{ type: "string", format: "date-time" }, { type: "null" }],
+    });
+  });
+
+  it("archives and reads back an application without changing lifecycle data", async () => {
+    const archivedAt = "2026-09-20T12:57:21.000Z";
+    let stored = {
+      id: "app-1",
+      company: "Acme",
+      status: "interview",
+      appliedAt: new Date("2026-01-10T09:00:00.000Z"),
+      lastContact: new Date("2026-09-10T09:00:00.000Z"),
+      followUpAt: new Date("2026-09-25T09:00:00.000Z"),
+      currentStage: "technical",
+      notes: "Keep unchanged",
+      contacts: [{ id: "contact-1" }],
+      submissions: [{ id: "submission-1" }],
+      documents: [{ id: "document-1" }],
+      archivedAt: null,
+      updatedAt: new Date("2026-09-20T10:00:00.000Z"),
+    };
+    mocks.getApplication.mockImplementation(async () => stored);
+    mocks.updateApplication.mockImplementation(async (_id: string, _userId: string, update: Record<string, unknown>) => {
+      stored = { ...stored, ...update };
+      return stored;
+    });
+
+    const archive = await client.callTool({
+      name: "update_application",
+      arguments: { id: "app-1", archivedAt },
+    });
+    const readback = await client.callTool({ name: "get_application", arguments: { id: "app-1" } });
+
+    expect(archive.isError).not.toBe(true);
+    expect(mocks.updateApplication).toHaveBeenCalledWith(
+      "app-1",
+      "owner-1",
+      { archivedAt: new Date(archivedAt) },
+    );
+    expect(text(readback)).toMatchObject({
+      id: "app-1",
+      archivedAt,
+      status: "interview",
+      appliedAt: "2026-01-10T09:00:00.000Z",
+      lastContact: "2026-09-10T09:00:00.000Z",
+      followUpAt: "2026-09-25T09:00:00.000Z",
+      currentStage: "technical",
+      notes: "Keep unchanged",
+      contacts: [{ id: "contact-1" }],
+      submissions: [{ id: "submission-1" }],
+      documents: [{ id: "document-1" }],
+    });
+  });
+
+  it("unarchives by persisting archivedAt: null", async () => {
+    const current = { id: "app-1", archivedAt: new Date("2026-09-20T12:57:21.000Z"), updatedAt: new Date() };
+    mocks.getApplication.mockResolvedValue(current);
+    mocks.updateApplication.mockResolvedValue({ ...current, archivedAt: null });
+
+    const result = await client.callTool({
+      name: "update_application",
+      arguments: { id: "app-1", archivedAt: null },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(mocks.updateApplication).toHaveBeenCalledWith("app-1", "owner-1", { archivedAt: null });
+    expect(text(result)).toMatchObject({ archivedAt: null });
+  });
+
+  it("previews an archive without writing", async () => {
+    const archivedAt = "2026-09-20T12:57:21.000Z";
+    mocks.getApplication.mockResolvedValue({ id: "app-1", archivedAt: null, updatedAt: new Date() });
+
+    const result = await client.callTool({
+      name: "update_application",
+      arguments: { id: "app-1", archivedAt, dryRun: true },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(text(result)).toMatchObject({ dryRun: true, application: { archivedAt } });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid archive timestamp before mutation", async () => {
+    const result = await client.callTool({
+      name: "update_application",
+      arguments: { id: "app-1", archivedAt: "not-a-timestamp" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("does not archive an application outside the callers ownership scope", async () => {
+    mocks.getApplication.mockResolvedValue(null);
+
+    const result = await client.callTool({
+      name: "update_application",
+      arguments: { id: "foreign-app", archivedAt: "2026-09-20T12:57:21.000Z" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(text(result)).toEqual({ error: { code: "not_found" } });
+    expect(mocks.getApplication).toHaveBeenCalledWith(
+      "foreign-app",
+      "owner-1",
+      { demoVisibility: "exclude" },
+    );
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("keeps expectedUpdatedAt conflicts enforced for archival updates", async () => {
+    mocks.getApplication.mockResolvedValue({
+      id: "app-1",
+      archivedAt: null,
+      updatedAt: new Date("2026-09-20T10:00:00.000Z"),
+    });
+
+    const result = await client.callTool({
+      name: "update_application",
+      arguments: {
+        id: "app-1",
+        archivedAt: "2026-09-20T12:57:21.000Z",
+        expectedUpdatedAt: "2026-09-20T09:00:00.000Z",
+        dryRun: true,
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(text(result)).toEqual({ error: { code: "conflict" } });
+    expect(mocks.updateApplication).not.toHaveBeenCalled();
+  });
+
+  it("keeps existing non-lifecycle update behavior unchanged", async () => {
+    const current = { id: "app-1", company: "Acme", archivedAt: null, updatedAt: new Date() };
+    mocks.getApplication.mockResolvedValue(current);
+    mocks.updateApplication.mockResolvedValue({ ...current, company: "Renamed" });
+
+    const result = await client.callTool({
+      name: "update_application",
+      arguments: { id: "app-1", company: "Renamed" },
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(mocks.updateApplication).toHaveBeenCalledWith("app-1", "owner-1", { company: "Renamed" });
+  });
+
   it("describes the accepted event metadata schema", async () => {
     const tools = await client.listTools();
     const tool = tools.tools.find(({ name }) => name === "record_application_event");

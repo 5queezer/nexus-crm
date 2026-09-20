@@ -325,6 +325,7 @@ describe("MCP demo application boundaries", () => {
 
   const mutationCases = [
     { name: "update", tool: "update_application", args: { id: "demo-app", company: "Changed" }, mutation: "updateApplication" },
+    { name: "archive", tool: "update_application", args: { id: "demo-app", archivedAt: "2026-09-20T12:57:21.000Z" }, mutation: "updateApplication" },
     { name: "delete", tool: "delete_application", args: { id: "demo-app" }, mutation: "deleteApplication" },
     { name: "event", tool: "record_application_event", args: { applicationId: "demo-app", type: "note_added", metadata: { note: "x" } }, mutation: "recordApplicationEvent" },
     { name: "note", tool: "append_application_note", args: { applicationId: "demo-app", note: "x", occurredAt: "2026-08-10T10:00:00.000Z", idempotencyKey: "demo-note" }, mutation: "recordApplicationEvent" },
