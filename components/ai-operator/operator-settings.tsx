@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
 	Cable,
-	Check,
 	ChevronDown,
 	ChevronUp,
 	KeyRound,
@@ -23,6 +22,7 @@ import {
 	McpTool,
 	ProviderOption,
 } from "./types";
+import { ProviderSettings } from "./provider-settings";
 
 type SettingsProps = {
 	providers: ProviderOption[];
@@ -32,6 +32,7 @@ type SettingsProps = {
 	onClose?: () => void;
 	embedded?: boolean;
 	initialTab?: "models" | "connectors";
+	onDirtyChange?: (dirty: boolean) => void;
 };
 
 type ConnectorForm = {
@@ -53,18 +54,6 @@ function inputClass() {
 	return "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-3 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-white/[0.04] dark:text-white dark:placeholder:text-slate-600";
 }
 
-function includeConfiguredModel(
-	items: ProviderOption["models"],
-	configuredModel?: string,
-): ProviderOption["models"] {
-	return configuredModel && !items.some((item) => item.id === configuredModel)
-		? [
-				{ id: configuredModel, label: configuredModel, description: "" },
-				...items,
-			]
-		: items;
-}
-
 export function OperatorSettings({
 	providers,
 	credentials,
@@ -73,19 +62,72 @@ export function OperatorSettings({
 	onClose,
 	embedded = false,
 	initialTab = "models",
+	onDirtyChange,
 }: SettingsProps) {
 	const t = useTranslations("ai_operator");
+	const settingsT = useTranslations("settings.workspace");
 	const [tab, setTab] = useState<"models" | "connectors">(initialTab);
 	const [connectors, setConnectors] = useState<Connector[]>([]);
 	const [connectorForm, setConnectorForm] =
 		useState<ConnectorForm>(EMPTY_CONNECTOR);
+	const [connectorBaseline, setConnectorBaseline] =
+		useState<ConnectorForm>(EMPTY_CONNECTOR);
+	const [connectorEditorOpen, setConnectorEditorOpen] = useState(false);
 	const [expandedConnector, setExpandedConnector] = useState<string | null>(
 		null,
 	);
 	const [tools, setTools] = useState<Record<string, McpTool[]>>({});
 	const [loadingTools, setLoadingTools] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
+	const connectorMutationPending = useRef(false);
 	const [error, setError] = useState("");
+	const [providerDirty, setProviderDirty] = useState(false);
+	const connectorDirty = useMemo(
+		() => connectorEditorOpen && (
+			connectorForm.name !== connectorBaseline.name ||
+			connectorForm.url !== connectorBaseline.url ||
+			connectorForm.authorization.length > 0 ||
+			connectorForm.enabled !== connectorBaseline.enabled
+		),
+		[connectorBaseline, connectorEditorOpen, connectorForm],
+	);
+
+	useEffect(
+		() => onDirtyChange?.(providerDirty || connectorDirty),
+		[connectorDirty, onDirtyChange, providerDirty],
+	);
+	useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
+	function editConnector(form: ConnectorForm) {
+		if (busy || connectorMutationPending.current) return;
+		if (connectorDirty && !window.confirm(settingsT("unsaved_changes"))) return;
+		setConnectorForm(form);
+		setConnectorBaseline(form);
+		setConnectorEditorOpen(true);
+	}
+
+	function closeConnectorEditor(force = false) {
+		if ((busy || connectorMutationPending.current) && !force) return;
+		setConnectorForm(EMPTY_CONNECTOR);
+		setConnectorBaseline(EMPTY_CONNECTOR);
+		setConnectorEditorOpen(false);
+	}
+
+	function changeTab(next: "models" | "connectors") {
+		if (busy || connectorMutationPending.current) return;
+		if (next === tab) return;
+		if ((providerDirty || connectorDirty) && !window.confirm(settingsT("unsaved_changes"))) return;
+		setProviderDirty(false);
+		closeConnectorEditor();
+		setTab(next);
+		setError("");
+	}
+
+	function closeSettings() {
+		if (busy || connectorMutationPending.current) return;
+		if ((providerDirty || connectorDirty) && !window.confirm(settingsT("unsaved_changes"))) return;
+		onClose?.();
+	}
 
 	useEffect(() => {
 		if (tab !== "connectors") return;
@@ -139,7 +181,9 @@ export function OperatorSettings({
 	}
 
 	async function saveConnector() {
+		if (busy || connectorMutationPending.current) return;
 		if (!connectorForm.name.trim() || !connectorForm.url.trim()) return;
+		connectorMutationPending.current = true;
 		setBusy("connector");
 		setError("");
 		try {
@@ -176,15 +220,18 @@ export function OperatorSettings({
 				delete next[result.connector.id];
 				return next;
 			});
-			setConnectorForm(EMPTY_CONNECTOR);
+			closeConnectorEditor(true);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : t("error_generic"));
 		} finally {
+			connectorMutationPending.current = false;
 			setBusy(null);
 		}
 	}
 
 	async function deleteConnector(id: string) {
+		if (busy || connectorMutationPending.current) return;
+		connectorMutationPending.current = true;
 		setBusy(id);
 		setError("");
 		try {
@@ -196,10 +243,11 @@ export function OperatorSettings({
 				return next;
 			});
 			if (expandedConnector === id) setExpandedConnector(null);
-			if (connectorForm.id === id) setConnectorForm(EMPTY_CONNECTOR);
+			if (connectorForm.id === id) closeConnectorEditor(true);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : t("error_generic"));
 		} finally {
+			connectorMutationPending.current = false;
 			setBusy(null);
 		}
 	}
@@ -221,7 +269,8 @@ export function OperatorSettings({
 					</div>
 				</div>
 				<button
-					onClick={onClose}
+					onClick={closeSettings}
+					disabled={Boolean(busy)}
 					className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
 					aria-label={t("close")}
 				>
@@ -233,10 +282,8 @@ export function OperatorSettings({
 				{(["models", "connectors"] as const).map((item) => (
 					<button
 						key={item}
-						onClick={() => {
-							setTab(item);
-							setError("");
-						}}
+						onClick={() => changeTab(item)}
+						disabled={Boolean(busy)}
 						className={`flex items-center gap-2 border-b-2 px-3 pb-3 text-sm font-medium transition ${tab === item ? "border-indigo-500 text-indigo-600 dark:text-indigo-300" : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}
 					>
 						{item === "models" ? (
@@ -259,55 +306,63 @@ export function OperatorSettings({
 					</div>
 				)}
 				{tab === "models" ? (
-					<div className="mx-auto max-w-xl space-y-4">
-						<div>
+					<div className="space-y-4">
+						{!embedded && <div>
 							<h3 className="text-sm font-semibold text-slate-900 dark:text-white">
 								{t("models_title")}
 							</h3>
 							<p className="mt-1 text-xs leading-5 text-slate-500">
 								{t("models_description")}
 							</p>
-						</div>
-						{providers.map((provider) => (
-							<CredentialCard
-								key={provider.id}
-								provider={provider}
-								credential={credentials.find(
-									(item) => item.provider === provider.id,
-								)}
-								onSaved={onCredentialUpsert}
-								onDeleted={() => onCredentialRemove(provider.id)}
-							/>
-						))}
+						</div>}
+						<ProviderSettings
+							providers={providers}
+							credentials={credentials}
+							onSaved={onCredentialUpsert}
+							onDeleted={onCredentialRemove}
+							onDirtyChange={setProviderDirty}
+						/>
 					</div>
 				) : (
-					<div className="mx-auto max-w-xl space-y-5">
-						<div>
+					<div className={embedded ? "space-y-5" : "mx-auto max-w-xl space-y-5"}>
+						{!embedded && <div>
 							<h3 className="text-sm font-semibold text-slate-900 dark:text-white">
 								{t("connectors_title")}
 							</h3>
 							<p className="mt-1 text-xs leading-5 text-slate-500">
 								{t("connectors_description")}
 							</p>
-						</div>
-						<div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/8 dark:bg-white/[0.025]">
+						</div>}
+						{!connectorEditorOpen && (
+							<button
+								type="button"
+								onClick={() => editConnector(EMPTY_CONNECTOR)}
+								disabled={Boolean(busy)}
+								className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/5"
+							>
+								<Plus className="h-3.5 w-3.5" />{t("add_connector")}
+							</button>
+						)}
+						{connectorEditorOpen && <div
+							className="border-y border-slate-200 py-4 dark:border-white/8"
+							onKeyDown={(event) => {
+								if (event.key !== "Escape" || busy === "connector") return;
+								event.preventDefault();
+								event.stopPropagation();
+								closeConnectorEditor();
+							}}
+						>
 							<div className="mb-3 flex items-center justify-between">
 								<span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
 									{connectorForm.id ? t("edit_connector") : t("add_connector")}
 								</span>
-								{connectorForm.id && (
-									<button
-										onClick={() => setConnectorForm(EMPTY_CONNECTOR)}
-										className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white"
-									>
-										{t("cancel")}
-									</button>
-								)}
 							</div>
 							<div className="grid gap-3 sm:grid-cols-2">
-								<input
+								<label className="space-y-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+									<span>{t("connector_name")}</span><input
 									aria-label={t("connector_name")}
 									className={inputClass()}
+									disabled={Boolean(busy)}
 									placeholder={t("connector_name")}
 									value={connectorForm.name}
 									onChange={(event) =>
@@ -316,10 +371,13 @@ export function OperatorSettings({
 											name: event.target.value,
 										}))
 									}
-								/>
-								<input
+									/>
+								</label>
+								<label className="space-y-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+									<span>{t("connector_url")}</span><input
 									aria-label={t("connector_url")}
 									className={inputClass()}
+									disabled={Boolean(busy)}
 									placeholder="https://mcp.example.com"
 									type="url"
 									value={connectorForm.url}
@@ -329,15 +387,18 @@ export function OperatorSettings({
 											url: event.target.value,
 										}))
 									}
-								/>
+									/>
+								</label>
 							</div>
-							<input
+							<label className="mt-3 block space-y-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+								<span>{connectorForm.id ? t("authorization_keep") : t("authorization_optional")}</span><input
 								aria-label={
 									connectorForm.id
 										? t("authorization_keep")
 										: t("authorization_optional")
 								}
-								className={`${inputClass()} mt-3`}
+								className={inputClass()}
+								disabled={Boolean(busy)}
 								placeholder={
 									connectorForm.id
 										? t("authorization_keep")
@@ -351,11 +412,13 @@ export function OperatorSettings({
 										authorization: event.target.value,
 									}))
 								}
-							/>
+								/>
+							</label>
 							<div className="mt-3 flex items-center justify-between">
 								<label className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
 									<input
 										type="checkbox"
+										disabled={Boolean(busy)}
 										checked={connectorForm.enabled}
 										onChange={(event) =>
 											setConnectorForm((current) => ({
@@ -367,15 +430,20 @@ export function OperatorSettings({
 									/>
 									{t("enabled")}
 								</label>
-								<button
+								<div className="flex gap-2"><button
+									type="button"
+									onClick={() => closeConnectorEditor()}
+									disabled={Boolean(busy)}
+									className="min-h-10 rounded-lg px-3 text-xs font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:text-slate-300 dark:hover:bg-white/5"
+								>{t("cancel")}</button><button
 									aria-label={t("save_connector")}
 									onClick={saveConnector}
 									disabled={
-										busy === "connector" ||
+										Boolean(busy) ||
 										!connectorForm.name.trim() ||
 										!connectorForm.url.trim()
 									}
-									className="flex h-9 items-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+									className="flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white transition hover:bg-indigo-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-40 dark:bg-indigo-500 dark:hover:bg-indigo-400"
 								>
 									{busy === "connector" ? (
 										<Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -385,20 +453,17 @@ export function OperatorSettings({
 										<Plus className="h-3.5 w-3.5" />
 									)}
 									{t("save")}
-								</button>
+								</button></div>
 							</div>
-						</div>
-						<div className="space-y-2">
+						</div>}
+						<div className="divide-y divide-slate-200 border-y border-slate-200 dark:divide-white/8 dark:border-white/8">
 							{connectors.length === 0 && (
-								<div className="rounded-2xl border border-dashed border-slate-200 px-5 py-8 text-center text-xs text-slate-500 dark:border-white/10">
+								<div className="py-5 text-sm text-slate-500 dark:text-slate-400">
 									{t("connectors_empty")}
 								</div>
 							)}
 							{connectors.map((connector) => (
-								<div
-									key={connector.id}
-									className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-white/8 dark:bg-white/[0.02]"
-								>
+								<div key={connector.id}>
 									<div className="flex items-center gap-3 p-3">
 										<span
 											className={`h-2 w-2 rounded-full ${!connector.enabled ? "bg-slate-300 dark:bg-slate-700" : connector.lastStatus === "failed" ? "bg-red-500" : connector.lastStatus === "healthy" ? "bg-emerald-500" : "bg-amber-400"}`}
@@ -442,15 +507,16 @@ export function OperatorSettings({
 											aria-label={t("edit_connector_named", {
 												name: connector.name,
 											})}
-											onClick={() =>
-												setConnectorForm({
+										onClick={() =>
+											editConnector({
 													id: connector.id,
 													name: connector.name,
 													url: connector.url,
 													authorization: "",
 													enabled: connector.enabled,
 												})
-											}
+										}
+										disabled={Boolean(busy)}
 											className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
 										>
 											{t("edit")}
@@ -460,7 +526,7 @@ export function OperatorSettings({
 												name: connector.name,
 											})}
 											onClick={() => deleteConnector(connector.id)}
-											disabled={busy === connector.id}
+										disabled={Boolean(busy)}
 											className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
 										>
 											<Trash2 className="h-3.5 w-3.5" />
@@ -501,343 +567,6 @@ export function OperatorSettings({
 					</div>
 				)}
 			</div>
-		</div>
-	);
-}
-
-function CredentialCard({
-	provider,
-	credential,
-	onSaved,
-	onDeleted,
-}: {
-	provider: ProviderOption;
-	credential?: Credential;
-	onSaved: (credential: Credential) => void;
-	onDeleted: () => void;
-}) {
-	const t = useTranslations("ai_operator");
-	const [model, setModel] = useState(
-		credential?.defaultModel ?? provider.models[0]?.id ?? "",
-	);
-	const [manualModel, setManualModel] = useState(
-		credential?.defaultModel ?? "",
-	);
-	const configuredModel = credential?.defaultModel;
-	const [models, setModels] = useState(() =>
-		includeConfiguredModel(provider.models, configuredModel),
-	);
-	const [apiKey, setApiKey] = useState("");
-	const apiKeyRef = useRef("");
-	const discoveredKeyRef = useRef<string | null>(null);
-	const discoveryGeneration = useRef(0);
-	const [editing, setEditing] = useState(!credential);
-	const [busy, setBusy] = useState(false);
-	const [loadingModels, setLoadingModels] = useState(false);
-	const [error, setError] = useState("");
-	const selectedModel = useMemo(
-		() => models.find((item) => item.id === model),
-		[model, models],
-	);
-	useEffect(() => {
-		setModel(configuredModel ?? provider.models[0]?.id ?? "");
-		setManualModel(configuredModel ?? "");
-		setModels(includeConfiguredModel(provider.models, configuredModel));
-		setApiKey("");
-		apiKeyRef.current = "";
-		discoveredKeyRef.current = null;
-		discoveryGeneration.current += 1;
-	}, [provider.id, provider.models, configuredModel]);
-
-	async function loadModels() {
-		const requestedKey = apiKey.trim();
-		const generation = ++discoveryGeneration.current;
-		setLoadingModels(true);
-		setError("");
-		try {
-			const response = await apiJson<{ models: ProviderOption["models"] }>(
-				"/api/agent/provider-models",
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						provider: provider.id,
-						...(requestedKey ? { apiKey: requestedKey } : {}),
-					}),
-				},
-			);
-			if (
-				generation !== discoveryGeneration.current ||
-				apiKeyRef.current.trim() !== requestedKey
-			)
-				return;
-			const nextModels = includeConfiguredModel(
-				response.models,
-				configuredModel,
-			);
-			discoveredKeyRef.current = requestedKey;
-			setModels(nextModels);
-			if (nextModels.length > 0) {
-				setManualModel("");
-				setModel((current) =>
-					nextModels.some((item) => item.id === current)
-						? current
-						: (nextModels[0]?.id ?? ""),
-				);
-			}
-		} catch (reason) {
-			if (
-				generation !== discoveryGeneration.current ||
-				apiKeyRef.current.trim() !== requestedKey
-			)
-				return;
-			setError(reason instanceof Error ? reason.message : t("error_generic"));
-		} finally {
-			if (generation === discoveryGeneration.current) setLoadingModels(false);
-		}
-	}
-
-	async function save() {
-		const resolvedModel = models.length === 0 ? manualModel.trim() : model;
-		if (!resolvedModel) {
-			setError(t("model_placeholder"));
-			return;
-		}
-		if (!credential && apiKey.trim().length < 8) {
-			setError(t("api_key_placeholder"));
-			return;
-		}
-
-		setBusy(true);
-		setError("");
-		try {
-			const result = await apiJson<{ credential: Credential }>(
-				"/api/agent/credentials",
-				{
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						provider: provider.id,
-						model: resolvedModel,
-						...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-					}),
-				},
-			);
-			onSaved(result.credential);
-			setApiKey("");
-			apiKeyRef.current = "";
-			discoveredKeyRef.current = null;
-			discoveryGeneration.current += 1;
-			setEditing(false);
-			setManualModel(result.credential.defaultModel);
-			setModel(result.credential.defaultModel);
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : t("error_generic"));
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	async function remove() {
-		setBusy(true);
-		setError("");
-		try {
-			await apiJson<void>(`/api/agent/credentials?provider=${provider.id}`, {
-				method: "DELETE",
-			});
-			onDeleted();
-			apiKeyRef.current = "";
-			discoveredKeyRef.current = null;
-			discoveryGeneration.current += 1;
-			setEditing(true);
-			setModel("");
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : t("error_generic"));
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	return (
-		<div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/8 dark:bg-white/[0.025]">
-			<div className="flex items-start justify-between gap-3">
-				<div className="flex items-center gap-3">
-					<span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-900 dark:bg-white/5 dark:text-white">
-						{provider.label.slice(0, 1)}
-					</span>
-					<div>
-						<div className="flex items-center gap-2">
-							<h4 className="text-sm font-semibold text-slate-900 dark:text-white">
-								{provider.label}
-							</h4>
-							{credential && (
-								<span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-									<Check className="h-3 w-3" />
-									{t("configured")}
-								</span>
-							)}
-						</div>
-						<p className="mt-0.5 text-[11px] text-slate-500">
-							{credential
-								? `${credential.defaultModel} · ${credential.keyHint}`
-								: t("not_configured")}
-						</p>
-					</div>
-				</div>
-				{credential && !editing && (
-					<button
-						onClick={() => setEditing(true)}
-						className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
-					>
-						{t("edit")}
-					</button>
-				)}
-			</div>
-			{editing && (
-				<div className="mt-4 space-y-3">
-					<div className="flex items-center gap-2">
-						<select
-							aria-label={t("model_label", { provider: provider.label })}
-							className={inputClass()}
-							value={model}
-							onChange={(event) => setModel(event.target.value)}
-						>
-							{models.length > 0 ? (
-								models.map((item) => (
-									<option key={item.id} value={item.id}>
-										{item.label}
-									</option>
-								))
-							) : (
-								<option value="">{t("no_models")}</option>
-							)}
-						</select>
-						<button
-							type="button"
-							aria-label={t("refresh_models")}
-							onClick={() => void loadModels()}
-							disabled={loadingModels || busy}
-							className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-white/10 dark:text-slate-200"
-						>
-							{loadingModels ? (
-								<Loader2 className="h-3.5 w-3.5 animate-spin" />
-							) : (
-								<RefreshCw className="h-3.5 w-3.5" />
-							)}
-							{t("refresh")}
-						</button>
-					</div>
-					{selectedModel ? (
-						<p className="mt-1.5 text-[11px] text-slate-500">
-							{selectedModel.description}
-						</p>
-					) : models.length > 0 ? null : (
-						<input
-							aria-label={t("model_label", { provider: provider.label })}
-							className={inputClass()}
-							value={manualModel}
-							onChange={(event) => setManualModel(event.target.value)}
-							placeholder={t("model_placeholder", { provider: provider.label })}
-						/>
-					)}
-				</div>
-			)}
-			{editing && (
-				<>
-					<input
-						aria-label={t("api_key_label", { provider: provider.label })}
-						className={inputClass()}
-						type="password"
-						value={apiKey}
-						onChange={(event) => {
-							const nextKey = event.target.value;
-							apiKeyRef.current = nextKey;
-							discoveryGeneration.current += 1;
-							setLoadingModels(false);
-							if (
-								discoveredKeyRef.current !== null &&
-								nextKey.trim() !== discoveredKeyRef.current
-							) {
-								const defaultModels = includeConfiguredModel(
-									provider.models,
-									configuredModel,
-								);
-								discoveredKeyRef.current = null;
-								setModels(defaultModels);
-								setModel(configuredModel ?? defaultModels[0]?.id ?? "");
-								setManualModel(configuredModel ?? "");
-							}
-							setApiKey(nextKey);
-						}}
-						placeholder={t("api_key_placeholder")}
-						autoComplete="off"
-					/>
-					<button
-						type="button"
-						aria-label={t("refresh_models")}
-						onClick={() => void loadModels()}
-						disabled={loadingModels || busy || apiKey.trim().length === 0}
-						className="mt-2 h-10 rounded-xl bg-slate-200 px-3 text-xs font-semibold text-slate-700 disabled:opacity-40 dark:bg-white/10 dark:text-slate-200"
-					>
-						{t("load_models")}
-					</button>
-				</>
-			)}
-			{!editing && (
-				<p className="mt-4 text-[11px] text-slate-500">{t("manual_hint")}</p>
-			)}
-			{editing && (
-				<>
-					{error && (
-						<p role="alert" className="text-xs text-red-600 dark:text-red-400">
-							{error}
-						</p>
-					)}
-					<div className="flex items-center justify-between">
-						<div>
-							{credential && (
-								<button
-									onClick={remove}
-									disabled={busy}
-									className="flex items-center gap-1.5 text-xs font-medium text-red-600 hover:text-red-700"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-									{t("remove")}
-								</button>
-							)}
-						</div>
-						<div className="flex gap-2">
-							{credential && (
-								<button
-									onClick={() => setEditing(false)}
-									className="h-9 rounded-xl px-3 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
-								>
-									{t("cancel")}
-								</button>
-							)}
-							<button
-								onClick={save}
-								disabled={
-									busy ||
-									(models.length > 0
-										? !model
-										: manualModel.trim().length < 1) ||
-									loadingModels ||
-									(!credential && apiKey.trim().length < 8)
-								}
-								className="flex h-9 items-center gap-2 rounded-xl bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-40 dark:bg-indigo-500"
-							>
-								{busy ? (
-									<Loader2 className="h-3.5 w-3.5 animate-spin" />
-								) : (
-									<Save className="h-3.5 w-3.5" />
-								)}
-								{t("save")}
-							</button>
-						</div>
-					</div>
-				</>
-			)}
 		</div>
 	);
 }

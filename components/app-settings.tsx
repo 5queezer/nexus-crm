@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 
 const SETTINGS_KEY = "appSettings";
@@ -31,28 +31,49 @@ export function loadAppSettings(): AppSettings {
 export function saveAppSettings(settings: AppSettings) {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    return true;
   } catch {
-    // Ignore storage failures.
+    return false;
   }
 }
 
-export function AppSettingsPanel() {
+interface AppSettingsPanelProps {
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+export function AppSettingsPanel({ onDirtyChange }: AppSettingsPanelProps = {}) {
   const t = useTranslations("settings");
   const ta = useTranslations("actions");
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
+  const [savedSettings, setSavedSettings] = useState(settings);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const isDirty =
+    settings.appTitle !== savedSettings.appTitle ||
+    settings.appSubtitle !== savedSettings.appSubtitle ||
+    settings.shareOwnerName !== savedSettings.shareOwnerName;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const handleChange = useCallback(
     (key: keyof AppSettings, value: string) => {
       setSettings((prev) => ({ ...prev, [key]: value }));
       setSaved(false);
+      setSaveError(false);
     },
     []
   );
 
   function handleSave() {
-    saveAppSettings(settings);
+    if (!saveAppSettings(settings)) {
+      setSaveError(true);
+      return;
+    }
+    setSavedSettings(settings);
     setSaved(true);
+    setSaveError(false);
     // Update document title immediately
     if (settings.appTitle) {
       document.title = settings.appTitle;
@@ -61,16 +82,8 @@ export function AppSettingsPanel() {
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-      <div className="border-b border-gray-100 px-6 py-4 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-          {t("appearance.title")}
-        </h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {t("appearance.description")}
-        </p>
-      </div>
-      <div className="space-y-5 px-6 py-5">
+    <section className="space-y-5">
+      <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label
             htmlFor="appTitle"
@@ -84,7 +97,7 @@ export function AppSettingsPanel() {
             value={settings.appTitle}
             onChange={(e) => handleChange("appTitle", e.target.value)}
             placeholder="Nexus CRM"
-            className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            className="mt-1 block min-h-11 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           />
         </div>
         <div>
@@ -100,10 +113,10 @@ export function AppSettingsPanel() {
             value={settings.appSubtitle}
             onChange={(e) => handleChange("appSubtitle", e.target.value)}
             placeholder={t("appearance.app_subtitle_placeholder")}
-            className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            className="mt-1 block min-h-11 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           />
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <label
             htmlFor="shareOwnerName"
             className="block text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -116,23 +129,29 @@ export function AppSettingsPanel() {
             value={settings.shareOwnerName}
             onChange={(e) => handleChange("shareOwnerName", e.target.value)}
             placeholder={t("appearance.share_owner_placeholder")}
-            className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            className="mt-1 block min-h-11 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           />
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             {t("appearance.share_owner_hint")}
           </p>
         </div>
       </div>
-      <div className="flex items-center gap-3 border-t border-gray-100 px-6 py-4 dark:border-gray-700">
+      <div className="flex flex-wrap items-center gap-3 pt-1">
         <button
+          type="button"
           onClick={handleSave}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          className="min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:ring-offset-gray-900"
         >
           {ta("save")}
         </button>
         {saved && (
           <span className="text-sm text-green-600 dark:text-green-400">
             {t("appearance.saved")}
+          </span>
+        )}
+        {saveError && (
+          <span role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {t("appearance.save_error")}
           </span>
         )}
       </div>

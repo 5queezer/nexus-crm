@@ -5,6 +5,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { AiOperator } from "@/components/ai-operator/ai-operator";
 import { AssistantContextProvider } from "@/components/ai-operator/context";
+import { HistoryNavigationGuard } from "@/components/history-navigation-guard";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -23,6 +24,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <HistoryNavigationGuard />
       <AssistantContextProvider>
         {children}
         {workspace && <AiOperator hideCompactLauncher />}

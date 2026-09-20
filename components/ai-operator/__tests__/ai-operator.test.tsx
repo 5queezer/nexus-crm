@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -268,9 +268,13 @@ describe("AiOperator", () => {
 		expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
 		await user.click(screen.getByRole("button", { name: "Configure model" }));
 		expect(await screen.findByText("Bring your own model")).toBeTruthy();
-		expect(
-			screen.getByPlaceholderText("Paste API key").getAttribute("type"),
-		).toBe("password");
+		await user.click(screen.getByRole("button", { name: "Connect OpenAI" }));
+		const apiKey = screen.getByPlaceholderText("Paste API key");
+		expect(apiKey.getAttribute("type")).toBe("password");
+		await user.type(apiKey, "discard-this-secret");
+		await user.keyboard("{Escape}");
+		expect(screen.getByText("Bring your own model")).toBeTruthy();
+		expect(screen.queryByDisplayValue("discard-this-secret")).toBeNull();
 	});
 
 	it("traps focus in the dialog and restores it to the launcher on close", async () => {
@@ -657,13 +661,8 @@ describe("AiOperator", () => {
 		);
 		await user.click(screen.getByRole("button", { name: "Connectors" }));
 
-		expect(
-			await screen.findByRole("textbox", { name: "Connector name" }),
-		).toBeTruthy();
-		expect(screen.getByRole("textbox", { name: "Connector URL" })).toBeTruthy();
-		expect(
-			screen.getByLabelText("Authorization header (optional)"),
-		).toBeTruthy();
+		expect(await screen.findByRole("button", { name: "Add connector" })).toBeTruthy();
+		expect(screen.queryByRole("textbox", { name: "Connector name" })).toBeNull();
 		let expander = await screen.findByRole("button", {
 			name: "Show tools for Research tools",
 		});
@@ -679,6 +678,8 @@ describe("AiOperator", () => {
 		await user.click(
 			screen.getByRole("button", { name: "Edit Research tools" }),
 		);
+		expect(screen.getByRole("textbox", { name: "Connector URL" })).toBeTruthy();
+		expect(screen.getByLabelText("New authorization header (leave blank to keep)")).toBeTruthy();
 		const nameInput = screen.getByRole("textbox", { name: "Connector name" });
 		await user.clear(nameInput);
 		await user.type(nameInput, "Updated tools");
@@ -778,6 +779,8 @@ describe("AiOperator", () => {
 				});
 			}
 			if (url.endsWith("/api/agent/threads")) return json({ threads: [] });
+			if (url.endsWith("/api/agent/provider-models"))
+				return json({ models: [{ id: "claude", label: "Claude", description: "" }] });
 			return json({ error: "not found" }, 404);
 		});
 		const user = userEvent.setup();
@@ -786,10 +789,13 @@ describe("AiOperator", () => {
 		await user.click(
 			await screen.findByRole("button", { name: "Configure model" }),
 		);
+		await user.click(screen.getByRole("button", { name: "Connect Anthropic" }));
 		const anthropicKey = screen.getByLabelText("API key for Anthropic");
 		await user.type(anthropicKey, "anthropic-key-1234");
+		await user.click(screen.getByRole("button", { name: "Check and discover models" }));
+		await screen.findByText("Models loaded. Review your choice, then save.");
 		await user.click(
-			within(anthropicKey.parentElement!).getByRole("button", { name: "Save" }),
+			screen.getByRole("button", { name: "Save" }),
 		);
 		await user.keyboard("{Escape}");
 
@@ -844,10 +850,11 @@ describe("AiOperator", () => {
 		await user.click(
 			await screen.findByRole("button", { name: "Configure model" }),
 		);
+		await user.click(screen.getByRole("button", { name: "Connect OpenAI" }));
 		const keyInput = screen.getByLabelText("API key for OpenAI");
 		await user.type(keyInput, "key-aaaa-1234");
 		await user.click(
-			screen.getAllByRole("button", { name: "Refresh model list" }).at(-1)!,
+			screen.getByRole("button", { name: "Check and discover models" }),
 		);
 		expect(
 			await screen.findByRole("option", { name: "Key A model" }),
@@ -888,14 +895,15 @@ describe("AiOperator", () => {
 		await user.click(
 			await screen.findByRole("button", { name: "Configure model" }),
 		);
+		await user.click(screen.getByRole("button", { name: "Connect OpenAI" }));
 		const modelInput = screen.getByRole("textbox", {
-			name: "Model for OpenAI",
+			name: "Manual model ID for OpenAI",
 		});
 		const keyInput = screen.getByLabelText("API key for OpenAI");
 		await user.type(modelInput, "manual-model");
 		await user.type(keyInput, "key-aaaa-1234");
 		await user.click(
-			screen.getAllByRole("button", { name: "Refresh model list" }).at(-1)!,
+			screen.getByRole("button", { name: "Check and discover models" }),
 		);
 		expect(
 			screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
@@ -967,7 +975,7 @@ describe("AiOperator", () => {
 			name: "Operator settings",
 		});
 		await user.click(settingsButtons.at(-1)!);
-		await user.click(await screen.findByRole("button", { name: "Edit" }));
+		await user.click(await screen.findByRole("button", { name: "Manage OpenAI" }));
 		expect(
 			(
 				screen.getByRole("combobox", {
