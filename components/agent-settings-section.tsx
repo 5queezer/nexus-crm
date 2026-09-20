@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { OperatorSettings } from "./ai-operator/operator-settings";
 import { apiJson, type Credential, type ProviderOption } from "./ai-operator/types";
 
-export function AgentSettingsSection({ section }: { section: "models" | "connectors" }) {
+export function AgentSettingsSection({ section, onDirtyChange }: { section: "models" | "connectors"; onDirtyChange?: (dirty: boolean) => void }) {
   const t = useTranslations("ai_operator");
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -22,7 +22,9 @@ export function AgentSettingsSection({ section }: { section: "models" | "connect
   };
 
   return <OperatorSettings
+    key={section}
     embedded
+    onDirtyChange={onDirtyChange}
     initialTab={section}
     providers={query.data.providers}
     credentials={query.data.credentials}

@@ -34,7 +34,7 @@ export function ApiToken() {
   const [newRawToken, setNewRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["api-token"],
     queryFn: fetchToken,
   });
@@ -61,12 +61,16 @@ export function ApiToken() {
 
   function handleGenerate() {
     if (existingToken && !confirm(t("confirm_regenerate"))) return;
+    generateMutation.reset();
+    revokeMutation.reset();
     generateMutation.mutate();
   }
 
   function handleRevoke() {
     if (!confirm(t("confirm_revoke"))) return;
     setNewRawToken(null);
+    generateMutation.reset();
+    revokeMutation.reset();
     revokeMutation.mutate();
   }
 
@@ -77,30 +81,55 @@ export function ApiToken() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  if (isLoading) return <div className="p-4 text-sm text-gray-500">{t("loading")}</div>;
+  if (isLoading) return <div className="py-4 text-sm text-gray-500">{t("loading")}</div>;
+
+  if (isError) {
+    return (
+      <div className="space-y-3 py-4">
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {t("load_error")}
+        </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+          className="min-h-11 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          {t("retry")}
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/20">
-        <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          <Key className="w-4 h-4 text-blue-600" />
+    <section className="space-y-4">
+      <div>
+        <h3 className="flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
+          <Key className="h-4 w-4 text-indigo-600" />
           {t("title")}
         </h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t("description")}</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t("description")}</p>
       </div>
 
-      <div className="p-4 space-y-3">
+      <div className="space-y-3">
+        {(generateMutation.isError || revokeMutation.isError) && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {t("action_failed")}
+          </p>
+        )}
         {/* Show newly generated token (once) */}
         {newRawToken && (
           <div className="rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
             <p className="text-xs font-medium text-amber-800 dark:text-amber-300">{t("show_once_warning")}</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs bg-white dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 break-all select-all">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <code className="min-w-0 flex-1 select-all break-all rounded border border-gray-200 bg-white p-2 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
                 {newRawToken}
               </code>
               <button
+                type="button"
                 onClick={handleCopy}
-                className="shrink-0 p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                aria-label={t("copy")}
+                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg border border-gray-200 px-3 py-2 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-gray-700 dark:hover:bg-gray-700"
                 title={t("copy")}
               >
                 {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-gray-500" />}
@@ -122,25 +151,27 @@ export function ApiToken() {
         )}
 
         {/* Actions */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={handleGenerate}
             disabled={isPending}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 dark:ring-offset-gray-900"
           >
             {t("generate")}
           </button>
           {existingToken && (
             <button
+              type="button"
               onClick={handleRevoke}
               disabled={isPending}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
+              className="min-h-11 rounded-lg border border-red-200 px-4 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               {t("revoke")}
             </button>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

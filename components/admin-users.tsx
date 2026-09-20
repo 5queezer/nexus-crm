@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { User as UserIcon, ShieldCheck } from "lucide-react";
+import { User as UserIcon } from "lucide-react";
 
 interface User {
   id: string;
@@ -59,53 +59,45 @@ export function AdminUsers({ currentUserId }: AdminUsersProps) {
     },
   });
 
-  if (isLoading) return <div className="p-4 text-sm text-gray-500">{t("loading")}</div>;
-  if (isError) return <div className="p-4 text-sm text-red-500">{t("error_load")}</div>;
+  if (isLoading) return <div className="py-4 text-sm text-gray-500">{t("loading")}</div>;
+  if (isError) return <div className="py-4 text-sm text-red-500">{t("error_load")}</div>;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/20">
-        <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-blue-600" />
-          {t("title")}
-        </h3>
-      </div>
-      <div className="divide-y divide-gray-100 dark:divide-gray-700">
-        {users.map((user) => {
-          const isSelf = user.id === currentUserId;
-          return (
-            <div key={user.id} className="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-900/40 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500">
-                  <UserIcon className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">
-                    {user.name || "User"}
-                    {isSelf && (
-                      <span className="ml-2 text-xs text-gray-400">({t("you")})</span>
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{user.email}</div>
-                </div>
+    <div className="divide-y divide-gray-100 dark:divide-gray-700">
+      {users.map((user) => {
+        const isSelf = user.id === currentUserId;
+        return (
+          <div key={user.id} className="flex flex-col gap-3 py-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-center sm:justify-between dark:hover:bg-gray-900/40">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700">
+                <UserIcon className="w-4 h-4" />
               </div>
-              <label className="flex items-center gap-2 cursor-pointer group">
-                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white">
-                  {t("is_admin")}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={user.isAdmin}
-                  disabled={mutation.isPending || isSelf}
-                  onChange={(e) => mutation.mutate({ id: user.id, isAdmin: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
-                  title={isSelf ? t("self_demote_error") : undefined}
-                />
-              </label>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                  {user.name || "User"}
+                  {isSelf && (
+                    <span className="ml-2 text-xs text-gray-400">({t("you")})</span>
+                  )}
+                </div>
+                <div className="break-all text-xs text-gray-500 dark:text-gray-400">{user.email}</div>
+              </div>
             </div>
-          );
-        })}
-      </div>
+            <label className="group flex min-h-11 cursor-pointer items-center gap-2 self-start sm:self-auto">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white">
+                {t("is_admin")}
+              </span>
+              <input
+                type="checkbox"
+                checked={user.isAdmin}
+                disabled={mutation.isPending || isSelf}
+                onChange={(e) => mutation.mutate({ id: user.id, isAdmin: e.target.checked })}
+                className="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                title={isSelf ? t("self_demote_error") : undefined}
+              />
+            </label>
+          </div>
+        );
+      })}
     </div>
   );
 }
