@@ -61,6 +61,44 @@ describe("SettingsClient", () => {
     expect(screen.getByRole("tab", { name: "Email" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it.each([true, false])("handles paired popstate/hashchange once when discard is %s", async (accepted) => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(accepted).mockReturnValue(!accepted);
+    renderSettings(false);
+    await user.click(screen.getByRole("button", { name: "Edit preferences" }));
+    const oldURL = window.location.href;
+    const newURL = new URL("/settings#email", oldURL).href;
+    act(() => {
+      window.history.replaceState(null, "", newURL);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL, newURL }));
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("tab", { name: accepted ? "Email" : "Preferences" }).getAttribute("aria-selected")).toBe("true");
+    expect(window.location.hash).toBe(accepted ? "#email" : "#preferences");
+  });
+
+  it("keeps approval for a later-task beforeunload, then consumes it", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderSettings(false);
+    await user.click(screen.getByRole("button", { name: "Edit preferences" }));
+    // Dispatch through the real document guard without asking jsdom to load
+    // an external document. The click's default action is not canceled.
+    const link = document.createElement("a");
+    link.href = "https://example.invalid/leave";
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    Object.defineProperty(click, "target", { value: link });
+    document.dispatchEvent(click);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(false);
+    const secondUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(secondUnload);
+    expect(secondUnload.defaultPrevented).toBe(true);
+  });
+
   it("keeps dirty settings when a section or browser navigation is declined", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -162,9 +200,9 @@ describe("SettingsClient", () => {
     await user.click(screen.getByRole("button", { name: "Edit preferences" }));
     const link = document.createElement("a");
     link.href = "/api-docs";
-    link.addEventListener("click", event => event.preventDefault());
-    document.body.append(link);
-    fireEvent.click(link);
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    Object.defineProperty(click, "target", { value: link });
+    document.dispatchEvent(click);
     const firstUnload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(firstUnload);
     expect(firstUnload.defaultPrevented).toBe(false);

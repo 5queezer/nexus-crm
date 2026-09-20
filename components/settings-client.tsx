@@ -35,7 +35,8 @@ export function SettingsClient({ user }: SettingsClientProps) {
   const t = useTranslations("settings.workspace");
   const [hash, setHash] = useState("");
   const [dirty, setDirty] = useState(false);
-  const approvedNavigation = useRef<string | null>(null);
+  const approvedNavigation = useRef<MouseEvent | null>(null);
+  const traversedHashDestination = useRef<string | null>(null);
   const candidate = hash.replace("#", "") as SettingsSection;
   const validHash = [...PERSONAL, ...CONNECTIONS, ...(user.isAdmin ? ADMINISTRATION : [])].includes(candidate);
   const active = validHash ? candidate : "preferences";
@@ -60,16 +61,20 @@ export function SettingsClient({ user }: SettingsClientProps) {
   useEffect(() => {
     approvedNavigation.current = null;
     const currentUrl = `/settings${window.location.search}#${active}`;
+    const currentHash = window.location.hash;
     // Keep this entry's router tree: at popstate, history.state already
     // describes the destination, not the editor the user chose to keep.
     const currentHistoryState = window.history.state;
-    let approvalExpiry: ReturnType<typeof setTimeout> | undefined;
+    function cancelNavigationApproval() { approvedNavigation.current = null; }
     function beforeUnload(event: BeforeUnloadEvent) {
-      if (dirty && !approvedNavigation.current) event.preventDefault();
+      // Inspect the final click outcome here: a later handler may have
+      // canceled native navigation. Approval has no elapsed-time deadline.
+      if (dirty && (!approvedNavigation.current || approvedNavigation.current.defaultPrevented)) event.preventDefault();
       approvedNavigation.current = null;
     }
     function click(event: MouseEvent) {
       if (!dirty) return;
+      cancelNavigationApproval();
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = (event.target as HTMLElement | null)?.closest?.("a[href]");
       if (!anchor || anchor.getAttribute("target") === "_blank" || anchor.hasAttribute("download")) return;
@@ -95,11 +100,19 @@ export function SettingsClient({ user }: SettingsClientProps) {
           setHash(url.hash);
           return;
         }
-        approvedNavigation.current = url.href;
-        approvalExpiry = setTimeout(() => { approvedNavigation.current = null; }, 0);
+        approvedNavigation.current = event;
       }
     }
     function historyNavigation(event: Event) {
+      if (event.type === "hashchange") {
+        const traversedTo = traversedHashDestination.current;
+        traversedHashDestination.current = null;
+        if (traversedTo === ((event as HashChangeEvent).newURL || window.location.href)) return;
+      } else {
+        // A fragment-changing traversal emits popstate AND hashchange.
+        // This ref survives React's effect cleanup between those two events.
+        traversedHashDestination.current = currentHash !== window.location.hash ? window.location.href : null;
+      }
       const changed = `${window.location.pathname}${window.location.search}${window.location.hash || "#preferences"}` !== currentUrl;
       if (dirty && changed && !window.confirm(t("unsaved_changes"))) {
         event.preventDefault();
@@ -114,13 +127,18 @@ export function SettingsClient({ user }: SettingsClientProps) {
     }
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", click, true);
+    document.addEventListener("input", cancelNavigationApproval, true);
+    document.addEventListener("keydown", cancelNavigationApproval, true);
+    window.addEventListener("pageshow", cancelNavigationApproval);
     window.addEventListener(BEFORE_HISTORY_NAVIGATION, historyNavigation);
     window.addEventListener("hashchange", historyNavigation, true);
     return () => {
-      clearTimeout(approvalExpiry);
       approvedNavigation.current = null;
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", click, true);
+      document.removeEventListener("input", cancelNavigationApproval, true);
+      document.removeEventListener("keydown", cancelNavigationApproval, true);
+      window.removeEventListener("pageshow", cancelNavigationApproval);
       window.removeEventListener(BEFORE_HISTORY_NAVIGATION, historyNavigation);
       window.removeEventListener("hashchange", historyNavigation, true);
     };

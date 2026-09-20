@@ -7,6 +7,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import messages from "../../messages/en.json";
+import germanMessages from "../../messages/de.json";
 import { AdminUsers } from "../admin-users";
 import { ApiToken } from "../api-token";
 import { AppSettingsPanel } from "../app-settings";
@@ -34,6 +35,20 @@ function expectFlatRoot(element: Element | null) {
 describe("flat settings surfaces", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("renders MCP setup instructions and copy controls in German", async () => {
+    const user = userEvent.setup();
+    render(<NextIntlClientProvider locale="de" messages={germanMessages}><McpClientHelp /></NextIntlClientProvider>);
+    expect(screen.getByRole("heading", { name: "MCP-Client einrichten" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "API-Zugriff" }).getAttribute("href")).toBe("/settings#api");
+    await user.click(screen.getByText("OAuth-Verbindung einrichten"));
+    expect(screen.getByText("Öffne die Konnektor- oder MCP-Server-Einstellungen in Claude oder ChatGPT.")).toBeTruthy();
+    await user.click(screen.getByText("API-Token als Alternative"));
+    expect(screen.getByText("Erstelle unter API-Zugriff ein API-Token und kopiere es sofort.")).toBeTruthy();
+    expect(screen.queryByText("OAuth connector setup")).toBeNull();
+    expect(screen.queryByText("Copy")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Kopieren" }).length).toBeGreaterThan(0);
   });
 
   it("reports preference edits relative to the last saved baseline", async () => {

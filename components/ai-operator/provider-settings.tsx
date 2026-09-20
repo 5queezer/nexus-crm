@@ -246,6 +246,7 @@ function ProviderEditor({
 	}
 
 	async function remove() {
+		if (!window.confirm(t("confirm_remove_credential", { provider: provider.label }))) return;
 		setSaving(true);
 		setError("");
 		try {

@@ -68,6 +68,25 @@ describe("OperatorSettings provider editor", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("requires confirmation before deleting the stored provider credential", async () => {
+		const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+		const requests: string[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+			requests.push(`${init?.method} ${String(input)}`);
+			return Promise.resolve(new Response(null, { status: 204 }));
+		});
+		const user = userEvent.setup();
+		renderSettings();
+		await user.click(screen.getByRole("button", { name: "Manage OpenAI" }));
+		await user.click(screen.getByRole("button", { name: "Remove" }));
+		expect(requests).toEqual([]);
+		expect(screen.getByLabelText("API key for OpenAI")).toBeTruthy();
+		expect(confirm).toHaveBeenLastCalledWith("Remove the stored OpenAI credential from Nexus? This does not revoke your API key at the provider.");
+		await user.click(screen.getByRole("button", { name: "Remove" }));
+		await waitFor(() => expect(screen.queryByLabelText("API key for OpenAI")).toBeNull());
+		expect(requests).toEqual(["DELETE /api/agent/credentials?provider=openai"]);
+	});
+
 	it("renders compact provider summaries and only one editor below the active row", async () => {
 		const user = userEvent.setup();
 		renderSettings();
