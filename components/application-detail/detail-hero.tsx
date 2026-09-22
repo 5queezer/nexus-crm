@@ -1,8 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { Building2, MapPin, Pencil, Plus } from "lucide-react";
+import { Building2, ExternalLink, MapPin, Pencil, Plus } from "lucide-react";
 import { STATUS_COLORS, type Application } from "@/types";
+import { getSafeExternalUrl } from "@/lib/external-url";
 import { DemoBadge } from "../demo-badge";
 
 interface DetailHeroProps {
@@ -53,6 +54,7 @@ export function DetailHero({
   const td = useTranslations("detail");
   const ts = useTranslations("status");
   const tt = useTranslations("timeline");
+  const ta = useTranslations("actions");
 
   const salary = formatSalary(application);
   const locations = formatLocations(application);
@@ -62,6 +64,7 @@ export function DetailHero({
     application.officeDaysMin != null
       ? td("office_days_value", { count: application.officeDaysMin })
       : null;
+  const jobUrl = getSafeExternalUrl(application.jobUrl);
 
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -79,7 +82,7 @@ export function DetailHero({
         <h1 className="mt-1.5 text-2xl font-semibold leading-tight tracking-[-0.025em] text-slate-950 dark:text-[#f7f8f8] sm:text-[1.6rem]">
           {role}
         </h1>
-        {(salary || locations || workMode || officeDays) && (
+        {(salary || locations || workMode || officeDays || jobUrl) && (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
             {salary && (
               <span className="font-medium text-slate-800 dark:text-slate-200">{salary}</span>
@@ -95,6 +98,18 @@ export function DetailHero({
                 <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
                 {[workMode, officeDays].filter(Boolean).join(" · ")}
               </span>
+            )}
+            {jobUrl && (
+              <a
+                href={jobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={ta("open_job_post")}
+                className="nexus-focus-ring inline-flex items-center gap-1.5 rounded font-medium text-indigo-600 hover:underline dark:text-[#a5a1ff]"
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                {td("job_post")}
+              </a>
             )}
           </div>
         )}

@@ -203,6 +203,7 @@
     "work_model": "Arbeitsmodell",
     "locations": "Standorte",
     "salary": "Gehalt",
+    "job_post": "Stellenanzeige",
     "office_days": "Bürotage (Minimum)",
     "travel": "Reiseanteil",
     "timezone_overlap": "Zeitzonen-Überlappung",

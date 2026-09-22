@@ -469,6 +469,25 @@ describe("ApplicationDetail", () => {
     expect(screen.getByText("CET ± 2h")).toBeTruthy();
   });
 
+  it("links out to the job ad and drops a non-http listing URL", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => [] }) as Response),
+    );
+    const { unmount } = renderDetail(
+      fixtureApplication({ jobUrl: "https://example.com/jobs/42" }),
+    );
+
+    const link = screen.getByRole("link", { name: "job_post" }) as HTMLAnchorElement;
+    expect(link.href).toBe("https://example.com/jobs/42");
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer");
+
+    unmount();
+    renderDetail(fixtureApplication({ jobUrl: "javascript:alert(1)" }));
+    expect(screen.queryByRole("link", { name: "job_post" })).toBeNull();
+  });
+
   it("copies the absolute canonical URL", async () => {
     vi.stubGlobal(
       "fetch",

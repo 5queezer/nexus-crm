@@ -203,6 +203,7 @@
     "work_model": "Work model",
     "locations": "Locations",
     "salary": "Salary",
+    "job_post": "Job posting",
     "office_days": "Minimum office days",
     "travel": "Travel",
     "timezone_overlap": "Timezone overlap",
