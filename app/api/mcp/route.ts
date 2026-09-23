@@ -252,6 +252,106 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
     }
     return existing;
   };
+  const setApplicationArchived = async ({
+    id,
+    archive,
+    archivedAt,
+    expectedUpdatedAt,
+    dryRun,
+  }: {
+    id: string;
+    archive: boolean;
+    archivedAt?: string;
+    expectedUpdatedAt?: string;
+    dryRun: boolean;
+  }) => {
+    try {
+      const current = await requireRealApplication(id);
+      const requestedArchivedAt = archive && archivedAt
+        ? new Date(archivedAt)
+        : null;
+      const expected = expectedUpdatedAt
+        ? new Date(expectedUpdatedAt)
+        : undefined;
+      const alreadyInRequestedState = archive
+        ? current.archivedAt !== null
+        : current.archivedAt === null;
+      const exactArchiveRetry = archive &&
+        requestedArchivedAt !== null &&
+        current.archivedAt !== null &&
+        current.archivedAt.getTime() === requestedArchivedAt.getTime();
+      const expectedMatches = !expected ||
+        current.updatedAt.getTime() === expected.getTime();
+
+      // Repeated archive/unarchive calls are successful no-ops. This keeps retries
+      // idempotent and preserves the original archive timestamp. A stale
+      // optimistic-concurrency token remains a conflict unless the caller supplied
+      // the exact timestamp already stored by its earlier archive request.
+      if (alreadyInRequestedState) {
+        if (!expectedMatches && !exactArchiveRetry) throw new Error("conflict");
+        return jsonToolResult({
+          ...(dryRun ? { dryRun: true } : {}),
+          changed: false,
+          application: current,
+        });
+      }
+
+      if (!expectedMatches) throw new Error("conflict");
+
+      const nextArchivedAt = archive
+        ? requestedArchivedAt ?? new Date()
+        : null;
+
+      if (dryRun) {
+        return jsonToolResult({
+          dryRun: true,
+          changed: true,
+          application: { ...current, archivedAt: nextArchivedAt },
+        });
+      }
+
+      const update: {
+        archivedAt: Date | null;
+        expectedUpdatedAt?: Date;
+      } = {
+        archivedAt: nextArchivedAt,
+        // Make the transition atomic even when the client omitted a token. If a
+        // concurrent request wins, the conflict path below verifies the final state.
+        expectedUpdatedAt: expected ?? current.updatedAt,
+      };
+
+      try {
+        const application = await getDb().updateApplication(id, auth.userId, update);
+        return jsonToolResult({ changed: true, application });
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "conflict") throw error;
+
+        const latest = await requireRealApplication(id);
+        const latestInRequestedState = archive
+          ? latest.archivedAt !== null
+          : latest.archivedAt === null;
+        const exactConcurrentArchive = archive &&
+          requestedArchivedAt !== null &&
+          latest.archivedAt !== null &&
+          latest.archivedAt.getTime() === requestedArchivedAt.getTime();
+
+        if (
+          latestInRequestedState &&
+          (!archive || requestedArchivedAt === null || exactConcurrentArchive)
+        ) {
+          return jsonToolResult({ changed: false, application: latest });
+        }
+        throw error;
+      }
+    } catch (error) {
+      const code = controlledErrorCode(
+        error,
+        APPLICATION_UPDATE_ERROR_CODES,
+        "application_update_failed",
+      );
+      return jsonToolResult({ error: { code } }, true);
+    }
+  };
 
 
   // ── Applications ────────────────────────────────────────────────────────
@@ -445,6 +545,34 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         return jsonToolResult({ error: { code } }, true);
       }
     }
+  );
+
+  server.tool(
+    "archive_application",
+    "Hide an application from the active workspace without changing its lifecycle status or stage. Repeated calls are idempotent.",
+    {
+      id: z.string().describe("Application ID"),
+      archivedAt: z.string().datetime({ offset: true }).optional()
+        .describe("Archive timestamp (ISO 8601); defaults to the current server time"),
+      expectedUpdatedAt: z.string().datetime({ offset: true }).optional()
+        .describe("Optimistic concurrency timestamp"),
+      dryRun: z.boolean().default(false)
+        .describe("Validate and preview without writing"),
+    },
+    async (args) => setApplicationArchived({ ...args, archive: true }),
+  );
+
+  server.tool(
+    "unarchive_application",
+    "Restore an archived application to the active workspace without changing its lifecycle status or stage. Repeated calls are idempotent.",
+    {
+      id: z.string().describe("Application ID"),
+      expectedUpdatedAt: z.string().datetime({ offset: true }).optional()
+        .describe("Optimistic concurrency timestamp"),
+      dryRun: z.boolean().default(false)
+        .describe("Validate and preview without writing"),
+    },
+    async (args) => setApplicationArchived({ ...args, archive: false }),
   );
 
   server.tool(
