@@ -31,6 +31,7 @@ import type { ApplicationStatusMutation } from "@/hooks/use-application-status-m
 import { getSafeExternalUrl, openExternalUrl } from "@/lib/external-url";
 import { applicationPath } from "@/lib/applications/slug";
 import { DemoBadge } from "./demo-badge";
+import { ApplicationId } from "./application-id";
 
 const columnHelper = createColumnHelper<Application>();
 
@@ -218,8 +219,9 @@ function MobileApplicationCard({
           {app.isDemo && <DemoBadge />}
           <StatusBadge status={app.status} />
         </div>
-        <p className="mt-0.5 truncate text-sm text-slate-600 dark:text-slate-300">
-          {app.role}
+        <p className="mt-0.5 flex items-baseline gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <span className="truncate">{app.role}</span>
+          <ApplicationId id={app.id} className="ml-auto" />
         </p>
         <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
           <span>
@@ -406,14 +408,14 @@ export function ApplicationTable({
               </span>
             )}
           </div>
-          {info.row.original.role && (
-            <div
-              className="truncate text-xs text-gray-500 dark:text-gray-400"
-              title={info.row.original.role}
-            >
-              {info.row.original.role}
-            </div>
-          )}
+          <div className="flex items-baseline gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <ApplicationId id={info.row.original.id} />
+            {info.row.original.role && (
+              <span className="truncate" title={info.row.original.role}>
+                {info.row.original.role}
+              </span>
+            )}
+          </div>
         </div>
       ),
     }),
