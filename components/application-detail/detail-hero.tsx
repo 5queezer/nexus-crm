@@ -5,6 +5,7 @@ import { Building2, ExternalLink, MapPin, Pencil, Plus } from "lucide-react";
 import { STATUS_COLORS, type Application } from "@/types";
 import { getSafeExternalUrl } from "@/lib/external-url";
 import { DemoBadge } from "../demo-badge";
+import { ApplicationId } from "../application-id";
 
 interface DetailHeroProps {
   application: Application;
@@ -78,6 +79,7 @@ export function DetailHero({
             {ts(status)}
           </span>
           {application.isDemo && <DemoBadge />}
+          <ApplicationId id={application.id} className="text-xs" />
         </div>
         <h1 className="mt-1.5 text-2xl font-semibold leading-tight tracking-[-0.025em] text-slate-950 dark:text-[#f7f8f8] sm:text-[1.6rem]">
           {role}

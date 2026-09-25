@@ -29,6 +29,7 @@ import {
   STATUS_ORDER,
 } from "@/types";
 import { DemoBadge } from "./demo-badge";
+import { ApplicationId } from "./application-id";
 
 type KanbanSortKey =
   | "rating_desc"
@@ -142,6 +143,7 @@ function KanbanCard({ app, onEdit, isDragging = false }: CardProps) {
           >
             {app.role}
           </div>
+          <ApplicationId id={app.id} className="mt-1 block" />
         </div>
         {isDragging && (
           <span
