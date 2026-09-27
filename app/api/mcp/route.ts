@@ -14,6 +14,7 @@ import {
   validateSubmissionAnswers,
 } from "@/lib/applications/submission";
 import { parseStructuredApplicationMetadata } from "@/lib/applications/metadata";
+import { applicationTriageToolFields, parseApplicationTriage } from "@/lib/applications/triage-transport";
 import {
   APPLICATION_EVENT_TYPES,
   EventMetadataValidationError,
@@ -39,6 +40,7 @@ import type {
 } from "@/lib/db/types";
 
 const structuredApplicationToolFields = {
+  ...applicationTriageToolFields,
   workMode: z.enum(["remote", "hybrid", "onsite", "flexible"]).nullable().optional(),
   eligibleCountries: z.array(z.string().length(2)).max(50).optional(),
   primaryLocations: z.array(z.string().max(200)).max(50).optional(),
@@ -205,6 +207,7 @@ export async function authenticateFromRequest(
 
 // ── MCP server factory ──────────────────────────────────────────────────────
 
+/** Creates an MCP server with tools scoped to the authenticated user's access. */
 export function createMcpServer(auth: SessionAuthResult): McpServer {
   const server = new McpServer(
     { name: "nexus-crm", version: "1.0.0" },
@@ -451,6 +454,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         jobUrl: args.jobUrl?.slice(0, 2000) ?? null,
         resumeId: args.resumeId ?? null,
         ...metadata,
+        ...parseApplicationTriage(args),
       });
       return jsonToolResult(app);
     }
@@ -517,6 +521,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
         Object.assign(
           update,
           parseStructuredApplicationMetadata(data as unknown as Record<string, unknown>),
+          parseApplicationTriage(data),
         );
         if (data.expectedUpdatedAt !== undefined) {
           update.expectedUpdatedAt = new Date(data.expectedUpdatedAt);
@@ -918,6 +923,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
             jobUrl: args.jobUrl,
             canonicalJobUrl,
             ...mutableMetadata,
+            ...parseApplicationTriage(args),
           });
         };
         if (args.dryRun) {
@@ -955,6 +961,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           canonicalJobUrl,
           resumeId: args.resumeId ?? null,
           ...metadata,
+          ...parseApplicationTriage(args),
           });
         } catch (error) {
           const code = error instanceof Error ? error.message : "";
@@ -1072,6 +1079,7 @@ export function createMcpServer(auth: SessionAuthResult): McpServer {
           jobUrl: item.jobUrl !== undefined ? (item.jobUrl?.slice(0, 2000) ?? null) : undefined,
           resumeId: item.resumeId !== undefined ? (item.resumeId ?? null) : undefined,
           ...parseStructuredApplicationMetadata(item as unknown as Record<string, unknown>),
+          ...parseApplicationTriage(item),
         }));
 
         const result = await getDb().batchUpsertApplications(auth.userId, sanitized);
