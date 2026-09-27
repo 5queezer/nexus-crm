@@ -39,12 +39,14 @@ const tools = ["create_application", "update_application", "upsert_application_b
 let client: Client;
 let server: ReturnType<typeof createMcpServer>;
 
+/** Builds arguments for an application write tool with the supplied triage fields. */
 function argsFor(name: typeof tools[number], fields: Record<string, unknown>) {
   if (name === "update_application") return { id: current.id, ...fields };
   if (name === "batch_upsert_applications") return { items: [{ id: current.id, ...fields }] };
   return { ...opportunity, ...fields };
 }
 
+/** Parses the JSON payload from the first text content item in an MCP tool result. */
 function decoded(result: Awaited<ReturnType<Client["callTool"]>>) {
   const item = result.content as Array<{ type: string; text: string }>;
   return JSON.parse(item[0].text);

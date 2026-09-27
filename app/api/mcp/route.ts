@@ -207,6 +207,7 @@ export async function authenticateFromRequest(
 
 // ── MCP server factory ──────────────────────────────────────────────────────
 
+/** Creates an MCP server with tools scoped to the authenticated user's access. */
 export function createMcpServer(auth: SessionAuthResult): McpServer {
   const server = new McpServer(
     { name: "nexus-crm", version: "1.0.0" },

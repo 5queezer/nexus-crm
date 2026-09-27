@@ -17,6 +17,10 @@ export const applicationTriageToolFields = {
 
 const applicationTriageSchema = z.object(applicationTriageToolFields);
 
+/**
+ * Validates and extracts triage fields, preserving omissions and explicit null/false.
+ * @throws {z.ZodError} If the input contains invalid triage values.
+ */
 export function parseApplicationTriage(input: unknown) {
   return applicationTriageSchema.parse(input);
 }
