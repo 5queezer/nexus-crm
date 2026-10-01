@@ -130,7 +130,7 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout, variant = "comp
   const isSidebar = variant === "sidebar";
   const tn = useTranslations("nav");
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ top?: number; bottom?: number; left: number }>({ top: 0, left: 0 });
+  const [position, setPosition] = useState<{ top?: number; bottom?: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -148,6 +148,7 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout, variant = "comp
     if (isSidebar) {
       setPosition({
         bottom: window.innerHeight - rect.top + 8,
+        maxHeight: Math.max(0, rect.top - 16),
         left: Math.min(Math.max(8, rect.left), window.innerWidth - menuWidth - 8),
       });
       return;
@@ -174,7 +175,9 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout, variant = "comp
       if (dismissal.close) closeMenu({ restoreFocus: dismissal.restoreFocus });
     }
 
-    function closeOnViewportChange() {
+    function closeOnViewportChange(event: Event) {
+      // The menu itself may scroll on short viewports; only outside scrolls dismiss it.
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
       closeMenu();
     }
 
@@ -247,7 +250,7 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout, variant = "comp
           aria-label={tn("account_menu")}
           onKeyDown={handleMenuKeyDown}
           style={position}
-          className="fixed z-100 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-[#151617]"
+          className="fixed z-100 w-64 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-[#151617]"
         >
           <HeaderUtilityMenuPanel
             user={user}
