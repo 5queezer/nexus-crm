@@ -31,6 +31,20 @@ interface AppHeaderProps {
   onBeforeLogout?: () => boolean;
 }
 
+function AssistButton({ unfinishedTasks, className = "" }: { unfinishedTasks: number; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event("nexus:assistant-open"))}
+      className={`nexus-focus-ring inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm dark:border-white/10 lg:min-h-[42px] lg:rounded-[6px] lg:border-0 lg:text-[13px] lg:font-medium lg:text-slate-500 lg:hover:text-slate-900 lg:dark:text-slate-400 lg:dark:hover:text-white ${className}`}
+    >
+      <Sparkles className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" />
+      <span>Assist</span>
+      {unfinishedTasks > 0 && <span aria-label={`${unfinishedTasks} unfinished tasks`} className="rounded bg-violet-100 px-1.5 text-xs text-violet-800 dark:bg-violet-500/20 dark:text-violet-200">{unfinishedTasks}</span>}
+    </button>
+  );
+}
+
 function MobileNavigationDisclosure({ isAdmin }: { isAdmin?: boolean }) {
   const tn = useTranslations("nav");
   const [open, setOpen] = useState(false);
@@ -109,10 +123,38 @@ export function AppHeader({ user, shareUrl, title, onBeforeLogout }: AppHeaderPr
   ];
 
   const activeLinks = navLinks.filter((l) => l.show);
+  const mainLinks = activeLinks.filter((l) => l.href !== "/settings");
+  const settingsLink = activeLinks.find((l) => l.href === "/settings");
+
+  function renderNavLink(link: (typeof navLinks)[number]) {
+    const Icon = link.icon;
+    const active =
+      pathname === link.href ||
+      (link.href === "/" && pathname.startsWith("/applications/")) ||
+      (link.href === "/activity" && pathname.startsWith("/tasks/"));
+    return (
+      <Link
+        key={link.href}
+        href={link.href}
+        title={link.label}
+        aria-label={link.label}
+        aria-current={active ? "page" : undefined}
+        className={`flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-sm font-medium transition ${
+          active
+            ? "bg-white text-slate-950 shadow-sm dark:bg-white/8 dark:text-white"
+            : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+        }`}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        <span>{link.label}</span>
+      </Link>
+    );
+  }
+
   return (
-    <header className="nexus-app-header sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 dark:border-white/8 dark:bg-[#151618]/95">
+    <header className="nexus-app-header sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 dark:border-white/8 dark:bg-[#151618]/95 lg:static lg:border-0 lg:bg-transparent lg:dark:bg-transparent">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex min-h-16 items-center justify-between gap-4">
+        <div className="flex min-h-16 items-center justify-between gap-4 lg:min-h-0">
           <Link href="/" aria-label={tn("opportunities")} className="nexus-brand flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white shadow-sm dark:bg-[#5e6ad2]">
               <BriefcaseBusiness className="h-4 w-4" />
@@ -128,46 +170,20 @@ export function AppHeader({ user, shareUrl, title, onBeforeLogout }: AppHeaderPr
           </Link>
 
           <nav aria-label={tn("opportunities")} className="nexus-sidebar hidden lg:flex">
-            {activeLinks.map((link) => {
-              const Icon = link.icon;
-              const active = pathname === link.href || (link.href === "/" && pathname.startsWith("/applications/"));
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  title={link.label}
-                  aria-label={link.label}
-                  aria-current={active ? "page" : undefined}
-                  className={`flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-sm font-medium transition ${
-                    active
-                      ? "bg-white text-slate-950 shadow-sm dark:bg-white/8 dark:text-white"
-                      : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                  }`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span>{link.label}</span>
-                </Link>
-              );
-            })}
+            {mainLinks.map(renderNavLink)}
+            <div className="mt-auto flex flex-col gap-[5px]">
+              <AssistButton unfinishedTasks={unfinishedTasks} className="w-full" />
+              {settingsLink && renderNavLink(settingsLink)}
+              <HeaderUtilityMenu
+                user={user}
+                shareUrl={shareUrl}
+                onLogout={handleLogout}
+                variant="sidebar"
+              />
+            </div>
           </nav>
 
-          <div className="hidden min-w-0 flex-1 items-center gap-2 text-xs text-slate-500 lg:flex" aria-label="Breadcrumb">
-            <span>Workspace</span><span aria-hidden="true">/</span>
-            <span className="truncate text-slate-800 dark:text-slate-200">{pathname.startsWith("/applications/") ? tn("opportunities") : pathname.startsWith("/tasks/") ? tn("activity") : activeLinks.find((link) => link.href === pathname)?.label}</span>
-          </div>
-
-          <button type="button" onClick={() => window.dispatchEvent(new Event("nexus:assistant-open"))} className="nexus-focus-ring inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm dark:border-white/10">
-            <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />Assist
-            {unfinishedTasks > 0 && <span aria-label={`${unfinishedTasks} unfinished tasks`} className="rounded bg-violet-100 px-1.5 text-xs text-violet-800 dark:bg-violet-500/20 dark:text-violet-200">{unfinishedTasks}</span>}
-          </button>
-
-          <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            <HeaderUtilityMenu
-              user={user}
-              shareUrl={shareUrl}
-              onLogout={handleLogout}
-            />
-          </div>
+          <AssistButton unfinishedTasks={unfinishedTasks} className="ml-auto lg:hidden" />
 
           <div className="flex shrink-0 items-center gap-2 lg:hidden">
             <HeaderUtilityMenu
