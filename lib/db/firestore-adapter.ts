@@ -2148,22 +2148,16 @@ export class FirestoreAdapter implements DatabaseAdapter {
     });
   }
 
-  async listUserApplicationStats(): Promise<Record<string, UserApplicationStats>> {
-    const [applications, workspaces] = await Promise.all([
-      this.apps.select("userId").get(),
-      this.demoWorkspaces.select("userId").get(),
-    ]);
-    const stats: Record<string, UserApplicationStats> = {};
-    for (const document of applications.docs) {
-      const userId = document.get("userId") as string;
-      stats[userId] ??= { applicationCount: 0, demoWorkspace: false };
-      stats[userId].applicationCount += 1;
-    }
-    for (const document of workspaces.docs) {
-      const userId = document.get("userId") as string;
-      stats[userId] = { applicationCount: stats[userId]?.applicationCount ?? 0, demoWorkspace: true };
-    }
-    return stats;
+  async listUserApplicationStats(userIds: string[]): Promise<Record<string, UserApplicationStats>> {
+    // Aggregation queries per user: cost scales with users, not total applications.
+    const entries = await Promise.all(userIds.map(async (userId) => {
+      const [count, workspace] = await Promise.all([
+        this.apps.where("userId", "==", userId).count().get(),
+        this.demoWorkspaces.where("userId", "==", userId).limit(1).get(),
+      ]);
+      return [userId, { applicationCount: count.data().count, demoWorkspace: !workspace.empty }] as const;
+    }));
+    return Object.fromEntries(entries);
   }
 
   async updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord> {

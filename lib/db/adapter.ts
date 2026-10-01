@@ -107,7 +107,7 @@ export interface DatabaseAdapter {
   getUser(id: string): Promise<UserRecord | null>;
   listUsers(): Promise<UserRecord[]>;
   /** Application count and demo-workspace flag per user id (admin view). */
-  listUserApplicationStats(): Promise<Record<string, UserApplicationStats>>;
+  listUserApplicationStats(userIds: string[]): Promise<Record<string, UserApplicationStats>>;
   updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord>;
 
   // ── Audit Logs ──────────────────────────────────────────────────────────

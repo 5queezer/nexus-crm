@@ -9,7 +9,8 @@ export async function GET() {
   }
 
   const db = getDb();
-  const [users, stats] = await Promise.all([db.listUsers(), db.listUserApplicationStats()]);
+  const users = await db.listUsers();
+  const stats = await db.listUserApplicationStats(users.map((user) => user.id));
   return NextResponse.json(
     users.map((user) => ({
       ...user,

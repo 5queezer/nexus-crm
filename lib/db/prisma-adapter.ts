@@ -1964,10 +1964,10 @@ export class PrismaAdapter implements DatabaseAdapter {
     });
   }
 
-  async listUserApplicationStats(): Promise<Record<string, UserApplicationStats>> {
+  async listUserApplicationStats(userIds: string[]): Promise<Record<string, UserApplicationStats>> {
     const [counts, workspaces] = await Promise.all([
-      prisma.application.groupBy({ by: ["userId"], _count: { _all: true } }),
-      prisma.demoWorkspace.findMany({ select: { userId: true } }),
+      prisma.application.groupBy({ by: ["userId"], where: { userId: { in: userIds } }, _count: { _all: true } }),
+      prisma.demoWorkspace.findMany({ where: { userId: { in: userIds } }, select: { userId: true } }),
     ]);
     const stats: Record<string, UserApplicationStats> = {};
     for (const row of counts) stats[row.userId] = { applicationCount: row._count._all, demoWorkspace: false };
