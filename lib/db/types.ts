@@ -269,6 +269,11 @@ export interface UserRecord {
   isAdmin: boolean;
 }
 
+export interface UserApplicationStats {
+  applicationCount: number;
+  demoWorkspace: boolean;
+}
+
 export interface ApiTokenRecord {
   id: string;
   userId: string;
