@@ -354,7 +354,9 @@
     "error_load": "Fehler beim Laden der Benutzer.",
     "error_update": "Fehler beim Aktualisieren des Admin-Status.",
     "last_admin_error": "Mindestens ein Administrator ist erforderlich.",
-    "self_demote_error": "Du kannst deinen eigenen Admin-Status nicht entfernen."
+    "self_demote_error": "Du kannst deinen eigenen Admin-Status nicht entfernen.",
+    "application_count": "{count, plural, one {# Bewerbung} other {# Bewerbungen}}",
+    "demo_workspace": "Demo-Workspace"
   },
   "settings": {
     "title": "Einstellungen",

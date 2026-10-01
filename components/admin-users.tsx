@@ -9,6 +9,8 @@ interface User {
   name: string | null;
   email: string;
   isAdmin: boolean;
+  applicationCount?: number;
+  demoWorkspace?: boolean;
 }
 
 async function fetchUsers(): Promise<User[]> {
@@ -80,6 +82,10 @@ export function AdminUsers({ currentUserId }: AdminUsersProps) {
                   )}
                 </div>
                 <div className="break-all text-xs text-gray-500 dark:text-gray-400">{user.email}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {t("application_count", { count: user.applicationCount ?? 0 })}
+                  {user.demoWorkspace && <span className="ml-1">({t("demo_workspace")})</span>}
+                </div>
               </div>
             </div>
             <label className="group flex min-h-11 cursor-pointer items-center gap-2 self-start sm:self-auto">

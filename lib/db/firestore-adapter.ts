@@ -22,6 +22,7 @@ import type {
   ContactRecord,
   DocumentRecord,
   UserRecord,
+  UserApplicationStats,
   AuditLogRecord,
   ApiTokenRecord,
   ApiTokenInfo,
@@ -2145,6 +2146,24 @@ export class FirestoreAdapter implements DatabaseAdapter {
       orderBy: [{ isAdmin: "desc" }, { email: "asc" }],
       select: { id: true, name: true, email: true, isAdmin: true },
     });
+  }
+
+  async listUserApplicationStats(): Promise<Record<string, UserApplicationStats>> {
+    const [applications, workspaces] = await Promise.all([
+      this.apps.select("userId").get(),
+      this.demoWorkspaces.select("userId").get(),
+    ]);
+    const stats: Record<string, UserApplicationStats> = {};
+    for (const document of applications.docs) {
+      const userId = document.get("userId") as string;
+      stats[userId] ??= { applicationCount: 0, demoWorkspace: false };
+      stats[userId].applicationCount += 1;
+    }
+    for (const document of workspaces.docs) {
+      const userId = document.get("userId") as string;
+      stats[userId] = { applicationCount: stats[userId]?.applicationCount ?? 0, demoWorkspace: true };
+    }
+    return stats;
   }
 
   async updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord> {

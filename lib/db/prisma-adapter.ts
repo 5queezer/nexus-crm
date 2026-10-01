@@ -22,6 +22,7 @@ import type {
   ContactRecord,
   DocumentRecord,
   UserRecord,
+  UserApplicationStats,
   AuditLogRecord,
   ApiTokenRecord,
   ApiTokenInfo,
@@ -1961,6 +1962,19 @@ export class PrismaAdapter implements DatabaseAdapter {
       orderBy: [{ isAdmin: "desc" }, { email: "asc" }],
       select: { id: true, name: true, email: true, isAdmin: true },
     });
+  }
+
+  async listUserApplicationStats(): Promise<Record<string, UserApplicationStats>> {
+    const [counts, workspaces] = await Promise.all([
+      prisma.application.groupBy({ by: ["userId"], _count: { _all: true } }),
+      prisma.demoWorkspace.findMany({ select: { userId: true } }),
+    ]);
+    const stats: Record<string, UserApplicationStats> = {};
+    for (const row of counts) stats[row.userId] = { applicationCount: row._count._all, demoWorkspace: false };
+    for (const { userId } of workspaces) {
+      stats[userId] = { applicationCount: stats[userId]?.applicationCount ?? 0, demoWorkspace: true };
+    }
+    return stats;
   }
 
   async updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord> {
