@@ -159,7 +159,6 @@
   .nexus-sidebar a[aria-current="page"] { background: #eaeaf0; box-shadow: none; }
   .dark .nexus-sidebar a[aria-current="page"] { background: #25262d; }
   .nexus-sidebar a[aria-current="page"] svg { color: #7567d7; }
-  .nexus-sidebar a:last-child { margin-top: auto; }
 
   .nexus-page-bottom-space {
     padding-bottom: 2rem;

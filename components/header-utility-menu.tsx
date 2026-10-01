@@ -19,6 +19,8 @@ interface HeaderUtilityMenuProps {
   user: HeaderUtilityUser;
   shareUrl?: string;
   onLogout: () => void | Promise<void>;
+  /** "sidebar" renders a full-width account row whose menu opens upward. */
+  variant?: "compact" | "sidebar";
 }
 
 interface HeaderUtilityMenuPanelProps extends HeaderUtilityMenuProps {
@@ -124,10 +126,11 @@ export function HeaderUtilityMenu(props: HeaderUtilityMenuProps) {
   return <HeaderUtilityMenuDisclosure key={getHeaderUtilityMenuDisclosureKey(pathname)} {...props} />;
 }
 
-function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtilityMenuProps) {
+function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout, variant = "compact" }: HeaderUtilityMenuProps) {
+  const isSidebar = variant === "sidebar";
   const tn = useTranslations("nav");
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState<{ top?: number; bottom?: number; left: number }>({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -142,6 +145,13 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtility
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const menuWidth = 256;
+    if (isSidebar) {
+      setPosition({
+        bottom: window.innerHeight - rect.top + 8,
+        left: Math.min(Math.max(8, rect.left), window.innerWidth - menuWidth - 8),
+      });
+      return;
+    }
     setPosition({
       top: rect.bottom + 8,
       left: Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8),
@@ -198,7 +208,7 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtility
   }
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div ref={rootRef} className={isSidebar ? "relative w-full" : "relative shrink-0"}>
       <button
         ref={triggerRef}
         type="button"
@@ -209,17 +219,25 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtility
           if (!open) updatePosition();
           setOpen((value) => !value);
         }}
-        className="nexus-target flex items-center gap-1 rounded-xl border border-slate-200 bg-white/70 p-1 pr-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/8 dark:bg-white/4 dark:text-slate-400 dark:hover:bg-white/[0.07] dark:hover:text-white"
+        className={isSidebar
+          ? "nexus-focus-ring flex min-h-[42px] w-full items-center gap-2 rounded-[6px] px-2 text-left text-slate-500 transition hover:bg-[#eaeaf0] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-[#25262d] dark:hover:text-white"
+          : "nexus-target flex items-center gap-1 rounded-xl border border-slate-200 bg-white/70 p-1 pr-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 dark:border-white/8 dark:bg-white/4 dark:text-slate-400 dark:hover:bg-white/[0.07] dark:hover:text-white"}
       >
         {user.image ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.image} alt="" className="h-8 w-8 rounded-lg object-cover" />
+          <img src={user.image} alt="" className={`${isSidebar ? "h-7 w-7 rounded-md" : "h-8 w-8 rounded-lg"} shrink-0 object-cover`} />
         ) : (
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-xs font-semibold text-white">
+          <span className={`flex ${isSidebar ? "h-7 w-7 rounded-md" : "h-8 w-8 rounded-lg"} shrink-0 items-center justify-center bg-indigo-600 text-xs font-semibold text-white`}>
             {userInitial}
           </span>
         )}
-        <ChevronDown className="h-3.5 w-3.5" />
+        {isSidebar && (
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-medium text-slate-800 dark:text-slate-200">{user.name || user.email}</span>
+            {user.name && <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">{user.email}</span>}
+          </span>
+        )}
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0${isSidebar ? " rotate-180" : ""}`} />
       </button>
 
       {open && typeof document !== "undefined" && createPortal(
@@ -228,7 +246,7 @@ function HeaderUtilityMenuDisclosure({ user, shareUrl, onLogout }: HeaderUtility
           role="menu"
           aria-label={tn("account_menu")}
           onKeyDown={handleMenuKeyDown}
-          style={{ top: position.top, left: position.left }}
+          style={position}
           className="fixed z-100 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-white/10 dark:bg-[#151617]"
         >
           <HeaderUtilityMenuPanel
