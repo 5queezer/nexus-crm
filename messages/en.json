@@ -354,7 +354,9 @@
     "error_load": "Failed to load users.",
     "error_update": "Failed to update admin status.",
     "last_admin_error": "At least one administrator is required.",
-    "self_demote_error": "You cannot remove your own admin status."
+    "self_demote_error": "You cannot remove your own admin status.",
+    "application_count": "{count, plural, one {# application} other {# applications}}",
+    "demo_workspace": "demo workspace"
   },
   "settings": {
     "title": "Settings",

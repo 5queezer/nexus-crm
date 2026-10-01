@@ -3,6 +3,7 @@ import type {
   ContactRecord,
   DocumentRecord,
   UserRecord,
+  UserApplicationStats,
   AuditLogRecord,
   ApiTokenRecord,
   ApiTokenInfo,
@@ -105,6 +106,8 @@ export interface DatabaseAdapter {
   // ── Users ────────────────────────────────────────────────────────────────
   getUser(id: string): Promise<UserRecord | null>;
   listUsers(): Promise<UserRecord[]>;
+  /** Application count and demo-workspace flag per user id (admin view). */
+  listUserApplicationStats(userIds: string[]): Promise<Record<string, UserApplicationStats>>;
   updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord>;
 
   // ── Audit Logs ──────────────────────────────────────────────────────────

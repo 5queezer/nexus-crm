@@ -8,6 +8,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const users = await getDb().listUsers();
-  return NextResponse.json(users);
+  const db = getDb();
+  const users = await db.listUsers();
+  const stats = await db.listUserApplicationStats(users.map((user) => user.id));
+  return NextResponse.json(
+    users.map((user) => ({
+      ...user,
+      applicationCount: stats[user.id]?.applicationCount ?? 0,
+      demoWorkspace: stats[user.id]?.demoWorkspace ?? false,
+    })),
+  );
 }

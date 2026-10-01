@@ -205,6 +205,22 @@ describe("flat settings surfaces", () => {
     expect(audit.container.querySelector(".divide-y")).not.toBeNull();
   });
 
+  it("shows each user's application count and marks demo workspaces", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => [
+        { id: "owner", name: "Owner", email: "owner@example.com", isAdmin: true, applicationCount: 1, demoWorkspace: false },
+        { id: "guest", name: "Guest", email: "guest@example.com", isAdmin: false, applicationCount: 12, demoWorkspace: true },
+      ],
+    })));
+
+    renderSettingsSurface(<AdminUsers currentUserId="owner" />);
+
+    expect(await screen.findByText("1 application")).toBeTruthy();
+    expect(screen.getByText("12 applications")).toBeTruthy();
+    expect(screen.getAllByText("(demo workspace)")).toHaveLength(1);
+  });
+
   it("keeps the MCP endpoint visible and collapses optional setup details", async () => {
     const { container } = renderSettingsSurface(<McpClientHelp />);
 

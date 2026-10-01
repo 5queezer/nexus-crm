@@ -22,6 +22,7 @@ import type {
   ContactRecord,
   DocumentRecord,
   UserRecord,
+  UserApplicationStats,
   AuditLogRecord,
   ApiTokenRecord,
   ApiTokenInfo,
@@ -2145,6 +2146,18 @@ export class FirestoreAdapter implements DatabaseAdapter {
       orderBy: [{ isAdmin: "desc" }, { email: "asc" }],
       select: { id: true, name: true, email: true, isAdmin: true },
     });
+  }
+
+  async listUserApplicationStats(userIds: string[]): Promise<Record<string, UserApplicationStats>> {
+    // Aggregation queries per user: cost scales with users, not total applications.
+    const entries = await Promise.all(userIds.map(async (userId) => {
+      const [count, workspace] = await Promise.all([
+        this.apps.where("userId", "==", userId).count().get(),
+        this.demoWorkspaces.where("userId", "==", userId).limit(1).get(),
+      ]);
+      return [userId, { applicationCount: count.data().count, demoWorkspace: !workspace.empty }] as const;
+    }));
+    return Object.fromEntries(entries);
   }
 
   async updateUserAdmin(id: string, isAdmin: boolean): Promise<UserRecord> {
